@@ -1,15 +1,32 @@
 [package]
 name = "system-monitor"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2021"
+authors = ["System Monitor Contributors"]
+description = "A professional system monitoring application for Windows with GUI"
+license = "MIT"
+repository = "https://github.com/yourusername/system-monitor"
+
+[[bin]]
+name = "system-monitor"
+path = "src/main.rs"
 
 [dependencies]
 sysinfo = "0.30"
 nvml-wrapper = "0.10"
 chrono = "0.4"
-colored = "2.1"
-crossterm = "0.27"
+eframe = "0.28"
+egui = "0.28"
+egui_plot = "0.28"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+notify-rust = "4.10"
+directories = "5.0"
 
 [profile.release]
 opt-level = 3
 lto = true
+strip = true
+
+[target.'cfg(windows)'.build-dependencies]
+winres = "0.1"

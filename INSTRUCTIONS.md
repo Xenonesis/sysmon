@@ -2,52 +2,52 @@
 
 ## 📦 What's in this folder:
 
-### ✅ Ready to Use NOW:
-- **SystemMonitor.ps1** - PowerShell version (works immediately!)
+### ✅ GUI Application (Main):
+- **src/main.rs** - GUI application source code
+- **build.ps1** - One-click build script
+- **install.ps1** - Installation script for Windows
+- **QUICK_START.md** - Step-by-step guide
 
-### ⏳ Needs Compilation:
-- **Cargo.toml** - Rust project configuration
-- **src/main.rs** - Rust source code (more features, better performance)
+### ⚡ Legacy Terminal Version:
+- **SystemMonitor.ps1** - PowerShell terminal version (still works!)
+
+### 📚 Documentation:
 - **README.md** - Full documentation
+- **Cargo.toml** - Rust project configuration
 
 ---
 
-## 🚀 Quick Start - PowerShell Version
+## 🚀 Quick Start - GUI Version (Recommended)
 
-### Option 1: Run directly
-Open PowerShell in this folder and run:
+### Step 1: Build the Application
+```powershell
+.\build.ps1
+```
+
+### Step 2: Install (Optional but Recommended)
+```powershell
+.\install.ps1
+```
+
+### Step 3: Run
+- Double-click desktop shortcut, OR
+- Search "System Monitor" in Start Menu, OR
+- Run directly: `.\target\release\system-monitor.exe`
+
+**See QUICK_START.md for detailed instructions!**
+
+---
+
+## ⚡ Alternative - PowerShell Terminal Version
+
+### Run the terminal version:
 ```powershell
 .\SystemMonitor.ps1
 ```
 
-### Option 2: With custom settings
+### With custom settings:
 ```powershell
-# Refresh every 5 seconds, show top 20 processes
 .\SystemMonitor.ps1 -RefreshInterval 5 -TopProcessCount 20
-```
-
-### Option 3: Run in new window
-```powershell
-Start-Process powershell -ArgumentList "-NoExit", "-File", "`"$PWD\SystemMonitor.ps1`""
-```
-
----
-
-## 🦀 Rust Version (After SDK Installation Completes)
-
-### Check if ready:
-```powershell
-cargo build --release
-```
-
-### If successful, run:
-```powershell
-.\target\release\system-monitor.exe
-```
-
-### Or directly with:
-```powershell
-cargo run --release
 ```
 
 ---
