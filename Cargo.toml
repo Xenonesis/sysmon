@@ -1,0 +1,15 @@
+[package]
+name = "system-monitor"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+sysinfo = "0.30"
+nvml-wrapper = "0.10"
+chrono = "0.4"
+colored = "2.1"
+crossterm = "0.27"
+
+[profile.release]
+opt-level = 3
+lto = true
