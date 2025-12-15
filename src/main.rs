@@ -237,7 +237,7 @@ impl SystemMonitor {
         #[cfg(target_os = "windows")]
         {
             use windows::Win32::Foundation::HANDLE;
-            use windows::Win32::System::Threading::{OpenProcess, SuspendThread, PROCESS_SUSPEND_RESUME};
+            use windows::Win32::System::Threading::{OpenProcess, PROCESS_SUSPEND_RESUME};
             
             unsafe {
                 if let Ok(handle) = OpenProcess(PROCESS_SUSPEND_RESUME, false, pid) {
@@ -490,6 +490,8 @@ struct SystemMonitorApp {
     show_cpu_cores: bool,
     selected_process_pid: Option<u32>,
     monitor_handle: Option<Arc<Mutex<SystemMonitor>>>,
+    always_on_top: bool,
+    process_search: String,
 }
 
 #[derive(PartialEq)]
@@ -628,6 +630,8 @@ impl SystemMonitorApp {
             show_cpu_cores: false,
             selected_process_pid: None,
             monitor_handle: None,
+            always_on_top: false,
+            process_search: String::new(),
         }
     }
 
@@ -682,9 +686,38 @@ fn get_usage_color(percentage: f32) -> egui::Color32 {
 }
 
 impl eframe::App for SystemMonitorApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         // Request repaint for continuous updates
         ctx.request_repaint();
+
+        // Handle always on top
+        ctx.send_viewport_cmd(egui::ViewportCommand::WindowLevel(
+            if self.always_on_top {
+                egui::viewport::WindowLevel::AlwaysOnTop
+            } else {
+                egui::viewport::WindowLevel::Normal
+            }
+        ));
+
+        // Keyboard shortcuts
+        ctx.input(|i| {
+            if i.key_pressed(egui::Key::F5) {
+                // Refresh (reset statistics)
+                if let Ok(mut data) = self.data.lock() {
+                    data.cpu_history.clear();
+                    data.memory_history.clear();
+                    data.gpu_history.clear();
+                }
+            }
+            if i.modifiers.ctrl && i.key_pressed(egui::Key::E) {
+                // Ctrl+E = Export
+                self.show_export = true;
+            }
+            if i.modifiers.ctrl && i.key_pressed(egui::Key::Comma) {
+                // Ctrl+, = Settings
+                self.show_settings = true;
+            }
+        });
 
         let data = self.data.lock().unwrap().clone();
 
@@ -908,9 +941,25 @@ impl eframe::App for SystemMonitorApp {
                     }
                 });
 
+                ui.menu_button("Window", |ui| {
+                    if ui.checkbox(&mut self.always_on_top, "Always on Top").clicked() {
+                        ui.close_menu();
+                    }
+                    if ui.button("🔄 Restart Application").clicked() {
+                        std::process::Command::new(std::env::current_exe().unwrap())
+                            .spawn()
+                            .ok();
+                        std::process::exit(0);
+                    }
+                });
+
                 ui.menu_button("Help", |ui| {
                     if ui.button("About").clicked() {
                         self.selected_tab = Tab::About;
+                        ui.close_menu();
+                    }
+                    if ui.button("⌨️ Keyboard Shortcuts").clicked() {
+                        // Will show shortcuts
                         ui.close_menu();
                     }
                 });
@@ -1229,11 +1278,32 @@ impl SystemMonitorApp {
         });
     }
 
-    fn show_processes_tab(&self, ui: &mut egui::Ui, data: &SystemData) {
+    fn show_processes_tab(&mut self, ui: &mut egui::Ui, data: &SystemData) {
         ui.heading("⚙️ Process Monitor");
         ui.separator();
 
-        ui.label(format!("Showing {} processes sorted by memory usage", data.top_processes.len()));
+        // Search box
+        ui.horizontal(|ui| {
+            ui.label("🔍 Search:");
+            ui.text_edit_singleline(&mut self.process_search);
+            if ui.button("✖").clicked() {
+                self.process_search.clear();
+            }
+        });
+
+        ui.add_space(5.0);
+
+        // Filter processes
+        let filtered_processes: Vec<_> = if self.process_search.is_empty() {
+            data.top_processes.clone()
+        } else {
+            data.top_processes.iter()
+                .filter(|p| p.name.to_lowercase().contains(&self.process_search.to_lowercase()))
+                .cloned()
+                .collect()
+        };
+
+        ui.label(format!("Showing {} of {} processes", filtered_processes.len(), data.top_processes.len()));
         ui.add_space(5.0);
 
         egui::ScrollArea::vertical().show(ui, |ui| {
@@ -1247,10 +1317,11 @@ impl SystemMonitorApp {
                     ui.strong("Process Name");
                     ui.strong("Memory Usage");
                     ui.strong("CPU %");
+                    ui.strong("Actions");
                     ui.end_row();
 
                     // Processes
-                    for process in &data.top_processes {
+                    for process in &filtered_processes {
                         let memory_mb = bytes_to_mb(process.memory);
                         let memory_color = if memory_mb > 500.0 {
                             egui::Color32::from_rgb(244, 67, 54)
@@ -1271,6 +1342,17 @@ impl SystemMonitorApp {
                         
                         ui.colored_label(memory_color, format!("{:.2} MB", memory_mb));
                         ui.label(format!("{:.1}%", process.cpu_usage));
+                        
+                        // Action buttons
+                        ui.horizontal(|ui| {
+                            if ui.small_button("📋").on_hover_text("Copy PID").clicked() {
+                                ui.output_mut(|o| o.copied_text = process.pid.to_string());
+                            }
+                            if ui.small_button("📄").on_hover_text("Copy Name").clicked() {
+                                ui.output_mut(|o| o.copied_text = process.name.clone());
+                            }
+                        });
+                        
                         ui.end_row();
                     }
                 });
@@ -1905,7 +1987,7 @@ fn main() -> Result<(), eframe::Error> {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1100.0, 800.0])
             .with_min_inner_size([900.0, 600.0])
-            .with_title("System Monitor")
+            .with_title("System Monitor v1.3.0")
             .with_icon(eframe::icon_data::from_png_bytes(&[]).unwrap_or_default()),
         ..Default::default()
     };
