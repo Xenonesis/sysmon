@@ -100,6 +100,18 @@ struct AppSettings {
     show_per_core_cpu: bool,
     process_count: usize,
     auto_clear_alerts: bool,
+    auto_start: bool,
+    start_minimized: bool,
+    minimize_to_tray: bool,
+}
+
+#[derive(PartialEq, Clone, Copy)]
+enum ProcessSortColumn {
+    Pid,
+    Name,
+    Memory,
+    Cpu,
+    Status,
 }
 
 struct SystemMonitor {
@@ -126,7 +138,35 @@ impl Default for AppSettings {
             show_per_core_cpu: false,
             process_count: 15,
             auto_clear_alerts: false,
+            auto_start: false,
+            start_minimized: false,
+            minimize_to_tray: false,
         }
+    }
+}
+
+impl AppSettings {
+    #[cfg(target_os = "windows")]
+    fn set_auto_start(&self, enable: bool) -> Result<(), Box<dyn std::error::Error>> {
+        use winreg::enums::*;
+        use winreg::RegKey;
+
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        let path = r"Software\Microsoft\Windows\CurrentVersion\Run";
+        let (key, _) = hkcu.create_subkey(path)?;
+
+        if enable {
+            let exe_path = std::env::current_exe()?;
+            key.set_value("SystemMonitor", &exe_path.to_string_lossy().to_string())?;
+        } else {
+            key.delete_value("SystemMonitor").ok();
+        }
+        Ok(())
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    fn set_auto_start(&self, _enable: bool) -> Result<(), Box<dyn std::error::Error>> {
+        Ok(())
     }
 }
 
@@ -492,6 +532,9 @@ struct SystemMonitorApp {
     monitor_handle: Option<Arc<Mutex<SystemMonitor>>>,
     always_on_top: bool,
     process_search: String,
+    process_sort_column: ProcessSortColumn,
+    process_sort_ascending: bool,
+    show_export_csv: bool,
 }
 
 #[derive(PartialEq)]
@@ -632,7 +675,48 @@ impl SystemMonitorApp {
             monitor_handle: None,
             always_on_top: false,
             process_search: String::new(),
+            process_sort_column: ProcessSortColumn::Memory,
+            process_sort_ascending: false,
+            show_export_csv: false,
         }
+    }
+
+    fn export_to_csv(&self, data: &SystemData) -> Result<String, Box<dyn std::error::Error>> {
+        let mut wtr = csv::Writer::from_writer(vec![]);
+        
+        // Header
+        wtr.write_record(["Category", "Metric", "Value"])?;
+        
+        // System info
+        wtr.write_record(["System", "Timestamp", &data.last_update])?;
+        wtr.write_record(["CPU", "Usage %", &format!("{:.2}", data.cpu_usage)])?;
+        wtr.write_record(["Memory", "Total GB", &format!("{:.2}", bytes_to_gb(data.memory_total))])?;
+        wtr.write_record(["Memory", "Used GB", &format!("{:.2}", bytes_to_gb(data.memory_used))])?;
+        wtr.write_record(["Memory", "Usage %", &format!("{:.2}", data.memory_percentage)])?;
+        
+        // GPU
+        if let Some(ref gpu) = data.gpu_info {
+            wtr.write_record(["GPU", "Name", &gpu.name])?;
+            wtr.write_record(["GPU", "Usage %", &format!("{:.2}", gpu.utilization)])?;
+            if let Some(temp) = gpu.temperature {
+                wtr.write_record(["GPU", "Temperature C", &format!("{}", temp)])?;
+            }
+        }
+        
+        // Top processes header
+        wtr.write_record(["", "", ""])?; // Empty line
+        wtr.write_record(["Process PID", "Name", "Memory MB", "CPU %"])?;
+        for proc in &data.top_processes {
+            wtr.write_record([
+                &proc.pid.to_string(),
+                &proc.name,
+                &format!("{:.2}", bytes_to_mb(proc.memory)),
+                &format!("{:.2}", proc.cpu_usage),
+            ])?;
+        }
+        
+        let csv_data = String::from_utf8(wtr.into_inner()?)?;
+        Ok(csv_data)
     }
 
     fn export_data_to_json(&self, data: &SystemData) -> Result<String, Box<dyn std::error::Error>> {
@@ -686,7 +770,7 @@ fn get_usage_color(percentage: f32) -> egui::Color32 {
 }
 
 impl eframe::App for SystemMonitorApp {
-    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Request repaint for continuous updates
         ctx.request_repaint();
 
@@ -721,7 +805,46 @@ impl eframe::App for SystemMonitorApp {
 
         let data = self.data.lock().unwrap().clone();
 
-        // Export window
+        // CSV Export window
+        let mut show_export_csv = self.show_export_csv;
+        if show_export_csv {
+            let csv_result = self.export_to_csv(&data);
+            egui::Window::new("📊 Export to CSV")
+                .open(&mut show_export_csv)
+                .resizable(true)
+                .default_width(500.0)
+                .show(ctx, |ui| {
+                    ui.heading("Export System Data to CSV");
+                    ui.separator();
+
+                    match csv_result {
+                        Ok(csv_data) => {
+                            ui.label("Data exported successfully. Copy the CSV below:");
+                            ui.add_space(5.0);
+                            
+                            egui::ScrollArea::vertical()
+                                .max_height(300.0)
+                                .show(ui, |ui| {
+                                    ui.text_edit_multiline(&mut csv_data.as_str());
+                                });
+
+                            ui.add_space(5.0);
+                            if ui.button("📋 Copy to Clipboard").clicked() {
+                                ui.output_mut(|o| o.copied_text = csv_data.clone());
+                            }
+
+                            ui.add_space(5.0);
+                            ui.label("💡 Tip: Open in Excel or any spreadsheet application");
+                        }
+                        Err(e) => {
+                            ui.colored_label(egui::Color32::RED, format!("Error: {}", e));
+                        }
+                    }
+                });
+        }
+        self.show_export_csv = show_export_csv;
+
+        // JSON Export window
         let mut show_export = self.show_export;
         if show_export {
             let json_result = self.export_data_to_json(&data);
@@ -855,6 +978,14 @@ impl eframe::App for SystemMonitorApp {
                     ui.checkbox(&mut self.settings.auto_clear_alerts, "Auto-clear resolved alerts");
 
                     ui.separator();
+                    ui.heading("Startup Options");
+                    if ui.checkbox(&mut self.settings.auto_start, "Start with Windows").changed() {
+                        let _ = self.settings.set_auto_start(self.settings.auto_start);
+                    }
+                    ui.checkbox(&mut self.settings.start_minimized, "Start minimized");
+                    ui.label("⚠️ Auto-start requires administrator privileges");
+
+                    ui.separator();
                     ui.heading("Notifications (Experimental)");
                     ui.checkbox(&mut self.settings.show_notifications, "Enable Notifications");
                     
@@ -905,7 +1036,11 @@ impl eframe::App for SystemMonitorApp {
                         self.show_export = true;
                         ui.close_menu();
                     }
-                    if ui.button("💾 Save Report to File").clicked() {
+                    if ui.button("📊 Export to CSV").clicked() {
+                        self.show_export_csv = true;
+                        ui.close_menu();
+                    }
+                    if ui.button("💾 Save JSON to File").clicked() {
                         // Save to file with file picker
                         if let Ok(json) = self.export_data_to_json(&data) {
                             if let Some(path) = rfd::FileDialog::new()
@@ -914,6 +1049,19 @@ impl eframe::App for SystemMonitorApp {
                                 .save_file()
                             {
                                 let _ = std::fs::write(path, json);
+                            }
+                        }
+                        ui.close_menu();
+                    }
+                    if ui.button("📊 Save CSV to File").clicked() {
+                        // Save CSV to file
+                        if let Ok(csv) = self.export_to_csv(&data) {
+                            if let Some(path) = rfd::FileDialog::new()
+                                .set_file_name("system-report.csv")
+                                .add_filter("CSV", &["csv"])
+                                .save_file()
+                            {
+                                let _ = std::fs::write(path, csv);
                             }
                         }
                         ui.close_menu();
