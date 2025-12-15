@@ -14,7 +14,7 @@ use sysinfo::{Disks, Networks, System};
 use nvml_wrapper::Nvml;
 
 // Data structures
-#[derive(Clone)]
+#[derive(Clone, Serialize)]
 struct ProcessInfo {
     pid: u32,
     name: String,
@@ -22,7 +22,7 @@ struct ProcessInfo {
     memory: u64,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize)]
 struct GpuInfo {
     name: String,
     utilization: f32,
@@ -31,16 +31,17 @@ struct GpuInfo {
     temperature: Option<u32>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize)]
 struct DiskInfo {
     name: String,
     mount_point: String,
     total_space: u64,
     available_space: u64,
     usage_percentage: f32,
+    file_system: String,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize)]
 struct NetworkInfo {
     interface: String,
     received: u64,
@@ -50,6 +51,22 @@ struct NetworkInfo {
 }
 
 #[derive(Clone)]
+struct AlertInfo {
+    timestamp: String,
+    alert_type: AlertType,
+    message: String,
+    value: f32,
+}
+
+#[derive(Clone, PartialEq)]
+enum AlertType {
+    CpuHigh,
+    MemoryHigh,
+    GpuTempHigh,
+    DiskSpaceLow,
+}
+
+#[derive(Clone, Serialize)]
 struct SystemInfo {
     os_name: String,
     os_version: String,
@@ -234,9 +251,65 @@ impl SystemMonitor {
                     total_space: total,
                     available_space: available,
                     usage_percentage,
+                    file_system: disk.file_system().to_string_lossy().to_string(),
                 }
             })
             .collect()
+    }
+
+    fn check_alerts(&self, settings: &AppSettings, data: &SystemData) -> Vec<AlertInfo> {
+        let mut alerts = Vec::new();
+        let timestamp = Local::now().format("%H:%M:%S").to_string();
+
+        // CPU alert
+        if settings.show_notifications && data.cpu_usage > settings.notification_cpu_threshold {
+            alerts.push(AlertInfo {
+                timestamp: timestamp.clone(),
+                alert_type: AlertType::CpuHigh,
+                message: format!("CPU usage is high: {:.1}%", data.cpu_usage),
+                value: data.cpu_usage,
+            });
+        }
+
+        // Memory alert
+        if settings.show_notifications && data.memory_percentage > settings.notification_memory_threshold {
+            alerts.push(AlertInfo {
+                timestamp: timestamp.clone(),
+                alert_type: AlertType::MemoryHigh,
+                message: format!("Memory usage is high: {:.1}%", data.memory_percentage),
+                value: data.memory_percentage,
+            });
+        }
+
+        // GPU temperature alert
+        if settings.show_notifications {
+            if let Some(ref gpu) = data.gpu_info {
+                if let Some(temp) = gpu.temperature {
+                    if temp > settings.notification_temp_threshold {
+                        alerts.push(AlertInfo {
+                            timestamp: timestamp.clone(),
+                            alert_type: AlertType::GpuTempHigh,
+                            message: format!("GPU temperature is high: {}°C", temp),
+                            value: temp as f32,
+                        });
+                    }
+                }
+            }
+        }
+
+        // Disk space alerts
+        for disk in &data.disk_info {
+            if disk.usage_percentage > 90.0 {
+                alerts.push(AlertInfo {
+                    timestamp: timestamp.clone(),
+                    alert_type: AlertType::DiskSpaceLow,
+                    message: format!("Disk {} is almost full: {:.1}%", disk.name, disk.usage_percentage),
+                    value: disk.usage_percentage,
+                });
+            }
+        }
+
+        alerts
     }
 
     fn get_network_info(&mut self) -> Vec<NetworkInfo> {
@@ -308,6 +381,9 @@ struct SystemData {
     cpu_history: VecDeque<DataPoint>,
     memory_history: VecDeque<DataPoint>,
     gpu_history: VecDeque<DataPoint>,
+    network_download_history: VecDeque<DataPoint>,
+    network_upload_history: VecDeque<DataPoint>,
+    alerts: Vec<AlertInfo>,
     start_time: Instant,
 }
 
@@ -335,6 +411,9 @@ impl Default for SystemData {
             cpu_history: VecDeque::new(),
             memory_history: VecDeque::new(),
             gpu_history: VecDeque::new(),
+            network_download_history: VecDeque::new(),
+            network_upload_history: VecDeque::new(),
+            alerts: Vec::new(),
             start_time: Instant::now(),
         }
     }
@@ -345,6 +424,9 @@ struct SystemMonitorApp {
     settings: AppSettings,
     selected_tab: Tab,
     show_settings: bool,
+    show_export: bool,
+    show_alerts: bool,
+    selected_process_pid: Option<u32>,
 }
 
 #[derive(PartialEq)]
@@ -355,6 +437,7 @@ enum Tab {
     Storage,
     Network,
     SystemInfo,
+    Alerts,
     About,
 }
 
@@ -400,6 +483,10 @@ impl SystemMonitorApp {
                 let network_info = monitor.get_network_info();
                 let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
 
+                // Calculate total network rates
+                let total_download_rate: f64 = network_info.iter().map(|n| n.received_rate).sum();
+                let total_upload_rate: f64 = network_info.iter().map(|n| n.transmitted_rate).sum();
+
                 if let Ok(mut data) = data_clone.lock() {
                     let elapsed = data.start_time.elapsed().as_secs_f64();
                     
@@ -432,6 +519,16 @@ impl SystemMonitorApp {
                         });
                     }
 
+                    // Network history
+                    data.network_download_history.push_back(DataPoint {
+                        time: elapsed,
+                        value: total_download_rate,
+                    });
+                    data.network_upload_history.push_back(DataPoint {
+                        time: elapsed,
+                        value: total_upload_rate,
+                    });
+
                     // Keep only last 60 points
                     while data.cpu_history.len() > 60 {
                         data.cpu_history.pop_front();
@@ -441,6 +538,12 @@ impl SystemMonitorApp {
                     }
                     while data.gpu_history.len() > 60 {
                         data.gpu_history.pop_front();
+                    }
+                    while data.network_download_history.len() > 60 {
+                        data.network_download_history.pop_front();
+                    }
+                    while data.network_upload_history.len() > 60 {
+                        data.network_upload_history.pop_front();
                     }
                 }
 
@@ -453,7 +556,41 @@ impl SystemMonitorApp {
             settings,
             selected_tab: Tab::Overview,
             show_settings: false,
+            show_export: false,
+            show_alerts: false,
+            selected_process_pid: None,
         }
+    }
+
+    fn export_data_to_json(&self, data: &SystemData) -> Result<String, Box<dyn std::error::Error>> {
+        #[derive(Serialize)]
+        struct ExportData {
+            timestamp: String,
+            cpu_usage: f32,
+            memory_used: u64,
+            memory_total: u64,
+            memory_percentage: f32,
+            gpu_info: Option<GpuInfo>,
+            top_processes: Vec<ProcessInfo>,
+            disk_info: Vec<DiskInfo>,
+            network_info: Vec<NetworkInfo>,
+            system_info: SystemInfo,
+        }
+
+        let export = ExportData {
+            timestamp: data.last_update.clone(),
+            cpu_usage: data.cpu_usage,
+            memory_used: data.memory_used,
+            memory_total: data.memory_total,
+            memory_percentage: data.memory_percentage,
+            gpu_info: data.gpu_info.clone(),
+            top_processes: data.top_processes.clone(),
+            disk_info: data.disk_info.clone(),
+            network_info: data.network_info.clone(),
+            system_info: data.system_info.clone(),
+        };
+
+        Ok(serde_json::to_string_pretty(&export)?)
     }
 }
 
@@ -482,10 +619,104 @@ impl eframe::App for SystemMonitorApp {
 
         let data = self.data.lock().unwrap().clone();
 
+        // Export window
+        let mut show_export = self.show_export;
+        if show_export {
+            let json_result = self.export_data_to_json(&data);
+            egui::Window::new("💾 Export Data")
+                .open(&mut show_export)
+                .resizable(true)
+                .default_width(500.0)
+                .show(ctx, |ui| {
+                    ui.heading("Export System Data to JSON");
+                    ui.separator();
+
+                    match json_result {
+                        Ok(json_data) => {
+                            ui.label("Data exported successfully. Copy the JSON below:");
+                            ui.add_space(5.0);
+                            
+                            egui::ScrollArea::vertical()
+                                .max_height(300.0)
+                                .show(ui, |ui| {
+                                    ui.text_edit_multiline(&mut json_data.as_str());
+                                });
+
+                            ui.add_space(5.0);
+                            if ui.button("📋 Copy to Clipboard").clicked() {
+                                ui.output_mut(|o| o.copied_text = json_data.clone());
+                            }
+
+                            ui.add_space(5.0);
+                            ui.label("💡 Tip: You can paste this into a .json file");
+                        }
+                        Err(e) => {
+                            ui.colored_label(egui::Color32::RED, format!("Error: {}", e));
+                        }
+                    }
+                });
+        }
+        self.show_export = show_export;
+
+        // Alerts window
+        let mut show_alerts = self.show_alerts;
+        let mut clear_alerts = false;
+        if show_alerts {
+            egui::Window::new("🚨 System Alerts")
+                .open(&mut show_alerts)
+                .resizable(true)
+                .default_width(600.0)
+                .show(ctx, |ui| {
+                    ui.heading("Active System Alerts");
+                    ui.separator();
+
+                    if data.alerts.is_empty() {
+                        ui.label("✅ No active alerts. System is running normally.");
+                    } else {
+                        egui::ScrollArea::vertical()
+                            .max_height(400.0)
+                            .show(ui, |ui| {
+                                for alert in &data.alerts {
+                                    ui.group(|ui| {
+                                        let (icon, color) = match alert.alert_type {
+                                            AlertType::CpuHigh => ("⚡", egui::Color32::YELLOW),
+                                            AlertType::MemoryHigh => ("💾", egui::Color32::YELLOW),
+                                            AlertType::GpuTempHigh => ("🔥", egui::Color32::RED),
+                                            AlertType::DiskSpaceLow => ("💽", egui::Color32::RED),
+                                        };
+
+                                        ui.horizontal(|ui| {
+                                            ui.colored_label(color, icon);
+                                            ui.colored_label(color, &alert.message);
+                                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                                ui.label(&alert.timestamp);
+                                            });
+                                        });
+                                    });
+                                    ui.add_space(5.0);
+                                }
+                            });
+
+                        ui.separator();
+                        if ui.button("🗑️ Clear All Alerts").clicked() {
+                            clear_alerts = true;
+                        }
+                    }
+                });
+        }
+        self.show_alerts = show_alerts;
+        if clear_alerts {
+            if let Ok(mut data) = self.data.lock() {
+                data.alerts.clear();
+            }
+        }
+
         // Settings window
-        if self.show_settings {
+        let mut show_settings = self.show_settings;
+        let mut save_settings = false;
+        if show_settings {
             egui::Window::new("⚙️ Settings")
-                .open(&mut self.show_settings)
+                .open(&mut show_settings)
                 .resizable(false)
                 .show(ctx, |ui| {
                     ui.heading("Application Settings");
@@ -533,12 +764,15 @@ impl eframe::App for SystemMonitorApp {
 
                     ui.separator();
                     if ui.button("💾 Save Settings").clicked() {
-                        if let Err(e) = self.settings.save() {
-                            eprintln!("Failed to save settings: {}", e);
-                        }
-                        self.show_settings = false;
+                        save_settings = true;
                     }
                 });
+        }
+        self.show_settings = show_settings;
+        if save_settings {
+            if let Err(e) = self.settings.save() {
+                eprintln!("Failed to save settings: {}", e);
+            }
         }
 
         // Top menu bar
@@ -557,11 +791,23 @@ impl eframe::App for SystemMonitorApp {
                 
                 ui.menu_button("Tools", |ui| {
                     if ui.button("💾 Export Data to JSON").clicked() {
-                        // TODO: Implement export
+                        self.show_export = true;
                         ui.close_menu();
                     }
                     if ui.button("🔄 Reset Statistics").clicked() {
-                        // TODO: Implement reset
+                        if let Ok(mut data) = self.data.lock() {
+                            data.cpu_history.clear();
+                            data.memory_history.clear();
+                            data.gpu_history.clear();
+                            data.network_download_history.clear();
+                            data.network_upload_history.clear();
+                            data.alerts.clear();
+                        }
+                        ui.close_menu();
+                    }
+                    ui.separator();
+                    if ui.button("🚨 View Alerts").clicked() {
+                        self.show_alerts = true;
                         ui.close_menu();
                     }
                 });
@@ -590,6 +836,20 @@ impl eframe::App for SystemMonitorApp {
             ui.selectable_value(&mut self.selected_tab, Tab::Storage, "💾 Storage");
             ui.selectable_value(&mut self.selected_tab, Tab::Network, "🌐 Network");
             ui.selectable_value(&mut self.selected_tab, Tab::SystemInfo, "💻 System Info");
+            ui.separator();
+            
+            // Show alerts count if any
+            let alert_count = data.alerts.len();
+            let alerts_label = if alert_count > 0 {
+                format!("🚨 Alerts ({})", alert_count)
+            } else {
+                "🚨 Alerts".to_string()
+            };
+            
+            if alert_count > 0 {
+                ui.colored_label(egui::Color32::RED, &alerts_label);
+            }
+            ui.selectable_value(&mut self.selected_tab, Tab::Alerts, alerts_label);
             ui.separator();
             ui.selectable_value(&mut self.selected_tab, Tab::About, "ℹ️ About");
 
@@ -631,6 +891,7 @@ impl eframe::App for SystemMonitorApp {
                 Tab::Storage => self.show_storage_tab(ui, &data),
                 Tab::Network => self.show_network_tab(ui, &data),
                 Tab::SystemInfo => self.show_system_info_tab(ui, &data),
+                Tab::Alerts => self.show_alerts_tab(ui, &data),
                 Tab::About => self.show_about_tab(ui),
             }
         });
@@ -925,6 +1186,11 @@ impl SystemMonitorApp {
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             let color = get_usage_color(disk.usage_percentage);
                             ui.colored_label(color, format!("{:.1}%", disk.usage_percentage));
+                            
+                            // Warning icon for high usage
+                            if disk.usage_percentage > 90.0 {
+                                ui.colored_label(egui::Color32::RED, "⚠️");
+                            }
                         });
                     });
 
@@ -933,6 +1199,11 @@ impl SystemMonitorApp {
                     ui.horizontal(|ui| {
                         ui.label("Mount Point:");
                         ui.strong(&disk.mount_point);
+                    });
+
+                    ui.horizontal(|ui| {
+                        ui.label("File System:");
+                        ui.strong(&disk.file_system);
                     });
 
                     ui.horizontal(|ui| {
@@ -956,6 +1227,13 @@ impl SystemMonitorApp {
                     ui.add(egui::ProgressBar::new(progress)
                         .fill(color)
                         .text(format!("{:.1}%", disk.usage_percentage)));
+
+                    // Show warning for low disk space
+                    if disk.usage_percentage > 90.0 {
+                        ui.add_space(5.0);
+                        ui.colored_label(egui::Color32::RED, 
+                            format!("⚠️ Warning: Only {:.2} GB remaining!", bytes_to_gb(disk.available_space)));
+                    }
                 });
 
                 ui.add_space(10.0);
@@ -972,6 +1250,56 @@ impl SystemMonitorApp {
         ui.separator();
 
         egui::ScrollArea::vertical().show(ui, |ui| {
+            // Network graphs
+            if self.settings.show_graphs && !data.network_download_history.is_empty() {
+                ui.group(|ui| {
+                    ui.heading("📊 Network Activity History");
+                    
+                    // Download graph
+                    ui.label("📥 Download Rate (MB/s)");
+                    let download_points: PlotPoints = data.network_download_history
+                        .iter()
+                        .map(|p| [p.time, p.value])
+                        .collect();
+
+                    let line = Line::new(download_points).color(egui::Color32::from_rgb(76, 175, 80));
+                    
+                    Plot::new("network_download_plot")
+                        .height(150.0)
+                        .allow_zoom(false)
+                        .allow_drag(false)
+                        .allow_scroll(false)
+                        .y_axis_label("MB/s")
+                        .show(ui, |plot_ui| {
+                            plot_ui.line(line);
+                        });
+
+                    ui.add_space(10.0);
+
+                    // Upload graph
+                    ui.label("📤 Upload Rate (MB/s)");
+                    let upload_points: PlotPoints = data.network_upload_history
+                        .iter()
+                        .map(|p| [p.time, p.value])
+                        .collect();
+
+                    let line = Line::new(upload_points).color(egui::Color32::from_rgb(33, 150, 243));
+                    
+                    Plot::new("network_upload_plot")
+                        .height(150.0)
+                        .allow_zoom(false)
+                        .allow_drag(false)
+                        .allow_scroll(false)
+                        .y_axis_label("MB/s")
+                        .show(ui, |plot_ui| {
+                            plot_ui.line(line);
+                        });
+                });
+
+                ui.add_space(10.0);
+            }
+
+            // Network interfaces list
             for network in &data.network_info {
                 ui.group(|ui| {
                     ui.heading(&network.interface);
@@ -1021,6 +1349,89 @@ impl SystemMonitorApp {
                 ui.label("No network interfaces detected.");
             }
         });
+    }
+
+    fn show_alerts_tab(&self, ui: &mut egui::Ui, data: &SystemData) {
+        ui.heading("🚨 System Alerts");
+        ui.separator();
+
+        if data.alerts.is_empty() {
+            ui.group(|ui| {
+                ui.add_space(20.0);
+                ui.horizontal(|ui| {
+                    ui.add_space(20.0);
+                    ui.colored_label(egui::Color32::GREEN, "✅");
+                    ui.heading("All Systems Normal");
+                });
+                ui.add_space(10.0);
+                ui.label("No alerts detected. Your system is running smoothly.");
+                ui.add_space(20.0);
+            });
+
+            ui.add_space(10.0);
+
+            ui.group(|ui| {
+                ui.heading("Alert Configuration");
+                ui.separator();
+                ui.label("Alerts are triggered when:");
+                ui.label(format!("  • CPU usage > {:.0}%", self.settings.notification_cpu_threshold));
+                ui.label(format!("  • Memory usage > {:.0}%", self.settings.notification_memory_threshold));
+                ui.label(format!("  • GPU temperature > {}°C", self.settings.notification_temp_threshold));
+                ui.label("  • Disk usage > 90%");
+                ui.add_space(5.0);
+                if ui.button("⚙️ Configure Alert Thresholds").clicked() {
+                    // Settings will be shown in main update
+                }
+            });
+        } else {
+            ui.label(format!("⚠️ {} active alert(s)", data.alerts.len()));
+            ui.add_space(10.0);
+
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                for (i, alert) in data.alerts.iter().enumerate() {
+                    ui.group(|ui| {
+                        let (icon, color, severity) = match alert.alert_type {
+                            AlertType::CpuHigh => ("⚡", egui::Color32::YELLOW, "WARNING"),
+                            AlertType::MemoryHigh => ("💾", egui::Color32::YELLOW, "WARNING"),
+                            AlertType::GpuTempHigh => ("🔥", egui::Color32::RED, "CRITICAL"),
+                            AlertType::DiskSpaceLow => ("💽", egui::Color32::RED, "CRITICAL"),
+                        };
+
+                        ui.horizontal(|ui| {
+                            ui.colored_label(color, icon);
+                            ui.colored_label(color, severity);
+                            ui.separator();
+                            ui.strong(&alert.message);
+                        });
+
+                        ui.horizontal(|ui| {
+                            ui.label("Time:");
+                            ui.label(&alert.timestamp);
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                ui.label(format!("Value: {:.1}", alert.value));
+                            });
+                        });
+                    });
+
+                    if i < data.alerts.len() - 1 {
+                        ui.add_space(5.0);
+                    }
+                }
+            });
+
+            ui.add_space(10.0);
+            ui.separator();
+            
+            ui.horizontal(|ui| {
+                if ui.button("🗑️ Clear All Alerts").clicked() {
+                    // Will be cleared in main update
+                }
+                
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.label("💡 Tip: Configure alert thresholds in Settings");
+                });
+            });
+        }
     }
 
     fn show_system_info_tab(&self, ui: &mut egui::Ui, data: &SystemData) {
