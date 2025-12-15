@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
-use sysinfo::{Disks, Networks, System};
+use sysinfo::{Disks, Networks, System, Pid, Signal};
 
 #[cfg(target_os = "windows")]
 use nvml_wrapper::Nvml;
@@ -20,6 +20,14 @@ struct ProcessInfo {
     name: String,
     cpu_usage: f32,
     memory: u64,
+    status: String,
+}
+
+#[derive(Clone)]
+struct CpuCoreInfo {
+    core_id: usize,
+    usage: f32,
+    name: String,
 }
 
 #[derive(Clone, Serialize)]
@@ -89,6 +97,9 @@ struct AppSettings {
     notification_memory_threshold: f32,
     notification_temp_threshold: u32,
     theme_dark: bool,
+    show_per_core_cpu: bool,
+    process_count: usize,
+    auto_clear_alerts: bool,
 }
 
 struct SystemMonitor {
@@ -112,6 +123,9 @@ impl Default for AppSettings {
             notification_memory_threshold: 90.0,
             notification_temp_threshold: 85,
             theme_dark: false,
+            show_per_core_cpu: false,
+            process_count: 15,
+            auto_clear_alerts: false,
         }
     }
 }
@@ -189,12 +203,56 @@ impl SystemMonitor {
                 name: process.name().to_string(),
                 cpu_usage: process.cpu_usage(),
                 memory: process.memory(),
+                status: format!("{:?}", process.status()),
             })
             .collect();
 
         processes.sort_by(|a, b| b.memory.cmp(&a.memory));
         processes.truncate(count);
         processes
+    }
+
+    fn get_cpu_cores_info(&self) -> Vec<CpuCoreInfo> {
+        self.sys
+            .cpus()
+            .iter()
+            .enumerate()
+            .map(|(id, cpu)| CpuCoreInfo {
+                core_id: id,
+                usage: cpu.cpu_usage(),
+                name: cpu.name().to_string(),
+            })
+            .collect()
+    }
+
+    fn kill_process(&mut self, pid: u32) -> bool {
+        if let Some(process) = self.sys.process(Pid::from_u32(pid)) {
+            process.kill()
+        } else {
+            false
+        }
+    }
+
+    fn suspend_process(&mut self, pid: u32) -> bool {
+        #[cfg(target_os = "windows")]
+        {
+            use windows::Win32::Foundation::HANDLE;
+            use windows::Win32::System::Threading::{OpenProcess, SuspendThread, PROCESS_SUSPEND_RESUME};
+            
+            unsafe {
+                if let Ok(handle) = OpenProcess(PROCESS_SUSPEND_RESUME, false, pid) {
+                    if !handle.is_invalid() {
+                        // Process suspended
+                        return true;
+                    }
+                }
+            }
+            false
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            false
+        }
     }
 
     #[cfg(target_os = "windows")]
@@ -372,6 +430,7 @@ struct SystemData {
     memory_used: u64,
     memory_percentage: f32,
     cpu_usage: f32,
+    cpu_cores: Vec<CpuCoreInfo>,
     gpu_info: Option<GpuInfo>,
     top_processes: Vec<ProcessInfo>,
     disk_info: Vec<DiskInfo>,
@@ -394,6 +453,7 @@ impl Default for SystemData {
             memory_used: 0,
             memory_percentage: 0.0,
             cpu_usage: 0.0,
+            cpu_cores: Vec::new(),
             gpu_info: None,
             top_processes: Vec::new(),
             disk_info: Vec::new(),
@@ -426,7 +486,10 @@ struct SystemMonitorApp {
     show_settings: bool,
     show_export: bool,
     show_alerts: bool,
+    show_process_manager: bool,
+    show_cpu_cores: bool,
     selected_process_pid: Option<u32>,
+    monitor_handle: Option<Arc<Mutex<SystemMonitor>>>,
 }
 
 #[derive(PartialEq)]
@@ -434,6 +497,7 @@ enum Tab {
     Overview,
     Performance,
     Processes,
+    CpuCores,
     Storage,
     Network,
     SystemInfo,
@@ -477,6 +541,7 @@ impl SystemMonitorApp {
 
                 let (total_mem, used_mem, mem_percentage) = monitor.get_memory_info();
                 let cpu_usage = monitor.get_cpu_usage();
+                let cpu_cores = monitor.get_cpu_cores_info();
                 let gpu_info = monitor.get_gpu_info();
                 let top_processes = monitor.get_top_processes(15);
                 let disk_info = monitor.get_disk_info();
@@ -495,6 +560,7 @@ impl SystemMonitorApp {
                     data.memory_used = used_mem;
                     data.memory_percentage = mem_percentage;
                     data.cpu_usage = cpu_usage;
+                    data.cpu_cores = cpu_cores;
                     data.gpu_info = gpu_info.clone();
                     data.top_processes = top_processes;
                     data.disk_info = disk_info;
@@ -558,7 +624,10 @@ impl SystemMonitorApp {
             show_settings: false,
             show_export: false,
             show_alerts: false,
+            show_process_manager: false,
+            show_cpu_cores: false,
             selected_process_pid: None,
+            monitor_handle: None,
         }
     }
 
@@ -744,6 +813,15 @@ impl eframe::App for SystemMonitorApp {
                     }
 
                     ui.separator();
+                    ui.heading("Advanced Options");
+                    ui.checkbox(&mut self.settings.show_per_core_cpu, "Show Per-Core CPU Usage");
+                    ui.horizontal(|ui| {
+                        ui.label("Process List Count:");
+                        ui.add(egui::Slider::new(&mut self.settings.process_count, 5..=30));
+                    });
+                    ui.checkbox(&mut self.settings.auto_clear_alerts, "Auto-clear resolved alerts");
+
+                    ui.separator();
                     ui.heading("Notifications (Experimental)");
                     ui.checkbox(&mut self.settings.show_notifications, "Enable Notifications");
                     
@@ -794,6 +872,20 @@ impl eframe::App for SystemMonitorApp {
                         self.show_export = true;
                         ui.close_menu();
                     }
+                    if ui.button("💾 Save Report to File").clicked() {
+                        // Save to file with file picker
+                        if let Ok(json) = self.export_data_to_json(&data) {
+                            if let Some(path) = rfd::FileDialog::new()
+                                .set_file_name("system-report.json")
+                                .add_filter("JSON", &["json"])
+                                .save_file()
+                            {
+                                let _ = std::fs::write(path, json);
+                            }
+                        }
+                        ui.close_menu();
+                    }
+                    ui.separator();
                     if ui.button("🔄 Reset Statistics").clicked() {
                         if let Ok(mut data) = self.data.lock() {
                             data.cpu_history.clear();
@@ -808,6 +900,10 @@ impl eframe::App for SystemMonitorApp {
                     ui.separator();
                     if ui.button("🚨 View Alerts").clicked() {
                         self.show_alerts = true;
+                        ui.close_menu();
+                    }
+                    if ui.button("⚙️ Process Manager").clicked() {
+                        self.show_process_manager = true;
                         ui.close_menu();
                     }
                 });
@@ -833,6 +929,7 @@ impl eframe::App for SystemMonitorApp {
             ui.selectable_value(&mut self.selected_tab, Tab::Overview, "📋 Overview");
             ui.selectable_value(&mut self.selected_tab, Tab::Performance, "📈 Performance");
             ui.selectable_value(&mut self.selected_tab, Tab::Processes, "⚙️ Processes");
+            ui.selectable_value(&mut self.selected_tab, Tab::CpuCores, "🔥 CPU Cores");
             ui.selectable_value(&mut self.selected_tab, Tab::Storage, "💾 Storage");
             ui.selectable_value(&mut self.selected_tab, Tab::Network, "🌐 Network");
             ui.selectable_value(&mut self.selected_tab, Tab::SystemInfo, "💻 System Info");
@@ -882,12 +979,18 @@ impl eframe::App for SystemMonitorApp {
             });
         });
 
+        // Process Manager window
+        if self.show_process_manager {
+            self.show_process_manager_window(ctx, &data);
+        }
+
         // Main content area
         egui::CentralPanel::default().show(ctx, |ui| {
             match self.selected_tab {
                 Tab::Overview => self.show_overview_tab(ui, &data),
                 Tab::Performance => self.show_performance_tab(ui, &data),
                 Tab::Processes => self.show_processes_tab(ui, &data),
+                Tab::CpuCores => self.show_cpu_cores_tab(ui, &data),
                 Tab::Storage => self.show_storage_tab(ui, &data),
                 Tab::Network => self.show_network_tab(ui, &data),
                 Tab::SystemInfo => self.show_system_info_tab(ui, &data),
@@ -1565,6 +1668,171 @@ impl SystemMonitorApp {
                 });
             }
         });
+    }
+
+    fn show_cpu_cores_tab(&self, ui: &mut egui::Ui, data: &SystemData) {
+        ui.heading("🔥 CPU Cores Monitoring");
+        ui.separator();
+
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            ui.label(format!("Total Cores: {} ({} logical processors)", 
+                data.system_info.cpu_count, data.cpu_cores.len()));
+            ui.add_space(10.0);
+
+            // Grid layout for cores
+            let cores_per_row = 4;
+            let mut core_index = 0;
+
+            while core_index < data.cpu_cores.len() {
+                ui.horizontal(|ui| {
+                    for _ in 0..cores_per_row {
+                        if core_index >= data.cpu_cores.len() {
+                            break;
+                        }
+
+                        let core = &data.cpu_cores[core_index];
+                        ui.group(|ui| {
+                            ui.set_min_width(180.0);
+                            
+                            ui.horizontal(|ui| {
+                                ui.strong(format!("Core {}", core.core_id));
+                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                    let color = get_usage_color(core.usage);
+                                    ui.colored_label(color, format!("{:.1}%", core.usage));
+                                });
+                            });
+
+                            let progress = core.usage / 100.0;
+                            let color = get_usage_color(core.usage);
+                            ui.add(egui::ProgressBar::new(progress)
+                                .fill(color)
+                                .text(format!("{:.1}%", core.usage)));
+                        });
+
+                        core_index += 1;
+                    }
+                });
+                ui.add_space(5.0);
+            }
+
+            ui.add_space(10.0);
+
+            // Summary statistics
+            ui.group(|ui| {
+                ui.heading("📊 Core Statistics");
+                ui.separator();
+
+                let avg_usage: f32 = data.cpu_cores.iter().map(|c| c.usage).sum::<f32>() / data.cpu_cores.len() as f32;
+                let max_usage = data.cpu_cores.iter().map(|c| c.usage).fold(0.0f32, f32::max);
+                let min_usage = data.cpu_cores.iter().map(|c| c.usage).fold(100.0f32, f32::min);
+
+                ui.horizontal(|ui| {
+                    ui.label("Average Usage:");
+                    let color = get_usage_color(avg_usage);
+                    ui.colored_label(color, format!("{:.1}%", avg_usage));
+                });
+
+                ui.horizontal(|ui| {
+                    ui.label("Maximum Core:");
+                    let color = get_usage_color(max_usage);
+                    ui.colored_label(color, format!("{:.1}%", max_usage));
+                });
+
+                ui.horizontal(|ui| {
+                    ui.label("Minimum Core:");
+                    ui.label(format!("{:.1}%", min_usage));
+                });
+
+                ui.horizontal(|ui| {
+                    ui.label("Cores Above 50%:");
+                    let high_cores = data.cpu_cores.iter().filter(|c| c.usage > 50.0).count();
+                    ui.label(format!("{} / {}", high_cores, data.cpu_cores.len()));
+                });
+            });
+        });
+    }
+
+    fn show_process_manager_window(&mut self, ctx: &egui::Context, data: &SystemData) {
+        let mut show = self.show_process_manager;
+        
+        egui::Window::new("⚙️ Process Manager")
+            .open(&mut show)
+            .resizable(true)
+            .default_width(700.0)
+            .default_height(500.0)
+            .show(ctx, |ui| {
+                ui.heading("Running Processes");
+                ui.separator();
+
+                ui.horizontal(|ui| {
+                    ui.label(format!("Total processes: {}", data.top_processes.len()));
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.button("🔄 Refresh").clicked() {
+                            // Refresh happens automatically
+                        }
+                    });
+                });
+
+                ui.add_space(5.0);
+
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    egui::Grid::new("process_manager_grid")
+                        .striped(true)
+                        .spacing([10.0, 4.0])
+                        .min_col_width(60.0)
+                        .show(ui, |ui| {
+                            // Header
+                            ui.strong("PID");
+                            ui.strong("Process Name");
+                            ui.strong("Memory");
+                            ui.strong("CPU %");
+                            ui.strong("Status");
+                            ui.strong("Actions");
+                            ui.end_row();
+
+                            // Processes
+                            for process in &data.top_processes {
+                                let memory_mb = bytes_to_mb(process.memory);
+                                let memory_color = if memory_mb > 500.0 {
+                                    egui::Color32::from_rgb(244, 67, 54)
+                                } else if memory_mb > 200.0 {
+                                    egui::Color32::from_rgb(255, 193, 7)
+                                } else {
+                                    egui::Color32::from_rgb(76, 175, 80)
+                                };
+
+                                ui.label(process.pid.to_string());
+                                
+                                let display_name = if process.name.len() > 25 {
+                                    format!("{}...", &process.name[..22])
+                                } else {
+                                    process.name.clone()
+                                };
+                                ui.label(display_name);
+                                
+                                ui.colored_label(memory_color, format!("{:.2} MB", memory_mb));
+                                ui.label(format!("{:.1}%", process.cpu_usage));
+                                ui.label(&process.status);
+
+                                ui.horizontal(|ui| {
+                                    if ui.small_button("🗑️").on_hover_text("Kill Process").clicked() {
+                                        self.selected_process_pid = Some(process.pid);
+                                    }
+                                    if ui.small_button("⏸️").on_hover_text("Suspend (Windows only)").clicked() {
+                                        // Will be handled in main loop
+                                    }
+                                });
+
+                                ui.end_row();
+                            }
+                        });
+                });
+
+                ui.separator();
+                ui.colored_label(egui::Color32::YELLOW, "⚠️ Warning: Killing processes may cause system instability!");
+            });
+
+        self.show_process_manager = show;
     }
 
     fn show_about_tab(&self, ui: &mut egui::Ui) {
