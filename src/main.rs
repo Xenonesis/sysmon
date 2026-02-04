@@ -4,11 +4,10 @@ use egui_plot::{Line, Plot, PlotPoints};
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::fs;
-use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
-use sysinfo::{Disks, Networks, System, Pid, Signal};
+use sysinfo::{Disks, Networks, System, Pid};
 
 #[cfg(target_os = "windows")]
 use nvml_wrapper::Nvml;
@@ -273,26 +272,10 @@ impl SystemMonitor {
         }
     }
 
-    fn suspend_process(&mut self, pid: u32) -> bool {
-        #[cfg(target_os = "windows")]
-        {
-            use windows::Win32::Foundation::HANDLE;
-            use windows::Win32::System::Threading::{OpenProcess, PROCESS_SUSPEND_RESUME};
-            
-            unsafe {
-                if let Ok(handle) = OpenProcess(PROCESS_SUSPEND_RESUME, false, pid) {
-                    if !handle.is_invalid() {
-                        // Process suspended
-                        return true;
-                    }
-                }
-            }
-            false
-        }
-        #[cfg(not(target_os = "windows"))]
-        {
-            false
-        }
+    fn suspend_process(&mut self, _pid: u32) -> bool {
+        // Suspend process is complex on Windows and not implemented in this version
+        // Would require additional Windows API calls
+        false
     }
 
     #[cfg(target_os = "windows")]
@@ -572,6 +555,7 @@ impl SystemMonitorApp {
         let data = Arc::new(Mutex::new(SystemData::default()));
         let data_clone = Arc::clone(&data);
         let refresh_interval = settings.refresh_interval;
+        let settings_clone = settings.clone();
 
         // Background thread for monitoring
         thread::spawn(move || {
@@ -612,6 +596,15 @@ impl SystemMonitorApp {
                     data.network_info = network_info;
                     data.system_info = system_info.clone();
                     data.last_update = timestamp;
+
+                    // Check for alerts
+                    let new_alerts = monitor.check_alerts(&settings_clone, &data);
+                    data.alerts.extend(new_alerts);
+
+                    // Keep only last 10 alerts
+                    while data.alerts.len() > 10 {
+                        data.alerts.remove(0);
+                    }
 
                     // Update history (keep last 60 data points = 2 minutes)
                     data.cpu_history.push_back(DataPoint {
@@ -804,6 +797,17 @@ impl eframe::App for SystemMonitorApp {
         });
 
         let data = self.data.lock().unwrap().clone();
+
+        // Handle process actions
+        if let Some(pid) = self.selected_process_pid.take() {
+            // Create a temporary system instance to kill the process
+            let mut temp_sys = System::new();
+            temp_sys.refresh_processes();
+            
+            if let Some(process) = temp_sys.process(Pid::from_u32(pid)) {
+                let _ = process.kill();
+            }
+        }
 
         // CSV Export window
         let mut show_export_csv = self.show_export_csv;
@@ -2048,9 +2052,11 @@ impl SystemMonitorApp {
                                     if ui.small_button("🗑️").on_hover_text("Kill Process").clicked() {
                                         self.selected_process_pid = Some(process.pid);
                                     }
-                                    if ui.small_button("⏸️").on_hover_text("Suspend (Windows only)").clicked() {
-                                        // Will be handled in main loop
-                                    }
+                                    ui.add_enabled_ui(false, |ui| {
+                                        if ui.small_button("⏸️").on_hover_text("Suspend (Not implemented)").clicked() {
+                                            // Suspend not implemented
+                                        }
+                                    });
                                 });
 
                                 ui.end_row();
@@ -2135,8 +2141,7 @@ fn main() -> Result<(), eframe::Error> {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1100.0, 800.0])
             .with_min_inner_size([900.0, 600.0])
-            .with_title("System Monitor v1.3.0")
-            .with_icon(eframe::icon_data::from_png_bytes(&[]).unwrap_or_default()),
+            .with_title("System Monitor v1.3.0"),
         ..Default::default()
     };
 

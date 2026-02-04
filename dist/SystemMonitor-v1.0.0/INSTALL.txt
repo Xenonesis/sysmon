@@ -1,0 +1,23 @@
+System Monitor Installation Instructions
+=======================================
+
+Quick Installation:
+1. Double-click "setup.bat"
+2. Follow the installation wizard
+3. Launch System Monitor from Start Menu or Desktop
+
+Manual Installation:
+1. Run: PowerShell -ExecutionPolicy Bypass -File installer.ps1
+2. Or run: .\installer.ps1 from PowerShell
+
+Uninstallation:
+- Use Windows Settings → Apps → System Monitor → Uninstall
+- Or run: .\installer.ps1 -Uninstall
+
+For more information, see README.md and USER_GUIDE.md
+
+System Requirements:
+- Windows 10 or later
+- No additional dependencies required
+
+Contact: https://github.com/Xenonesis/sysmon
