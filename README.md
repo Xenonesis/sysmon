@@ -10,6 +10,14 @@ A comprehensive, professional system monitoring application built with Rust feat
 
 ---
 
+## 🚀 Quick Download
+
+**Visit our website for easy installation:** [systemmonitor.xenonesis.dev](https://systemmonitor.xenonesis.dev)
+
+Or download directly from [GitHub Releases](https://github.com/Xenonesis/sysmon/releases)
+
+---
+
 ## ✨ Screenshots
 
 > **Overview Tab** - Complete system dashboard
