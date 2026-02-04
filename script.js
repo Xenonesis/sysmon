@@ -146,4 +146,52 @@ document.addEventListener('DOMContentLoaded', function() {
         heroImage.style.transition = 'opacity 0.8s ease 0.2s, transform 0.8s ease 0.2s';
         heroObserver.observe(heroImage);
     }
+
+    // Try to resolve a direct download from GitHub Releases
+    async function findDirectDownload() {
+        const candidates = [
+            'SystemMonitor-v1.0.0.zip',
+            'system-monitor-setup.exe',
+            'system-monitor-installer.exe',
+            'system-monitor.exe',
+            'SystemMonitor.exe'
+        ];
+        const base = 'https://github.com/Xenonesis/sysmon/releases/latest/download/';
+        const releases = 'https://github.com/Xenonesis/sysmon/releases/latest';
+
+        const heroBtn = document.getElementById('downloadNow');
+        const sectionBtn = document.getElementById('downloadNowSection');
+        const info = document.getElementById('downloadInfo');
+        const buttons = [heroBtn, sectionBtn].filter(Boolean);
+
+        for (const name of candidates) {
+            const url = base + name;
+            try {
+                const resp = await fetch(url, { method: 'HEAD' });
+                if (resp && resp.ok) {
+                    buttons.forEach(b => {
+                        b.href = url;
+                        b.setAttribute('download', name);
+                        b.target = '_blank';
+                    });
+                    if (info) info.textContent = `${name} • Direct download available`;
+                    console.log('Direct download found:', url);
+                    return;
+                }
+            } catch (err) {
+                console.log('HEAD failed for', url, err);
+                // Continue to next candidate
+            }
+        }
+
+        // Fallback: point to Releases page
+        buttons.forEach(b => {
+            b.href = releases;
+            b.target = '_blank';
+        });
+        if (info) info.textContent = 'Direct installer not found — opening Releases page';
+        console.log('No direct download found; pointing to Releases page.');
+    }
+
+    findDirectDownload();
 });
