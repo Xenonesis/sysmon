@@ -83,6 +83,17 @@ jobs:
               # Create ZIP with installer
               Compress-Archive -Path target\release\system-monitor.exe, setup.bat, installer.ps1, README.md -DestinationPath $zipName -Force
               Write-Host "Created: $zipName"
+              
+              # Copy to docs/downloads/ for GitHub Pages
+              Write-Host "Copying to docs/downloads/ for GitHub Pages..."
+              if (-not (Test-Path "docs\downloads")) {
+                  New-Item -ItemType Directory -Path "docs\downloads" -Force | Out-Null
+              }
+              Copy-Item $exeName "docs\downloads\$exeName" -Force
+              Copy-Item $latestExe "docs\downloads\$latestExe" -Force
+              Copy-Item $zipName "docs\downloads\$zipName" -Force
+              Write-Host "✓ Files copied to docs/downloads/"
+              
           } else {
               Write-Error "Executable not found: target\release\system-monitor.exe"
               exit 1
@@ -152,6 +163,16 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Commit and push to docs/downloads/
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/downloads/*.exe docs/downloads/*.zip
+          git diff --staged --quiet || git commit -m "🚀 Auto-deploy: Update binaries to ${{ steps.get_version.outputs.version }}"
+          git push
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Output release information
         run: |
           $version = "${{ steps.get_version.outputs.version }}"
@@ -161,7 +182,14 @@ jobs:
           Write-Host "📦 Release: $version"
           Write-Host "🔗 URL: https://github.com/$repo/releases/tag/$version"
           Write-Host ""
-          Write-Host "📥 Download links:"
+          Write-Host "📥 GitHub Pages Download links:"
+          Write-Host "  • SystemMonitor-$version.exe"
+          Write-Host "    https://USERNAME.github.io/REPO/downloads/SystemMonitor-$version.exe"
+          Write-Host ""
+          Write-Host "  • SystemMonitor-latest.exe"
+          Write-Host "    https://USERNAME.github.io/REPO/downloads/SystemMonitor-latest.exe"
+          Write-Host ""
+          Write-Host "📥 GitHub Releases Download links:"
           Write-Host "  • SystemMonitor-$version.exe"
           Write-Host "    https://github.com/$repo/releases/download/$version/SystemMonitor-$version.exe"
           Write-Host ""
