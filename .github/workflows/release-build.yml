@@ -1,11 +1,13 @@
-name: Build and Publish Windows Release
+name: Build and Release on Push
 
 on:
   push:
     branches:
       - main
-    tags:
-      - 'v*.*.*'
+    paths:
+      - 'src/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
   workflow_dispatch:
     inputs:
       version:
@@ -49,21 +51,41 @@ jobs:
         run: |
           cargo build --release
 
+      - name: Get version from Cargo.toml
+        id: get_version
+        run: |
+          $cargoToml = Get-Content "Cargo.toml" -Raw
+          if ($cargoToml -match 'version\s*=\s*"([^"]+)"') {
+              $version = $matches[1]
+              Write-Host "Version from Cargo.toml: $version"
+              echo "version=v$version" >> $env:GITHUB_OUTPUT
+              echo "version_number=$version" >> $env:GITHUB_OUTPUT
+          } else {
+              Write-Error "Could not extract version from Cargo.toml"
+              exit 1
+          }
+
       - name: Prepare build artifacts
         run: |
-          $ref = '${{ github.ref }}'
-          if ($ref -like 'refs/tags/*') {
-              $tag = $ref.Substring(10)
-              $version = $tag
-          } elseif ('${{ github.event_name }}' -eq 'workflow_dispatch' -and '${{ github.event.inputs.version }}' -ne '') {
-              $version = '${{ github.event.inputs.version }}'
-          } else {
-              $version = '${{ github.sha }}'
-          }
+          $version = "${{ steps.get_version.outputs.version }}"
+          $exeName = "SystemMonitor-$version.exe"
           $zipName = "SystemMonitor-$version.zip"
-          Write-Host "Creating zip: $zipName"
+          $latestExe = "SystemMonitor-latest.exe"
+          
+          Write-Host "Creating build artifacts for version: $version"
+          
           if (Test-Path "target\release\system-monitor.exe") {
+              # Create versioned .exe
+              Copy-Item "target\release\system-monitor.exe" $exeName -Force
+              Write-Host "Created: $exeName"
+              
+              # Create latest .exe
+              Copy-Item "target\release\system-monitor.exe" $latestExe -Force
+              Write-Host "Created: $latestExe"
+              
+              # Create ZIP with installer
               Compress-Archive -Path target\release\system-monitor.exe, setup.bat, installer.ps1, README.md -DestinationPath $zipName -Force
+              Write-Host "Created: $zipName"
           } else {
               Write-Error "Executable not found: target\release\system-monitor.exe"
               exit 1
@@ -72,32 +94,82 @@ jobs:
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: SystemMonitor-${{ github.sha }}
-          path: SystemMonitor-*.zip
+          name: SystemMonitor-${{ steps.get_version.outputs.version }}
+          path: |
+            SystemMonitor-*.exe
+            SystemMonitor-*.zip
 
-      - name: Create GitHub Release
-        id: create_release
-        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
-        uses: actions/create-release@v1
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          tag_name: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.version || github.ref_name }}
-          release_name: ${{ github.event.inputs.release_name || github.ref_name }}
-          body: "Automated build for ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.version || github.ref_name }}"
-          draft: ${{ github.event.inputs.draft }}
-          prerelease: ${{ github.event.inputs.prerelease }}
-
-      - name: Upload release asset
-        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
-        uses: actions/upload-release-asset@v1
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: SystemMonitor-${{ github.event_name == 'workflow_dispatch' && github.event.inputs.version || github.ref_name }}.zip
-          asset_name: SystemMonitor-${{ github.event_name == 'workflow_dispatch' && github.event.inputs.version || github.ref_name }}.zip
-          asset_content_type: application/zip
-
-      - name: Output public asset URL
-        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+      - name: Check if release exists
+        id: check_release
         run: |
-          echo "Release artifact uploaded: https://github.com/${{ github.repository }}/releases/latest/download/SystemMonitor-${{ github.event_name == 'workflow_dispatch' && github.event.inputs.version || github.ref_name }}.zip"
+          $version = "${{ steps.get_version.outputs.version }}"
+          $repo = "${{ github.repository }}"
+          $token = "${{ secrets.GITHUB_TOKEN }}"
+          
+          try {
+              $headers = @{
+                  Authorization = "Bearer $token"
+                  Accept = "application/vnd.github.v3+json"
+              }
+              $response = Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/releases/tags/$version" -Headers $headers -ErrorAction Stop
+              echo "exists=true" >> $env:GITHUB_OUTPUT
+              echo "release_id=$($response.id)" >> $env:GITHUB_OUTPUT
+              Write-Host "Release $version already exists with ID: $($response.id)"
+          } catch {
+              echo "exists=false" >> $env:GITHUB_OUTPUT
+              Write-Host "Release $version does not exist yet"
+          }
+
+      - name: Create or Update GitHub Release
+        id: create_release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.get_version.outputs.version }}
+          name: System Monitor ${{ steps.get_version.outputs.version }}
+          body: |
+            ## System Monitor ${{ steps.get_version.outputs.version_number }}
+            
+            ### 🚀 What's New
+            - Auto-built from commit ${{ github.sha }}
+            - Direct .exe download available
+            - No installation required - just run!
+            
+            ### 📥 Download
+            - **SystemMonitor-${{ steps.get_version.outputs.version }}.exe** - Direct application (recommended)
+            - **SystemMonitor-latest.exe** - Always points to latest version
+            - **SystemMonitor-${{ steps.get_version.outputs.version }}.zip** - Package with installer scripts
+            
+            ### 🎯 Quick Start
+            1. Download `SystemMonitor-${{ steps.get_version.outputs.version }}.exe`
+            2. Run the .exe file
+            3. Enjoy real-time system monitoring!
+            
+            ### 🔄 Auto-Update
+            The application includes built-in auto-update functionality that checks for new versions every 24 hours.
+          files: |
+            SystemMonitor-${{ steps.get_version.outputs.version }}.exe
+            SystemMonitor-latest.exe
+            SystemMonitor-${{ steps.get_version.outputs.version }}.zip
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Output release information
+        run: |
+          $version = "${{ steps.get_version.outputs.version }}"
+          $repo = "${{ github.repository }}"
+          Write-Host "✅ Release created successfully!"
+          Write-Host ""
+          Write-Host "📦 Release: $version"
+          Write-Host "🔗 URL: https://github.com/$repo/releases/tag/$version"
+          Write-Host ""
+          Write-Host "📥 Download links:"
+          Write-Host "  • SystemMonitor-$version.exe"
+          Write-Host "    https://github.com/$repo/releases/download/$version/SystemMonitor-$version.exe"
+          Write-Host ""
+          Write-Host "  • SystemMonitor-latest.exe"
+          Write-Host "    https://github.com/$repo/releases/download/$version/SystemMonitor-latest.exe"
+          Write-Host ""
+          Write-Host "  • SystemMonitor-$version.zip"
+          Write-Host "    https://github.com/$repo/releases/download/$version/SystemMonitor-$version.zip"

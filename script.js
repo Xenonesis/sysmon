@@ -179,28 +179,35 @@ document.addEventListener('DOMContentLoaded', function() {
         const buttons = [heroBtn, sectionBtn].filter(Boolean);
 
         // Try local downloads folder first (prioritizing .exe)
-        for (const localPath of localCandidates) {
-            try {
-                const resp = await fetch(localPath, { method: 'HEAD' });
-                if (resp && resp.ok) {
-                    const fileName = localPath.split('/').pop();
-                    const fileSize = resp.headers.get('content-length');
-                    const sizeMB = fileSize ? (parseInt(fileSize) / 1048576).toFixed(2) : '?';
-                    
-                    buttons.forEach(b => {
-                        b.href = localPath;
-                        b.setAttribute('download', fileName);
-                        b.removeAttribute('target'); // Direct download without opening new tab
-                    });
-                    
-                    const fileType = fileName.endsWith('.exe') ? 'Direct Application' : 'Installer Package';
-                    if (info) info.textContent = `${fileName} (${sizeMB} MB) • ${fileType} - Ready to download`;
-                    console.log('Local download found:', localPath, `(${sizeMB} MB)`);
-                    return;
+        // Skip local check on GitHub Pages - go straight to GitHub Releases
+        const isGitHubPages = window.location.hostname.includes('github.io');
+        
+        if (!isGitHubPages) {
+            for (const localPath of localCandidates) {
+                try {
+                    const resp = await fetch(localPath, { method: 'HEAD' });
+                    if (resp && resp.ok) {
+                        const fileName = localPath.split('/').pop();
+                        const fileSize = resp.headers.get('content-length');
+                        const sizeMB = fileSize ? (parseInt(fileSize) / 1048576).toFixed(2) : '?';
+                        
+                        buttons.forEach(b => {
+                            b.href = localPath;
+                            b.setAttribute('download', fileName);
+                            b.removeAttribute('target'); // Direct download without opening new tab
+                        });
+                        
+                        const fileType = fileName.endsWith('.exe') ? 'Direct Application' : 'Installer Package';
+                        if (info) info.textContent = `${fileName} (${sizeMB} MB) • ${fileType} - Ready to download`;
+                        console.log('Local download found:', localPath, `(${sizeMB} MB)`);
+                        return;
+                    }
+                } catch (err) {
+                    console.log('Local file not found:', localPath);
                 }
-            } catch (err) {
-                console.log('Local file not found:', localPath);
             }
+        } else {
+            console.log('GitHub Pages detected - using GitHub Releases for downloads');
         }
 
         // Try GitHub releases as fallback
