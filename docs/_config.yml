@@ -35,3 +35,5 @@ collections:
 source: docs
 destination: _site
 incremental: true
+# last deploy trigger
+last_deploy: 2026-02-04
