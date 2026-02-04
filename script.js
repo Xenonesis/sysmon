@@ -151,6 +151,8 @@ document.addEventListener('DOMContentLoaded', function() {
     async function findDirectDownload() {
         // Prioritize .exe files first for direct execution
         const localCandidates = [
+            'downloads/SystemMonitor-latest.exe',
+            'downloads/SystemMonitor-v1.0.0.exe',
             'downloads/system-monitor-latest.exe',
             'downloads/system-monitor-1.0.0.exe',
             'downloads/SystemMonitor-latest.zip',
@@ -159,6 +161,8 @@ document.addEventListener('DOMContentLoaded', function() {
         
         // GitHub fallback - prioritize .exe files
         const githubCandidates = [
+            'SystemMonitor-latest.exe',
+            'SystemMonitor-v1.0.0.exe',
             'system-monitor.exe',
             'system-monitor-setup.exe',
             'SystemMonitor.exe',

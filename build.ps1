@@ -113,19 +113,39 @@ if ($LASTEXITCODE -eq 0) {
     # Create downloads folder and copy build
     Write-Host "Saving build to downloads folder..." -ForegroundColor Cyan
     $downloadsFolder = "downloads"
+    $docsDownloadsFolder = "docs\downloads"
     if (-not (Test-Path $downloadsFolder)) {
         New-Item -ItemType Directory -Path $downloadsFolder -Force | Out-Null
     }
+    if (-not (Test-Path $docsDownloadsFolder)) {
+        New-Item -ItemType Directory -Path $docsDownloadsFolder -Force | Out-Null
+    }
     
-    # Copy executable to downloads folder with timestamp
-    $timestamp = Get-Date -Format "yyyy-MM-dd_HHmmss"
-    $version = "1.0.0"  # Get from Cargo.toml or environment
-    Copy-Item "target\release\system-monitor.exe" "$downloadsFolder\system-monitor-$version.exe" -Force
-    Copy-Item "target\release\system-monitor.exe" "$downloadsFolder\system-monitor-latest.exe" -Force
+    # Get version from Cargo.toml
+    $cargoToml = Get-Content "Cargo.toml" -Raw
+    if ($cargoToml -match 'version\s*=\s*"([^"]+)"') {
+        $version = $matches[1]
+    } else {
+        $version = "1.0.0"
+    }
     
-    Write-Host "✓ Build saved to downloads folder:" -ForegroundColor Green
-    Write-Host "  • $downloadsFolder\system-monitor-$version.exe" -ForegroundColor White
-    Write-Host "  • $downloadsFolder\system-monitor-latest.exe (latest)" -ForegroundColor White
+    # Copy executable to downloads folders with version naming
+    $versionedName = "SystemMonitor-v$version.exe"
+    $latestName = "SystemMonitor-latest.exe"
+    
+    # Root downloads folder
+    Copy-Item "target\release\system-monitor.exe" "$downloadsFolder\$versionedName" -Force
+    Copy-Item "target\release\system-monitor.exe" "$downloadsFolder\$latestName" -Force
+    
+    # Docs downloads folder (for GitHub Pages)
+    Copy-Item "target\release\system-monitor.exe" "$docsDownloadsFolder\$versionedName" -Force
+    Copy-Item "target\release\system-monitor.exe" "$docsDownloadsFolder\$latestName" -Force
+    
+    Write-Host "✓ Build saved to downloads folders:" -ForegroundColor Green
+    Write-Host "  • $downloadsFolder\$versionedName" -ForegroundColor White
+    Write-Host "  • $downloadsFolder\$latestName (latest)" -ForegroundColor White
+    Write-Host "  • $docsDownloadsFolder\$versionedName (GitHub Pages)" -ForegroundColor White
+    Write-Host "  • $docsDownloadsFolder\$latestName (GitHub Pages)" -ForegroundColor White
     Write-Host ""
     
     Write-Host "Next steps:" -ForegroundColor Cyan
