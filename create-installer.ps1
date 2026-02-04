@@ -18,6 +18,7 @@ $AppName = "SystemMonitor"
 $Version = "1.0.0"
 $DistDir = "dist"
 $BuildDir = "$DistDir\$AppName-v$Version"
+$DownloadsDir = "downloads"
 
 function Write-Step {
     param([string]$Message)
@@ -137,6 +138,19 @@ if (-not $NoZip) {
     # Create ZIP using PowerShell
     Compress-Archive -Path "$BuildDir\*" -DestinationPath $zipPath -Force
     Write-Success "Created ZIP archive: $zipPath"
+    
+    # Copy to downloads folder
+    Write-Step "Copying installer to downloads folder..."
+    if (-not (Test-Path $DownloadsDir)) {
+        New-Item -ItemType Directory -Path $DownloadsDir -Force | Out-Null
+    }
+    
+    Copy-Item $zipPath "$DownloadsDir\$AppName-v$Version.zip" -Force
+    Copy-Item $zipPath "$DownloadsDir\$AppName-latest.zip" -Force
+    
+    Write-Success "Installer saved to downloads folder"
+    Write-Host "  • $DownloadsDir\$AppName-v$Version.zip" -ForegroundColor White
+    Write-Host "  • $DownloadsDir\$AppName-latest.zip (latest)" -ForegroundColor White
 }
 
 # Show summary

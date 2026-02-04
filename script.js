@@ -147,15 +147,23 @@ document.addEventListener('DOMContentLoaded', function() {
         heroObserver.observe(heroImage);
     }
 
-    // Try to resolve a direct download from GitHub Releases
+    // Try to resolve a direct download - prioritize local downloads folder
     async function findDirectDownload() {
-        const candidates = [
+        const localCandidates = [
+            'downloads/SystemMonitor-latest.zip',
+            'downloads/SystemMonitor-v1.0.0.zip',
+            'downloads/system-monitor-latest.exe',
+            'downloads/system-monitor-1.0.0.exe'
+        ];
+        
+        const githubCandidates = [
             'SystemMonitor-v1.0.0.zip',
             'system-monitor-setup.exe',
             'system-monitor-installer.exe',
             'system-monitor.exe',
             'SystemMonitor.exe'
         ];
+        
         const base = 'https://github.com/Xenonesis/sysmon/releases/latest/download/';
         const releases = 'https://github.com/Xenonesis/sysmon/releases/latest';
 
@@ -164,7 +172,28 @@ document.addEventListener('DOMContentLoaded', function() {
         const info = document.getElementById('downloadInfo');
         const buttons = [heroBtn, sectionBtn].filter(Boolean);
 
-        for (const name of candidates) {
+        // Try local downloads folder first
+        for (const localPath of localCandidates) {
+            try {
+                const resp = await fetch(localPath, { method: 'HEAD' });
+                if (resp && resp.ok) {
+                    const fileName = localPath.split('/').pop();
+                    buttons.forEach(b => {
+                        b.href = localPath;
+                        b.setAttribute('download', fileName);
+                        b.target = '_blank';
+                    });
+                    if (info) info.textContent = `${fileName} • Latest version available locally`;
+                    console.log('Local download found:', localPath);
+                    return;
+                }
+            } catch (err) {
+                console.log('Local file not found:', localPath);
+            }
+        }
+
+        // Try GitHub releases as fallback
+        for (const name of githubCandidates) {
             const url = base + name;
             try {
                 const resp = await fetch(url, { method: 'HEAD' });
@@ -174,24 +203,26 @@ document.addEventListener('DOMContentLoaded', function() {
                         b.setAttribute('download', name);
                         b.target = '_blank';
                     });
-                    if (info) info.textContent = `${name} • Direct download available`;
-                    console.log('Direct download found:', url);
+                    if (info) info.textContent = `${name} • Downloading from GitHub`;
+                    console.log('GitHub download found:', url);
                     return;
                 }
             } catch (err) {
-                console.log('HEAD failed for', url, err);
-                // Continue to next candidate
+                console.log('GitHub HEAD failed for', url, err);
             }
         }
 
-        // Fallback: point to Releases page
+        // Final fallback: point to Releases page
         buttons.forEach(b => {
             b.href = releases;
             b.target = '_blank';
         });
-        if (info) info.textContent = 'Direct installer not found — opening Releases page';
+        if (info) info.textContent = 'Visit Releases page for latest version';
         console.log('No direct download found; pointing to Releases page.');
     }
 
     findDirectDownload();
+    
+    // Check for updates periodically (every 5 minutes)
+    setInterval(findDirectDownload, 300000);
 });

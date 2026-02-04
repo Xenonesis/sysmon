@@ -110,6 +110,24 @@ if ($LASTEXITCODE -eq 0) {
     Write-Host "Size: $([math]::Round($exeSize, 2)) MB" -ForegroundColor Gray
     Write-Host ""
     
+    # Create downloads folder and copy build
+    Write-Host "Saving build to downloads folder..." -ForegroundColor Cyan
+    $downloadsFolder = "downloads"
+    if (-not (Test-Path $downloadsFolder)) {
+        New-Item -ItemType Directory -Path $downloadsFolder -Force | Out-Null
+    }
+    
+    # Copy executable to downloads folder with timestamp
+    $timestamp = Get-Date -Format "yyyy-MM-dd_HHmmss"
+    $version = "1.0.0"  # Get from Cargo.toml or environment
+    Copy-Item "target\release\system-monitor.exe" "$downloadsFolder\system-monitor-$version.exe" -Force
+    Copy-Item "target\release\system-monitor.exe" "$downloadsFolder\system-monitor-latest.exe" -Force
+    
+    Write-Host "✓ Build saved to downloads folder:" -ForegroundColor Green
+    Write-Host "  • $downloadsFolder\system-monitor-$version.exe" -ForegroundColor White
+    Write-Host "  • $downloadsFolder\system-monitor-latest.exe (latest)" -ForegroundColor White
+    Write-Host ""
+    
     Write-Host "Next steps:" -ForegroundColor Cyan
     Write-Host "  1. Run: .\target\release\system-monitor.exe" -ForegroundColor White
     Write-Host "  2. Install: .\install.ps1" -ForegroundColor White

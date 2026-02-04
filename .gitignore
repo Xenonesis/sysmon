@@ -1,3 +1,7 @@
+# Downloads folder (except .gitkeep)
+downloads/*
+!downloads/.gitkeep
+
 /target
 Cargo.lock
 *.exe

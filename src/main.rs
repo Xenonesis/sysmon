@@ -1,4 +1,5 @@
 use chrono::Local;
+mod updater;
 use eframe::egui;
 use egui_plot::{Line, Plot, PlotPoints};
 use serde::{Deserialize, Serialize};
@@ -518,6 +519,9 @@ struct SystemMonitorApp {
     process_sort_column: ProcessSortColumn,
     process_sort_ascending: bool,
     show_export_csv: bool,
+    updater: updater::Updater,
+    show_update_notification: bool,
+    update_check_time: Option<Instant>,
 }
 
 #[derive(PartialEq)]
@@ -671,6 +675,9 @@ impl SystemMonitorApp {
             process_sort_column: ProcessSortColumn::Memory,
             process_sort_ascending: false,
             show_export_csv: false,
+            updater: updater::Updater::new(),
+            show_update_notification: false,
+            update_check_time: None,
         }
     }
 
@@ -776,6 +783,46 @@ impl eframe::App for SystemMonitorApp {
             }
         ));
 
+        // Check for updates automatically (once every 24 hours)
+        if self.update_check_time.is_none() || 
+           self.update_check_time.unwrap().elapsed().as_secs() > 86400 {
+            let mut updater = self.updater.clone();
+            let ctx_clone = ctx.clone();
+            thread::spawn(move || {
+                if let Ok(update_info) = updater.check_for_updates() {
+                    if update_info.update_available {
+                        ctx_clone.request_repaint();
+                    }
+                }
+            });
+            self.update_check_time = Some(Instant::now());
+        }
+
+        // Show update notification banner
+        if self.updater.get_update_info().update_available {
+            egui::TopBottomPanel::top("update_notification").show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.colored_label(egui::Color32::from_rgb(76, 175, 80), "🎉");
+                    ui.label(format!(
+                        "New version {} is available! Current: {}",
+                        self.updater.get_update_info().latest_version,
+                        self.updater.get_update_info().current_version
+                    ));
+                    if ui.button("⬇️ Download & Install").clicked() {
+                        let download_url = self.updater.get_update_info().download_url.clone();
+                        thread::spawn(move || {
+                            if let Err(e) = updater::Updater::new().download_and_install_update(&download_url) {
+                                eprintln!("Update failed: {}", e);
+                            }
+                        });
+                    }
+                    if ui.button("✖").clicked() {
+                        self.show_update_notification = false;
+                    }
+                });
+            });
+        }
+
         // Keyboard shortcuts
         ctx.input(|i| {
             if i.key_pressed(egui::Key::F5) {
@@ -793,6 +840,13 @@ impl eframe::App for SystemMonitorApp {
             if i.modifiers.ctrl && i.key_pressed(egui::Key::Comma) {
                 // Ctrl+, = Settings
                 self.show_settings = true;
+            }
+            if i.modifiers.ctrl && i.key_pressed(egui::Key::U) {
+                // Ctrl+U = Check for updates manually
+                let mut updater = self.updater.clone();
+                thread::spawn(move || {
+                    let _ = updater.check_for_updates();
+                });
             }
         });
 
