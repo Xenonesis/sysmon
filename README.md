@@ -16,6 +16,12 @@ A comprehensive, professional system monitoring application built with Rust feat
 
 Or download directly from [GitHub Releases](https://github.com/Xenonesis/sysmon/releases)
 
+### ⚡ Direct .exe Download
+- **No installation required** - Just download and run!
+- **Instant setup** - Click download → Run .exe → Done!
+- **Auto-updates** - App automatically checks for updates every 24 hours
+- **Size:** ~5.4 MB - Lightweight and fast
+
 ---
 
 ## ✨ Screenshots
@@ -68,6 +74,8 @@ Or download directly from [GitHub Releases](https://github.com/Xenonesis/sysmon/
 - ✅ **Desktop shortcut** - One-click installation
 - ✅ **Start Menu entry** - Searchable and accessible
 - ✅ **Native Windows app** - Full OS integration
+- ✅ **Auto-update system** - Automatic update checking and installation
+- ✅ **Direct .exe downloads** - No ZIP extraction needed
 
 ## 🎯 Key Features at a Glance
 
@@ -83,6 +91,8 @@ Or download directly from [GitHub Releases](https://github.com/Xenonesis/sysmon/
 | 💻 **System Info** | Complete system specifications and uptime |
 | 🎮 **GPU Support** | NVIDIA GPU monitoring (utilization, temp, VRAM) |
 | 📈 **Real-time Updates** | Configurable refresh interval (1-10 seconds) |
+| 🔄 **Auto-Update** | Automatic update checking every 24 hours with one-click install |
+| ⬇️ **Direct Downloads** | Website serves .exe directly - no installation hassle |
 
 ## 📋 Prerequisites
 
@@ -93,12 +103,22 @@ Or download directly from [GitHub Releases](https://github.com/Xenonesis/sysmon/
 
 ## Installation
 
-### Quick Build
+### Option 1: Download Pre-built (Recommended)
+
+**Easiest method** - Visit our website and click "Download Now":
+- [systemmonitor.xenonesis.dev](https://systemmonitor.xenonesis.dev)
+- Direct `.exe` download (~5.4 MB)
+- No installation needed - just run!
+- Auto-updates built-in
+
+### Option 2: Quick Build
 
 Run the build script:
 ```powershell
 .\build.ps1
 ```
+
+The build will automatically save to `downloads/` folder for easy access.
 
 ### Manual Build
 
@@ -133,6 +153,12 @@ Simply run the application and it will open a GUI window displaying:
 - CPU utilization with color-coded bars
 - GPU stats (if NVIDIA GPU detected)
 - Top 15 memory-consuming processes in a scrollable table
+
+### Auto-Update Feature
+- App automatically checks for updates every 24 hours
+- Green notification banner appears when update available
+- Click "Download & Install" for one-click update
+- Or press `Ctrl+U` to manually check for updates
 
 Close the window to exit.
 
@@ -172,18 +198,23 @@ The executable will be at: `target/release/system-monitor.exe`
 - This is normal for real-time monitoring
 - Adjust refresh rate in code if needed (change `Duration::from_secs(2)`)
 
+## Recent Updates
+
+- ✅ **Auto-update system** - Automatic update checking and one-click installation
+- ✅ **Direct .exe downloads** - Website now serves executables directly
+- ✅ **Downloads folder** - Build artifacts automatically saved for distribution
+- ✅ **Smart download fallback** - Local-first, then GitHub releases
+- ✅ **Update notifications** - In-app banner when new version available
+
 ## Future Enhancements
 
-- [ ] Historical graphs with time-series data
 - [ ] Export logs to file
 - [ ] Alert system for high usage
-- [ ] Network usage monitoring
 - [ ] Disk I/O statistics
 - [ ] Process management (kill/suspend processes)
 - [ ] System tray icon with notifications
-- [ ] Multiple themes (dark/light mode)
-- [ ] Customizable refresh intervals
-- [ ] Save window position and size preferences
+- [ ] Code signing certificate for executable
+- [ ] Installer wizard (optional alternative to portable .exe)
 
 ## License
 

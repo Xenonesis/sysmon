@@ -147,21 +147,23 @@ document.addEventListener('DOMContentLoaded', function() {
         heroObserver.observe(heroImage);
     }
 
-    // Try to resolve a direct download - prioritize local downloads folder
+    // Try to resolve a direct .exe download - prioritize local downloads folder
     async function findDirectDownload() {
+        // Prioritize .exe files first for direct execution
         const localCandidates = [
-            'downloads/SystemMonitor-latest.zip',
-            'downloads/SystemMonitor-v1.0.0.zip',
             'downloads/system-monitor-latest.exe',
-            'downloads/system-monitor-1.0.0.exe'
+            'downloads/system-monitor-1.0.0.exe',
+            'downloads/SystemMonitor-latest.zip',
+            'downloads/SystemMonitor-v1.0.0.zip'
         ];
         
+        // GitHub fallback - prioritize .exe files
         const githubCandidates = [
-            'SystemMonitor-v1.0.0.zip',
-            'system-monitor-setup.exe',
-            'system-monitor-installer.exe',
             'system-monitor.exe',
-            'SystemMonitor.exe'
+            'system-monitor-setup.exe',
+            'SystemMonitor.exe',
+            'system-monitor-installer.exe',
+            'SystemMonitor-v1.0.0.zip'
         ];
         
         const base = 'https://github.com/Xenonesis/sysmon/releases/latest/download/';
@@ -172,19 +174,24 @@ document.addEventListener('DOMContentLoaded', function() {
         const info = document.getElementById('downloadInfo');
         const buttons = [heroBtn, sectionBtn].filter(Boolean);
 
-        // Try local downloads folder first
+        // Try local downloads folder first (prioritizing .exe)
         for (const localPath of localCandidates) {
             try {
                 const resp = await fetch(localPath, { method: 'HEAD' });
                 if (resp && resp.ok) {
                     const fileName = localPath.split('/').pop();
+                    const fileSize = resp.headers.get('content-length');
+                    const sizeMB = fileSize ? (parseInt(fileSize) / 1048576).toFixed(2) : '?';
+                    
                     buttons.forEach(b => {
                         b.href = localPath;
                         b.setAttribute('download', fileName);
-                        b.target = '_blank';
+                        b.removeAttribute('target'); // Direct download without opening new tab
                     });
-                    if (info) info.textContent = `${fileName} • Latest version available locally`;
-                    console.log('Local download found:', localPath);
+                    
+                    const fileType = fileName.endsWith('.exe') ? 'Direct Application' : 'Installer Package';
+                    if (info) info.textContent = `${fileName} (${sizeMB} MB) • ${fileType} - Ready to download`;
+                    console.log('Local download found:', localPath, `(${sizeMB} MB)`);
                     return;
                 }
             } catch (err) {
@@ -198,13 +205,18 @@ document.addEventListener('DOMContentLoaded', function() {
             try {
                 const resp = await fetch(url, { method: 'HEAD' });
                 if (resp && resp.ok) {
+                    const fileSize = resp.headers.get('content-length');
+                    const sizeMB = fileSize ? (parseInt(fileSize) / 1048576).toFixed(2) : '?';
+                    
                     buttons.forEach(b => {
                         b.href = url;
                         b.setAttribute('download', name);
-                        b.target = '_blank';
+                        b.removeAttribute('target'); // Direct download
                     });
-                    if (info) info.textContent = `${name} • Downloading from GitHub`;
-                    console.log('GitHub download found:', url);
+                    
+                    const fileType = name.endsWith('.exe') ? 'Direct Application' : 'Installer Package';
+                    if (info) info.textContent = `${name} (${sizeMB} MB) • ${fileType} - Downloading from GitHub`;
+                    console.log('GitHub download found:', url, `(${sizeMB} MB)`);
                     return;
                 }
             } catch (err) {
