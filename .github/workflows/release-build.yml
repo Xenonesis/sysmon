@@ -1,0 +1,80 @@
+name: Build and Publish Windows Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Tag / version to publish (e.g. v1.0.0)'
+        required: true
+        default: 'v1.0.0'
+      release_name:
+        description: 'Release title'
+        required: false
+        default: 'System Monitor Release'
+      draft:
+        description: 'Make release a draft?'
+        required: false
+        default: false
+      prerelease:
+        description: 'Mark release as prerelease?'
+        required: false
+        default: false
+
+jobs:
+  build-windows-release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build release
+        run: |
+          cargo build --release
+
+      - name: Prepare build artifacts
+        run: |
+          $version = "${{ github.event.inputs.version }}"
+          $zipName = "SystemMonitor-$version.zip"
+          if (Test-Path "target\release\system-monitor.exe") {
+              Write-Host "Found executable, creating zip: $zipName"
+              # Include installer script and README for convenience
+              Compress-Archive -Path target\release\system-monitor.exe, setup.bat, installer.ps1, README.md -DestinationPath $zipName -Force
+          } else {
+              Write-Error "Executable not found: target\release\system-monitor.exe"
+              exit 1
+          }
+
+      - name: Create GitHub Release
+        id: create_release
+        uses: actions/create-release@v1
+        with:
+          tag_name: ${{ github.event.inputs.version }}
+          release_name: ${{ github.event.inputs.release_name }}
+          body: "Automated build for ${{ github.event.inputs.version }}"
+          draft: ${{ github.event.inputs.draft }}
+          prerelease: ${{ github.event.inputs.prerelease }}
+
+      - name: Upload release asset
+        uses: actions/upload-release-asset@v1
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: SystemMonitor-${{ github.event.inputs.version }}.zip
+          asset_name: SystemMonitor-${{ github.event.inputs.version }}.zip
+          asset_content_type: application/zip
+
+      - name: Output public asset URL
+        run: |
+          echo "Release artifact uploaded: https://github.com/${{ github.repository }}/releases/latest/download/SystemMonitor-${{ github.event.inputs.version }}.zip"
