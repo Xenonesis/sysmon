@@ -1,0 +1,48 @@
+name: Build Windows Release
+
+on:
+  workflow_dispatch: {}
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/gh-actions-rust@stable
+        with:
+          toolchain: stable
+
+      - name: Install MSVC build tools
+        shell: pwsh
+        run: |
+          choco install -y visualstudio2019-buildtools --no-progress || true
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Set up environment for release
+        shell: pwsh
+        run: |
+          rustup default stable
+
+      - name: Build release
+        shell: pwsh
+        run: |
+          cargo build --release --target x86_64-pc-windows-msvc
+
+      - name: Upload exe as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: system-monitor-windows-x64
+          path: target\x86_64-pc-windows-msvc\release\system-monitor.exe
