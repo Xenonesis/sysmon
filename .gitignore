@@ -2,11 +2,9 @@
 downloads/*
 !downloads/.gitkeep
 
-# Docs downloads folder - ALLOW .exe files for GitHub Pages
-# docs/downloads/*
-# !docs/downloads/.gitkeep
-# Keep .exe files in docs/downloads for GitHub Pages hosting
-!docs/downloads/*.exe
+# Docs downloads folder - FORCE INCLUDE all files for GitHub Pages
+!docs/downloads/
+!docs/downloads/*
 
 /target
 Cargo.lock
