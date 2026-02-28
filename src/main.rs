@@ -540,6 +540,9 @@ enum Tab {
 
 impl SystemMonitorApp {
     fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        // Install image loaders for showing the logo
+        egui_extras::install_image_loaders(&cc.egui_ctx);
+
         // Load settings
         let settings = AppSettings::load();
 
@@ -2265,7 +2268,12 @@ impl SystemMonitorApp {
             // Hero brand
             ui.group(|ui| {
                 ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new("◈").size(28.0).color(egui::Color32::from_rgb(0, 229, 255)));
+                    ui.add(
+                        egui::Image::new(egui::include_image!("../assets/icon.png"))
+                            .max_width(40.0)
+                            .max_height(40.0)
+                    );
+                    ui.add_space(8.0);
                     ui.vertical(|ui| {
                         ui.label(egui::RichText::new("System Monitor").size(22.0).strong().color(egui::Color32::from_rgb(220, 225, 240)));
                         ui.label(egui::RichText::new("v1.0.0 · Terminal Noir").size(12.0).color(egui::Color32::from_rgb(100, 110, 140)));
@@ -2333,12 +2341,29 @@ impl SystemMonitorApp {
     }
 }
 
+fn load_icon() -> Option<egui::IconData> {
+    let icon_bytes = include_bytes!("../assets/icon.png");
+    let image = image::load_from_memory(icon_bytes).ok()?.into_rgba8();
+    let (width, height) = image.dimensions();
+    Some(egui::IconData {
+        rgba: image.into_raw(),
+        width,
+        height,
+    })
+}
+
 fn main() -> Result<(), eframe::Error> {
+    let mut viewport_builder = egui::ViewportBuilder::default()
+        .with_inner_size([1100.0, 800.0])
+        .with_min_inner_size([900.0, 600.0])
+        .with_title("System Monitor v1.0.0");
+
+    if let Some(icon) = load_icon() {
+        viewport_builder = viewport_builder.with_icon(std::sync::Arc::new(icon));
+    }
+
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_inner_size([1100.0, 800.0])
-            .with_min_inner_size([900.0, 600.0])
-            .with_title("System Monitor v1.0.0"),
+        viewport: viewport_builder,
         ..Default::default()
     };
 

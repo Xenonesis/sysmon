@@ -118,9 +118,9 @@ nav.scrolled {
     align-items: center;
     gap: 0.5rem;
 }
-.brand-glyph {
-    font-size: 1.4rem;
-    color: var(--accent);
+.brand-logo {
+    width: 24px;
+    height: 24px;
     filter: drop-shadow(0 0 6px var(--accent-glow-s));
 }
 .brand-name {
