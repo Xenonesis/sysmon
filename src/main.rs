@@ -545,9 +545,19 @@ impl SystemMonitorApp {
 
         // Configure fonts and style
         let mut style = (*cc.egui_ctx.style()).clone();
-        style.spacing.item_spacing = egui::vec2(8.0, 8.0);
-        style.spacing.button_padding = egui::vec2(10.0, 5.0);
-        
+        style.spacing.item_spacing = egui::vec2(8.0, 6.0);
+        style.spacing.button_padding = egui::vec2(12.0, 6.0);
+
+        // Typographic hierarchy
+        use egui::{FontFamily, FontId, TextStyle};
+        style.text_styles = [
+            (TextStyle::Heading, FontId::new(20.0, FontFamily::Proportional)),
+            (TextStyle::Body, FontId::new(13.5, FontFamily::Proportional)),
+            (TextStyle::Monospace, FontId::new(13.0, FontFamily::Monospace)),
+            (TextStyle::Button, FontId::new(13.0, FontFamily::Proportional)),
+            (TextStyle::Small, FontId::new(11.0, FontFamily::Proportional)),
+        ].into();
+
         // Apply theme — custom "Terminal Noir" dark or standard light
         if settings.theme_dark {
             let mut visuals = egui::Visuals::dark();
@@ -567,6 +577,13 @@ impl SystemMonitorApp {
             visuals.widgets.hovered.bg_fill = egui::Color32::from_rgb(35, 40, 54);
             visuals.widgets.active.bg_fill = egui::Color32::from_rgb(0, 184, 212);
             
+            // Rounding
+            visuals.window_rounding = egui::Rounding::same(10.0);
+            visuals.widgets.noninteractive.rounding = egui::Rounding::same(8.0);
+            visuals.widgets.inactive.rounding = egui::Rounding::same(6.0);
+            visuals.widgets.hovered.rounding = egui::Rounding::same(6.0);
+            visuals.widgets.active.rounding = egui::Rounding::same(6.0);
+
             // Window chrome
             visuals.window_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgba_premultiplied(0, 229, 255, 30));
             visuals.window_shadow = egui::epaint::Shadow {
@@ -1058,6 +1075,11 @@ impl eframe::App for SystemMonitorApp {
                             visuals.widgets.inactive.bg_fill = egui::Color32::from_rgb(26, 30, 40);
                             visuals.widgets.hovered.bg_fill = egui::Color32::from_rgb(35, 40, 54);
                             visuals.widgets.active.bg_fill = egui::Color32::from_rgb(0, 184, 212);
+                            visuals.window_rounding = egui::Rounding::same(10.0);
+                            visuals.widgets.noninteractive.rounding = egui::Rounding::same(8.0);
+                            visuals.widgets.inactive.rounding = egui::Rounding::same(6.0);
+                            visuals.widgets.hovered.rounding = egui::Rounding::same(6.0);
+                            visuals.widgets.active.rounding = egui::Rounding::same(6.0);
                             visuals.window_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgba_premultiplied(0, 229, 255, 30));
                             ctx.set_visuals(visuals);
                         } else {
@@ -1215,62 +1237,92 @@ impl eframe::App for SystemMonitorApp {
             });
         });
 
-        // Side panel with tabs
-        egui::SidePanel::left("sidebar").min_width(150.0).show(ctx, |ui| {
-            ui.heading("📊 Navigation");
-            ui.separator();
-            
-            ui.selectable_value(&mut self.selected_tab, Tab::Overview, "📋 Overview");
-            ui.selectable_value(&mut self.selected_tab, Tab::Performance, "📈 Performance");
-            ui.selectable_value(&mut self.selected_tab, Tab::Processes, "⚙️ Processes");
-            ui.selectable_value(&mut self.selected_tab, Tab::CpuCores, "🔥 CPU Cores");
-            ui.selectable_value(&mut self.selected_tab, Tab::Storage, "💾 Storage");
-            ui.selectable_value(&mut self.selected_tab, Tab::Network, "🌐 Network");
-            ui.selectable_value(&mut self.selected_tab, Tab::SystemInfo, "💻 System Info");
-            ui.separator();
-            
-            // Show alerts count if any
-            let alert_count = data.alerts.len();
-            let alerts_label = if alert_count > 0 {
-                format!("🚨 Alerts ({})", alert_count)
-            } else {
-                "🚨 Alerts".to_string()
-            };
-            
-            if alert_count > 0 {
-                ui.colored_label(egui::Color32::RED, &alerts_label);
-            }
-            ui.selectable_value(&mut self.selected_tab, Tab::Alerts, alerts_label);
-            ui.separator();
-            ui.selectable_value(&mut self.selected_tab, Tab::About, "ℹ️ About");
-
-            ui.add_space(20.0);
-
-            // System summary in sidebar
-            ui.group(|ui| {
-                ui.heading("Quick Stats");
-                ui.separator();
-                
-                let cpu_color = get_usage_color(data.cpu_usage);
-                ui.horizontal(|ui| {
-                    ui.label("CPU:");
-                    ui.colored_label(cpu_color, format!("{:.1}%", data.cpu_usage));
-                });
-
-                let mem_color = get_usage_color(data.memory_percentage);
-                ui.horizontal(|ui| {
-                    ui.label("RAM:");
-                    ui.colored_label(mem_color, format!("{:.1}%", data.memory_percentage));
-                });
-
-                if let Some(ref gpu_info) = data.gpu_info {
-                    let gpu_color = get_usage_color(gpu_info.utilization);
-                    ui.horizontal(|ui| {
-                        ui.label("GPU:");
-                        ui.colored_label(gpu_color, format!("{:.1}%", gpu_info.utilization));
-                    });
-                }
+        // Side panel — branded nav with custom tabs
+        egui::SidePanel::left("sidebar").min_width(190.0).max_width(210.0).show(ctx, |ui| {
+            // ── Brand header ──
+            ui.add_space(6.0);
+            ui.horizontal(|ui| {
+                ui.add_space(8.0);
+                // Painted diamond glyph
+                let r = ui.label(egui::RichText::new(" ").size(17.0));
+                let cy = r.rect.center().y;
+                let cx = r.rect.left() + 2.0;
+                let sz = 7.0;
+                let pts = vec![
+                    egui::pos2(cx, cy - sz),
+                    egui::pos2(cx + sz * 0.65, cy),
+                    egui::pos2(cx, cy + sz),
+                    egui::pos2(cx - sz * 0.65, cy),
+                ];
+                ui.painter().add(egui::Shape::convex_polygon(pts, egui::Color32::from_rgb(0, 229, 255), egui::Stroke::NONE));
+                ui.label(egui::RichText::new("Sys").size(17.0).strong().color(egui::Color32::from_rgb(0, 229, 255)));
+                ui.label(egui::RichText::new("Mon").size(17.0).strong().color(egui::Color32::from_rgb(220, 225, 240)));
+                ui.label(egui::RichText::new("v1.0").size(9.5).color(egui::Color32::from_rgb(80, 90, 115)));
             });
+            ui.add_space(6.0);
+            // Thin accent line under brand
+            {
+                let r = ui.cursor();
+                ui.painter().line_segment(
+                    [egui::pos2(r.left() + 12.0, r.top()), egui::pos2(r.right() - 12.0, r.top())],
+                    egui::Stroke::new(1.0, egui::Color32::from_rgb(30, 35, 48)),
+                );
+            }
+            ui.add_space(10.0);
+
+            // ── Navigation label ──
+            {
+                let r = ui.cursor();
+                ui.painter().text(
+                    egui::pos2(r.left() + 14.0, r.top()),
+                    egui::Align2::LEFT_TOP, "NAVIGATION",
+                    egui::FontId::proportional(9.5),
+                    egui::Color32::from_rgb(70, 78, 105),
+                );
+            }
+            ui.add_space(18.0);
+
+            // ── Tab items ──
+            draw_nav_tab(ui, &mut self.selected_tab, Tab::Overview,    "Overview",    None);
+            draw_nav_tab(ui, &mut self.selected_tab, Tab::Performance, "Performance", None);
+            draw_nav_tab(ui, &mut self.selected_tab, Tab::Processes,   "Processes",   None);
+            draw_nav_tab(ui, &mut self.selected_tab, Tab::CpuCores,   "CPU Cores",   None);
+            draw_nav_tab(ui, &mut self.selected_tab, Tab::Storage,     "Storage",     None);
+            draw_nav_tab(ui, &mut self.selected_tab, Tab::Network,     "Network",     None);
+            draw_nav_tab(ui, &mut self.selected_tab, Tab::SystemInfo,  "System Info", None);
+
+            ui.add_space(6.0);
+            {
+                let r = ui.cursor();
+                ui.painter().line_segment(
+                    [egui::pos2(r.left() + 12.0, r.top()), egui::pos2(r.right() - 12.0, r.top())],
+                    egui::Stroke::new(1.0, egui::Color32::from_rgb(30, 35, 48)),
+                );
+            }
+            ui.add_space(6.0);
+
+            let alert_count = data.alerts.len();
+            draw_nav_tab(ui, &mut self.selected_tab, Tab::Alerts, "Alerts", if alert_count > 0 { Some(alert_count) } else { None });
+            draw_nav_tab(ui, &mut self.selected_tab, Tab::About,  "About",  None);
+
+            // ── Quick stats ──
+            ui.add_space(14.0);
+            {
+                let r = ui.cursor();
+                ui.painter().text(
+                    egui::pos2(r.left() + 14.0, r.top()),
+                    egui::Align2::LEFT_TOP, "QUICK STATS",
+                    egui::FontId::proportional(9.5),
+                    egui::Color32::from_rgb(70, 78, 105),
+                );
+            }
+            ui.add_space(18.0);
+
+            draw_mini_stat(ui, "CPU", data.cpu_usage);
+            draw_mini_stat(ui, "RAM", data.memory_percentage);
+            if let Some(ref gpu) = data.gpu_info {
+                draw_mini_stat(ui, "GPU", gpu.utilization);
+            }
         });
 
         // Process Manager window
@@ -1295,163 +1347,215 @@ impl eframe::App for SystemMonitorApp {
     }
 }
 
+// ─── Custom UI helpers ───────────────────────────────────────────────
+
+/// Section header with cyan accent underline
+fn paint_section_header(ui: &mut egui::Ui, text: &str) {
+    ui.add_space(2.0);
+    let r = ui.label(egui::RichText::new(text)
+        .size(18.0).strong()
+        .color(egui::Color32::from_rgb(220, 225, 240)));
+    let y = r.rect.bottom() + 2.0;
+    ui.painter().line_segment(
+        [egui::pos2(r.rect.left(), y), egui::pos2(r.rect.left() + 36.0, y)],
+        egui::Stroke::new(2.0, egui::Color32::from_rgb(0, 229, 255)),
+    );
+    ui.add_space(8.0);
+}
+
+/// Rounded pill progress bar with subtle track
+fn paint_progress_bar(ui: &mut egui::Ui, fraction: f32, fill: egui::Color32, h: f32) {
+    let w = ui.available_width();
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(w, h), egui::Sense::hover());
+    let rnd = h / 2.0;
+    ui.painter().rect_filled(rect, rnd, egui::Color32::from_rgb(20, 24, 32));
+    let frac = fraction.clamp(0.0, 1.0);
+    if frac > 0.005 {
+        let bar = egui::Rect::from_min_size(rect.min, egui::vec2(w * frac, h));
+        ui.painter().rect_filled(bar, rnd, fill);
+    }
+}
+
+/// Sidebar navigation tab with left accent bar + hover highlight
+fn draw_nav_tab(ui: &mut egui::Ui, selected: &mut Tab, tab: Tab, label: &str, badge: Option<usize>) {
+    let is_sel = *selected == tab;
+    let size = egui::vec2(ui.available_width(), 32.0);
+    let (rect, resp) = ui.allocate_exact_size(size, egui::Sense::click());
+    let p = ui.painter();
+    if is_sel {
+        p.rect_filled(rect, 6.0, egui::Color32::from_rgba_premultiplied(0, 229, 255, 15));
+        p.rect_filled(
+            egui::Rect::from_min_size(rect.left_top(), egui::vec2(3.0, rect.height())),
+            1.5, egui::Color32::from_rgb(0, 229, 255),
+        );
+    } else if resp.hovered() {
+        p.rect_filled(rect, 6.0, egui::Color32::from_rgba_premultiplied(255, 255, 255, 6));
+    }
+    let mid = rect.center().y;
+    let ic = if is_sel { egui::Color32::from_rgb(0, 229, 255) } else { egui::Color32::from_rgb(50, 58, 78) };
+    let tc = if is_sel { egui::Color32::from_rgb(225, 230, 245) } else { egui::Color32::from_rgb(145, 155, 180) };
+    // Painted dot indicator
+    p.circle_filled(egui::pos2(rect.left() + 16.0, mid), 3.0, ic);
+    p.text(egui::pos2(rect.left() + 30.0, mid), egui::Align2::LEFT_CENTER, label, egui::FontId::proportional(13.0), tc);
+    if let Some(c) = badge {
+        if c > 0 {
+            let bx = rect.right() - 22.0;
+            p.circle_filled(egui::pos2(bx, mid), 9.0, egui::Color32::from_rgb(255, 82, 82));
+            p.text(egui::pos2(bx, mid), egui::Align2::CENTER_CENTER, &c.to_string(), egui::FontId::proportional(9.0), egui::Color32::WHITE);
+        }
+    }
+    if resp.clicked() { *selected = tab; }
+}
+
+/// Compact stat row for sidebar: label, value %, mini bar
+fn draw_mini_stat(ui: &mut egui::Ui, label: &str, value: f32) {
+    let w = ui.available_width();
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(w, 22.0), egui::Sense::hover());
+    let p = ui.painter();
+    let color = get_usage_color(value);
+    p.text(egui::pos2(rect.left() + 12.0, rect.top() + 4.0), egui::Align2::LEFT_TOP, label, egui::FontId::proportional(11.0), egui::Color32::from_rgb(120, 130, 155));
+    p.text(egui::pos2(rect.right() - 12.0, rect.top() + 4.0), egui::Align2::RIGHT_TOP, &format!("{:.0}%", value), egui::FontId::proportional(11.0), color);
+    let bar_y = rect.bottom() - 3.0;
+    let bar_w = w - 24.0;
+    let track = egui::Rect::from_min_size(egui::pos2(rect.left() + 12.0, bar_y), egui::vec2(bar_w, 2.5));
+    p.rect_filled(track, 1.0, egui::Color32::from_rgb(20, 24, 32));
+    let fw = bar_w * (value / 100.0).clamp(0.0, 1.0);
+    if fw > 0.5 {
+        p.rect_filled(egui::Rect::from_min_size(track.min, egui::vec2(fw, 2.5)), 1.0, color);
+    }
+}
+
 impl SystemMonitorApp {
     fn show_overview_tab(&self, ui: &mut egui::Ui, data: &SystemData) {
-        ui.heading("🖥️ System Overview");
-        ui.separator();
+        paint_section_header(ui, "System Overview");
 
         egui::ScrollArea::vertical().show(ui, |ui| {
-            // Memory Usage Section
-            ui.group(|ui| {
-                ui.heading("💾 Memory Usage");
-                ui.add_space(5.0);
-                
-                ui.horizontal(|ui| {
-                    ui.label("Total:");
-                    ui.strong(format!("{:.2} GB", bytes_to_gb(data.memory_total)));
-                });
-                
-                ui.horizontal(|ui| {
-                    ui.label("Used:");
-                    ui.strong(format!("{:.2} GB ({:.1}%)", 
-                        bytes_to_gb(data.memory_used), data.memory_percentage));
-                });
-                
-                ui.horizontal(|ui| {
-                    ui.label("Free:");
-                    ui.strong(format!("{:.2} GB", 
-                        bytes_to_gb(data.memory_total - data.memory_used)));
-                });
+            // ── Metric cards row ──
+            let card_bg = egui::Color32::from_rgb(25, 28, 38);
+            let card_border = egui::Stroke::new(1.0, egui::Color32::from_rgb(40, 44, 60));
+            let card_rnd = egui::Rounding::same(6.0);
 
-                let progress = data.memory_percentage / 100.0;
-                let color = get_usage_color(data.memory_percentage);
-                ui.add(egui::ProgressBar::new(progress)
-                    .fill(color)
-                    .text(format!("{:.1}%", data.memory_percentage)));
-            });
+            let full_avail = ui.available_width();
+            let card_spacing = 8.0;
+            let card_h = 100.0;
+            let (row_rect, _) = ui.allocate_exact_size(egui::vec2(full_avail, card_h), egui::Sense::hover());
+            let p = ui.painter();
 
-            ui.add_space(10.0);
+            // Account for HiDPI: at ppp>1, available_width can exceed visible area
+            let ppp = ui.ctx().pixels_per_point();
+            let visible_w = if ppp > 1.01 {
+                let screen_w = ui.ctx().screen_rect().width();
+                (screen_w / ppp - row_rect.min.x).max(200.0)
+            } else {
+                full_avail
+            };
+            let card_w = (visible_w - card_spacing * 2.0) / 3.0;
 
-            // CPU Usage Section
-            ui.group(|ui| {
-                ui.heading("⚡ CPU Usage");
-                ui.add_space(5.0);
-                
-                ui.horizontal(|ui| {
-                    ui.label("Current Usage:");
-                    ui.strong(format!("{:.1}%", data.cpu_usage));
-                });
+            // Prepare card data
+            let cpu_c = get_usage_color(data.cpu_usage);
+            let mem_c = get_usage_color(data.memory_percentage);
+            let (gpu_val, gpu_sub, gpu_frac, gpu_c) = if let Some(ref gpu) = data.gpu_info {
+                let c = get_usage_color(gpu.utilization);
+                let sub = if let (Some(u), Some(t)) = (gpu.memory_used, gpu.memory_total) {
+                    format!("{:.0}/{:.0} MB", bytes_to_mb(u), bytes_to_mb(t))
+                } else { gpu.name.clone() };
+                (format!("{:.1}%", gpu.utilization), sub, gpu.utilization / 100.0, c)
+            } else {
+                ("N/A".to_string(), "Not detected".to_string(), 0.0, egui::Color32::from_rgb(60, 65, 80))
+            };
 
-                let progress = data.cpu_usage / 100.0;
-                let color = get_usage_color(data.cpu_usage);
-                ui.add(egui::ProgressBar::new(progress)
-                    .fill(color)
-                    .text(format!("{:.1}%", data.cpu_usage)));
-            });
+            let cards: [(egui::Color32, &str, &str, &str, f32, egui::Color32); 3] = [
+                (egui::Color32::from_rgb(0, 229, 255), "CPU", &format!("{:.1}%", data.cpu_usage), &format!("{} cores", data.cpu_cores.len()), data.cpu_usage / 100.0, cpu_c),
+                (egui::Color32::from_rgb(105, 240, 174), "MEMORY", &format!("{:.1}%", data.memory_percentage), &format!("{:.1} / {:.1} GB", bytes_to_gb(data.memory_used), bytes_to_gb(data.memory_total)), data.memory_percentage / 100.0, mem_c),
+                (egui::Color32::from_rgb(255, 171, 64), "GPU", &gpu_val, &gpu_sub, gpu_frac, gpu_c),
+            ];
 
-            ui.add_space(10.0);
-
-            // GPU Usage Section
-            if self.settings.show_gpu {
-                if let Some(ref gpu_info) = data.gpu_info {
-                    ui.group(|ui| {
-                        ui.heading("🎮 GPU Usage");
-                        ui.add_space(5.0);
-                        
-                        ui.horizontal(|ui| {
-                            ui.label("Device:");
-                            ui.strong(&gpu_info.name);
-                        });
-                        
-                        ui.horizontal(|ui| {
-                            ui.label("Utilization:");
-                            ui.strong(format!("{:.1}%", gpu_info.utilization));
-                        });
-
-                        let progress = gpu_info.utilization / 100.0;
-                        let color = get_usage_color(gpu_info.utilization);
-                        ui.add(egui::ProgressBar::new(progress)
-                            .fill(color)
-                            .text(format!("{:.1}%", gpu_info.utilization)));
-
-                        if let (Some(used), Some(total)) = (gpu_info.memory_used, gpu_info.memory_total) {
-                            let gpu_mem_percentage = (used as f64 / total as f64) * 100.0;
-                            ui.horizontal(|ui| {
-                                ui.label("VRAM:");
-                                ui.strong(format!("{:.0} MB / {:.0} MB ({:.1}%)", 
-                                    bytes_to_mb(used), bytes_to_mb(total), gpu_mem_percentage));
-                            });
-                        }
-
-                        if let Some(temp) = gpu_info.temperature {
-                            ui.horizontal(|ui| {
-                                ui.label("Temperature:");
-                                let temp_color = if temp < 70 {
-                                    egui::Color32::GREEN
-                                } else if temp < 85 {
-                                    egui::Color32::YELLOW
-                                } else {
-                                    egui::Color32::RED
-                                };
-                                ui.colored_label(temp_color, format!("🌡️ {}°C", temp));
-                            });
-                        }
-                    });
-
-                    ui.add_space(10.0);
-                }
+            for (i, (accent, label, value, sub, frac, color)) in cards.iter().enumerate() {
+                let x = row_rect.min.x + (card_w + card_spacing) * i as f32;
+                let cr = egui::Rect::from_min_size(egui::pos2(x, row_rect.min.y), egui::vec2(card_w, card_h));
+                p.rect_filled(cr, card_rnd, card_bg);
+                p.rect_stroke(cr, card_rnd, card_border);
+                let m = 10.0;
+                p.circle_filled(egui::pos2(cr.left() + m + 4.0, cr.top() + m + 5.0), 3.0, *accent);
+                p.text(egui::pos2(cr.left() + m + 14.0, cr.top() + m + 1.0), egui::Align2::LEFT_TOP, *label, egui::FontId::proportional(11.0), egui::Color32::from_rgb(120, 130, 160));
+                // Value
+                p.text(egui::pos2(cr.left() + m, cr.top() + m + 18.0), egui::Align2::LEFT_TOP, *value, egui::FontId::proportional(28.0), *color);
+                // Sub
+                p.text(egui::pos2(cr.left() + m, cr.top() + m + 50.0), egui::Align2::LEFT_TOP, *sub, egui::FontId::proportional(11.0), egui::Color32::from_rgb(100, 110, 140));
+                // Progress bar
+                let bar_y = cr.top() + m + 68.0;
+                let bar_w = card_w - m * 2.0;
+                let bar_rect = egui::Rect::from_min_size(egui::pos2(cr.left() + m, bar_y), egui::vec2(bar_w, 5.0));
+                p.rect_filled(bar_rect, 2.5, egui::Color32::from_rgb(20, 24, 32));
+                let f = frac.clamp(0.0, 1.0);
+                if f > 0.005 { p.rect_filled(egui::Rect::from_min_size(bar_rect.min, egui::vec2(bar_w * f, 5.0)), 2.5, *color); }
             }
 
-            // Top 5 Processes in Overview
-            if self.settings.show_processes {
-                ui.group(|ui| {
-                    ui.heading("📊 Top 5 Memory-Consuming Processes");
-                    ui.add_space(5.0);
+            ui.add_space(10.0);
 
-                    egui::Grid::new("overview_process_grid")
-                        .striped(true)
-                        .spacing([10.0, 4.0])
-                        .show(ui, |ui| {
-                            ui.strong("Process");
-                            ui.strong("Memory");
-                            ui.strong("CPU");
-                            ui.end_row();
-
-                            for process in data.top_processes.iter().take(5) {
-                                let memory_mb = bytes_to_mb(process.memory);
-                                let memory_color = if memory_mb > 500.0 {
-                                    egui::Color32::from_rgb(255, 82, 82)
-                                } else if memory_mb > 200.0 {
-                                    egui::Color32::from_rgb(255, 171, 64)
-                                } else {
-                                    egui::Color32::from_rgb(105, 240, 174)
-                                };
-
-                                let display_name = if process.name.len() > 30 {
-                                    format!("{}...", &process.name[..27])
-                                } else {
-                                    process.name.clone()
-                                };
-                                ui.label(display_name);
-                                ui.colored_label(memory_color, format!("{:.2} MB", memory_mb));
-                                ui.label(format!("{:.1}%", process.cpu_usage));
-                                ui.end_row();
-                            }
-                        });
+            // ── Detail strip ──
+            ui.group(|ui| {
+                ui.horizontal(|ui| {
+                    if let Some(ref gpu) = data.gpu_info {
+                        if let Some(temp) = gpu.temperature {
+                            let tc = if temp < 70 { egui::Color32::from_rgb(105, 240, 174) } else if temp < 85 { egui::Color32::from_rgb(255, 171, 64) } else { egui::Color32::from_rgb(255, 82, 82) };
+                            ui.label(egui::RichText::new(format!("{}°C", temp)).strong().color(tc));
+                            ui.separator();
+                        }
+                        ui.label(egui::RichText::new(&gpu.name).size(11.5).color(egui::Color32::from_rgb(130, 140, 165)));
+                        ui.separator();
+                    }
+                    let d = data.system_info.uptime / 86400;
+                    let h = (data.system_info.uptime % 86400) / 3600;
+                    let m = (data.system_info.uptime % 3600) / 60;
+                    ui.label(egui::RichText::new(format!("Uptime {}d {}h {}m", d, h, m)).size(11.5).color(egui::Color32::from_rgb(130, 140, 165)));
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.label(egui::RichText::new(&data.last_update).size(11.0).color(egui::Color32::from_rgb(80, 90, 115)));
+                    });
                 });
+            });
+
+            ui.add_space(12.0);
+
+            // ── Top processes ──
+            if self.settings.show_processes {
+                paint_section_header(ui, "Top Processes");
+
+                egui::Grid::new("overview_process_grid")
+                    .striped(true)
+                    .spacing([14.0, 5.0])
+                    .show(ui, |ui| {
+                        ui.label(egui::RichText::new("PROCESS").size(10.0).color(egui::Color32::from_rgb(80, 90, 115)));
+                        ui.label(egui::RichText::new("MEMORY").size(10.0).color(egui::Color32::from_rgb(80, 90, 115)));
+                        ui.label(egui::RichText::new("CPU").size(10.0).color(egui::Color32::from_rgb(80, 90, 115)));
+                        ui.end_row();
+
+                        for process in data.top_processes.iter().take(8) {
+                            let mb = bytes_to_mb(process.memory);
+                            let mc = if mb > 500.0 { egui::Color32::from_rgb(255, 82, 82) }
+                                     else if mb > 200.0 { egui::Color32::from_rgb(255, 171, 64) }
+                                     else { egui::Color32::from_rgb(105, 240, 174) };
+                            let name = if process.name.len() > 32 {
+                                format!("{}…", &process.name[..30])
+                            } else { process.name.clone() };
+                            ui.label(egui::RichText::new(name).size(12.5));
+                            ui.colored_label(mc, format!("{:.1} MB", mb));
+                            ui.label(format!("{:.1}%", process.cpu_usage));
+                            ui.end_row();
+                        }
+                    });
             }
         });
     }
 
     fn show_performance_tab(&self, ui: &mut egui::Ui, data: &SystemData) {
-        ui.heading("📈 Performance Graphs");
-        ui.separator();
+        paint_section_header(ui, "Performance Graphs");
 
         egui::ScrollArea::vertical().show(ui, |ui| {
             if self.settings.show_graphs {
                 // CPU Graph
                 ui.group(|ui| {
-                    ui.heading("⚡ CPU Usage History");
+                    ui.label(egui::RichText::new("CPU Usage History").size(15.0).strong().color(egui::Color32::from_rgb(0, 229, 255)));
                     let cpu_points: PlotPoints = data.cpu_history
                         .iter()
                         .map(|p| [p.time, p.value])
@@ -1474,7 +1578,7 @@ impl SystemMonitorApp {
 
                 // Memory Graph
                 ui.group(|ui| {
-                    ui.heading("💾 Memory Usage History");
+                    ui.label(egui::RichText::new("Memory Usage History").size(15.0).strong().color(egui::Color32::from_rgb(105, 240, 174)));
                     let mem_points: PlotPoints = data.memory_history
                         .iter()
                         .map(|p| [p.time, p.value])
@@ -1498,7 +1602,7 @@ impl SystemMonitorApp {
                 // GPU Graph
                 if !data.gpu_history.is_empty() {
                     ui.group(|ui| {
-                        ui.heading("🎮 GPU Usage History");
+                        ui.label(egui::RichText::new("GPU Usage History").size(15.0).strong().color(egui::Color32::from_rgb(255, 171, 64)));
                         let gpu_points: PlotPoints = data.gpu_history
                             .iter()
                             .map(|p| [p.time, p.value])
@@ -1524,8 +1628,7 @@ impl SystemMonitorApp {
     }
 
     fn show_processes_tab(&mut self, ui: &mut egui::Ui, data: &SystemData) {
-        ui.heading("⚙️ Process Monitor");
-        ui.separator();
+        paint_section_header(ui, "Process Monitor");
 
         // Search box
         ui.horizontal(|ui| {
@@ -1605,8 +1708,7 @@ impl SystemMonitorApp {
     }
 
     fn show_storage_tab(&self, ui: &mut egui::Ui, data: &SystemData) {
-        ui.heading("💾 Storage Devices");
-        ui.separator();
+        paint_section_header(ui, "Storage Devices");
 
         egui::ScrollArea::vertical().show(ui, |ui| {
             for disk in &data.disk_info {
@@ -1652,11 +1754,8 @@ impl SystemMonitorApp {
                         ui.strong(format!("{:.2} GB", bytes_to_gb(used)));
                     });
 
-                    let progress = disk.usage_percentage / 100.0;
                     let color = get_usage_color(disk.usage_percentage);
-                    ui.add(egui::ProgressBar::new(progress)
-                        .fill(color)
-                        .text(format!("{:.1}%", disk.usage_percentage)));
+                    paint_progress_bar(ui, disk.usage_percentage / 100.0, color, 6.0);
 
                     // Show warning for low disk space
                     if disk.usage_percentage > 90.0 {
@@ -1676,17 +1775,16 @@ impl SystemMonitorApp {
     }
 
     fn show_network_tab(&self, ui: &mut egui::Ui, data: &SystemData) {
-        ui.heading("🌐 Network Interfaces");
-        ui.separator();
+        paint_section_header(ui, "Network Interfaces");
 
         egui::ScrollArea::vertical().show(ui, |ui| {
             // Network graphs
             if self.settings.show_graphs && !data.network_download_history.is_empty() {
                 ui.group(|ui| {
-                    ui.heading("📊 Network Activity History");
+                    ui.label(egui::RichText::new("Network Activity History").size(15.0).strong().color(egui::Color32::from_rgb(220, 225, 240)));
                     
                     // Download graph
-                    ui.label("📥 Download Rate (MB/s)");
+                    ui.label(egui::RichText::new("▼ Download Rate (MB/s)").size(12.0).color(egui::Color32::from_rgb(105, 240, 174)));
                     let download_points: PlotPoints = data.network_download_history
                         .iter()
                         .map(|p| [p.time, p.value])
@@ -1707,7 +1805,7 @@ impl SystemMonitorApp {
                     ui.add_space(10.0);
 
                     // Upload graph
-                    ui.label("📤 Upload Rate (MB/s)");
+                    ui.label(egui::RichText::new("▲ Upload Rate (MB/s)").size(12.0).color(egui::Color32::from_rgb(0, 229, 255)));
                     let upload_points: PlotPoints = data.network_upload_history
                         .iter()
                         .map(|p| [p.time, p.value])
@@ -1782,8 +1880,7 @@ impl SystemMonitorApp {
     }
 
     fn show_alerts_tab(&self, ui: &mut egui::Ui, data: &SystemData) {
-        ui.heading("🚨 System Alerts");
-        ui.separator();
+        paint_section_header(ui, "System Alerts");
 
         if data.alerts.is_empty() {
             ui.group(|ui| {
@@ -1865,8 +1962,7 @@ impl SystemMonitorApp {
     }
 
     fn show_system_info_tab(&self, ui: &mut egui::Ui, data: &SystemData) {
-        ui.heading("💻 System Information");
-        ui.separator();
+        paint_section_header(ui, "System Information");
 
         egui::ScrollArea::vertical().show(ui, |ui| {
             ui.group(|ui| {
@@ -1998,8 +2094,7 @@ impl SystemMonitorApp {
     }
 
     fn show_cpu_cores_tab(&self, ui: &mut egui::Ui, data: &SystemData) {
-        ui.heading("🔥 CPU Cores Monitoring");
-        ui.separator();
+        paint_section_header(ui, "CPU Cores Monitoring");
 
         egui::ScrollArea::vertical().show(ui, |ui| {
             ui.label(format!("Total Cores: {} ({} logical processors)", 
@@ -2029,11 +2124,8 @@ impl SystemMonitorApp {
                                 });
                             });
 
-                            let progress = core.usage / 100.0;
                             let color = get_usage_color(core.usage);
-                            ui.add(egui::ProgressBar::new(progress)
-                                .fill(color)
-                                .text(format!("{:.1}%", core.usage)));
+                            paint_progress_bar(ui, core.usage / 100.0, color, 5.0);
                         });
 
                         core_index += 1;
@@ -2165,65 +2257,77 @@ impl SystemMonitorApp {
     }
 
     fn show_about_tab(&self, ui: &mut egui::Ui) {
-        ui.heading("ℹ️ About System Monitor");
-        ui.separator();
+        paint_section_header(ui, "About");
 
         egui::ScrollArea::vertical().show(ui, |ui| {
-            ui.add_space(10.0);
-            
+            ui.add_space(8.0);
+
+            // Hero brand
             ui.group(|ui| {
-                ui.heading("System Monitor v1.0.0");
-                ui.label("A professional system monitoring application for Windows");
-                ui.add_space(5.0);
-                ui.label("Built with Rust and egui framework");
-            });
-
-            ui.add_space(10.0);
-
-            ui.group(|ui| {
-                ui.heading("✨ Features");
-                ui.label("• Real-time CPU, Memory, and GPU monitoring");
-                ui.label("• Historical performance graphs");
-                ui.label("• Process monitoring and tracking");
-                ui.label("• Color-coded usage indicators");
-                ui.label("• Low resource footprint");
-                ui.label("• Native Windows application");
-            });
-
-            ui.add_space(10.0);
-
-            ui.group(|ui| {
-                ui.heading("🛠️ Technical Details");
-                ui.label("• Framework: egui (Immediate Mode GUI)");
-                ui.label("• System Info: sysinfo library");
-                ui.label("• GPU Support: NVML (NVIDIA only)");
-                ui.label("• Update Interval: 2 seconds");
-                ui.label("• History: Last 2 minutes (60 data points)");
-            });
-
-            ui.add_space(10.0);
-
-            ui.group(|ui| {
-                ui.heading("🎨 Color Coding");
                 ui.horizontal(|ui| {
-                    ui.colored_label(egui::Color32::from_rgb(105, 240, 174), "● Green");
-                    ui.label("= Healthy (< 50%)");
+                    ui.label(egui::RichText::new("◈").size(28.0).color(egui::Color32::from_rgb(0, 229, 255)));
+                    ui.vertical(|ui| {
+                        ui.label(egui::RichText::new("System Monitor").size(22.0).strong().color(egui::Color32::from_rgb(220, 225, 240)));
+                        ui.label(egui::RichText::new("v1.0.0 · Terminal Noir").size(12.0).color(egui::Color32::from_rgb(100, 110, 140)));
+                    });
                 });
-                ui.horizontal(|ui| {
-                    ui.colored_label(egui::Color32::from_rgb(255, 171, 64), "● Amber");
-                    ui.label("= Moderate (50-75%)");
+                ui.add_space(6.0);
+                ui.label(egui::RichText::new("Professional system intelligence for Windows — built with Rust and egui.").size(13.0).color(egui::Color32::from_rgb(160, 170, 190)));
+            });
+
+            ui.add_space(10.0);
+
+            ui.columns(2, |cols| {
+                cols[0].group(|ui| {
+                    ui.label(egui::RichText::new("FEATURES").size(10.0).color(egui::Color32::from_rgb(0, 229, 255)));
+                    ui.add_space(6.0);
+                    for item in &[
+                        "Real-time CPU, Memory & GPU",
+                        "Historical performance graphs",
+                        "Process monitoring & management",
+                        "Color-coded usage indicators",
+                        "Per-core CPU breakdown",
+                        "Smart alerts system",
+                    ] {
+                        ui.horizontal(|ui| {
+                            ui.label(egui::RichText::new("›").color(egui::Color32::from_rgb(0, 229, 255)));
+                            ui.label(egui::RichText::new(*item).size(12.5).color(egui::Color32::from_rgb(175, 185, 205)));
+                        });
+                    }
                 });
-                ui.horizontal(|ui| {
-                    ui.colored_label(egui::Color32::from_rgb(255, 82, 82), "● Red");
-                    ui.label("= High (> 75%)");
+
+                cols[1].group(|ui| {
+                    ui.label(egui::RichText::new("TECHNICAL").size(10.0).color(egui::Color32::from_rgb(0, 229, 255)));
+                    ui.add_space(6.0);
+                    let specs = [
+                        ("Framework", "egui + eframe"),
+                        ("System", "sysinfo crate"),
+                        ("GPU", "NVML (NVIDIA)"),
+                        ("Refresh", "2 s interval"),
+                        ("History", "60 data points"),
+                        ("License", "MIT — open source"),
+                    ];
+                    for (k, v) in &specs {
+                        ui.horizontal(|ui| {
+                            ui.label(egui::RichText::new(*k).size(11.5).color(egui::Color32::from_rgb(100, 110, 140)));
+                            ui.label(egui::RichText::new(*v).size(12.0).color(egui::Color32::from_rgb(185, 195, 215)));
+                        });
+                    }
                 });
             });
 
             ui.add_space(10.0);
 
             ui.group(|ui| {
-                ui.heading("📄 License");
-                ui.label("MIT License - Free and open source");
+                ui.label(egui::RichText::new("COLOR LEGEND").size(10.0).color(egui::Color32::from_rgb(0, 229, 255)));
+                ui.add_space(6.0);
+                ui.horizontal(|ui| {
+                    ui.colored_label(egui::Color32::from_rgb(105, 240, 174), "●  Healthy < 50%");
+                    ui.add_space(16.0);
+                    ui.colored_label(egui::Color32::from_rgb(255, 171, 64), "●  Moderate 50-75%");
+                    ui.add_space(16.0);
+                    ui.colored_label(egui::Color32::from_rgb(255, 82, 82), "●  Critical > 75%");
+                });
             });
         });
     }
