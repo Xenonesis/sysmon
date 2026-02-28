@@ -548,9 +548,35 @@ impl SystemMonitorApp {
         style.spacing.item_spacing = egui::vec2(8.0, 8.0);
         style.spacing.button_padding = egui::vec2(10.0, 5.0);
         
-        // Apply dark/light theme
+        // Apply theme — custom "Terminal Noir" dark or standard light
         if settings.theme_dark {
-            cc.egui_ctx.set_visuals(egui::Visuals::dark());
+            let mut visuals = egui::Visuals::dark();
+            // Deep charcoal backgrounds
+            visuals.panel_fill = egui::Color32::from_rgb(13, 15, 20);         // bg-deep
+            visuals.window_fill = egui::Color32::from_rgb(19, 22, 29);        // bg-surface
+            visuals.extreme_bg_color = egui::Color32::from_rgb(8, 9, 12);     // bg-deepest
+
+            // Cyan accent for selections and interactions
+            visuals.selection.bg_fill = egui::Color32::from_rgba_premultiplied(0, 229, 255, 60);
+            visuals.selection.stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(0, 229, 255));
+            visuals.hyperlink_color = egui::Color32::from_rgb(0, 229, 255);
+
+            // Subtle borders
+            visuals.widgets.noninteractive.bg_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(38, 42, 56));
+            visuals.widgets.inactive.bg_fill = egui::Color32::from_rgb(26, 30, 40);
+            visuals.widgets.hovered.bg_fill = egui::Color32::from_rgb(35, 40, 54);
+            visuals.widgets.active.bg_fill = egui::Color32::from_rgb(0, 184, 212);
+            
+            // Window chrome
+            visuals.window_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgba_premultiplied(0, 229, 255, 30));
+            visuals.window_shadow = egui::epaint::Shadow {
+                offset: egui::vec2(0.0, 8.0),
+                blur: 24.0,
+                spread: 0.0,
+                color: egui::Color32::from_rgba_premultiplied(0, 0, 0, 100),
+            };
+
+            cc.egui_ctx.set_visuals(visuals);
         } else {
             cc.egui_ctx.set_visuals(egui::Visuals::light());
         }
@@ -762,11 +788,11 @@ fn bytes_to_gb(bytes: u64) -> f64 {
 
 fn get_usage_color(percentage: f32) -> egui::Color32 {
     if percentage < 50.0 {
-        egui::Color32::from_rgb(76, 175, 80) // Green
+        egui::Color32::from_rgb(105, 240, 174)  // Mint green (#69f0ae)
     } else if percentage < 75.0 {
-        egui::Color32::from_rgb(255, 193, 7) // Yellow
+        egui::Color32::from_rgb(255, 171, 64)    // Amber (#ffab40)
     } else {
-        egui::Color32::from_rgb(244, 67, 54) // Red
+        egui::Color32::from_rgb(255, 82, 82)     // Saturated red (#ff5252)
     }
 }
 
@@ -803,7 +829,7 @@ impl eframe::App for SystemMonitorApp {
         if self.updater.get_update_info().update_available {
             egui::TopBottomPanel::top("update_notification").show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    ui.colored_label(egui::Color32::from_rgb(76, 175, 80), "🎉");
+                    ui.colored_label(egui::Color32::from_rgb(105, 240, 174), "🎉");
                     ui.label(format!(
                         "New version {} is available! Current: {}",
                         self.updater.get_update_info().latest_version,
@@ -1021,7 +1047,19 @@ impl eframe::App for SystemMonitorApp {
                     ui.heading("Theme");
                     if ui.checkbox(&mut self.settings.theme_dark, "Dark Mode").changed() {
                         if self.settings.theme_dark {
-                            ctx.set_visuals(egui::Visuals::dark());
+                            let mut visuals = egui::Visuals::dark();
+                            visuals.panel_fill = egui::Color32::from_rgb(13, 15, 20);
+                            visuals.window_fill = egui::Color32::from_rgb(19, 22, 29);
+                            visuals.extreme_bg_color = egui::Color32::from_rgb(8, 9, 12);
+                            visuals.selection.bg_fill = egui::Color32::from_rgba_premultiplied(0, 229, 255, 60);
+                            visuals.selection.stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(0, 229, 255));
+                            visuals.hyperlink_color = egui::Color32::from_rgb(0, 229, 255);
+                            visuals.widgets.noninteractive.bg_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(38, 42, 56));
+                            visuals.widgets.inactive.bg_fill = egui::Color32::from_rgb(26, 30, 40);
+                            visuals.widgets.hovered.bg_fill = egui::Color32::from_rgb(35, 40, 54);
+                            visuals.widgets.active.bg_fill = egui::Color32::from_rgb(0, 184, 212);
+                            visuals.window_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgba_premultiplied(0, 229, 255, 30));
+                            ctx.set_visuals(visuals);
                         } else {
                             ctx.set_visuals(egui::Visuals::light());
                         }
@@ -1382,11 +1420,11 @@ impl SystemMonitorApp {
                             for process in data.top_processes.iter().take(5) {
                                 let memory_mb = bytes_to_mb(process.memory);
                                 let memory_color = if memory_mb > 500.0 {
-                                    egui::Color32::from_rgb(244, 67, 54)
+                                    egui::Color32::from_rgb(255, 82, 82)
                                 } else if memory_mb > 200.0 {
-                                    egui::Color32::from_rgb(255, 193, 7)
+                                    egui::Color32::from_rgb(255, 171, 64)
                                 } else {
-                                    egui::Color32::from_rgb(76, 175, 80)
+                                    egui::Color32::from_rgb(105, 240, 174)
                                 };
 
                                 let display_name = if process.name.len() > 30 {
@@ -1419,7 +1457,7 @@ impl SystemMonitorApp {
                         .map(|p| [p.time, p.value])
                         .collect();
 
-                    let line = Line::new(cpu_points).color(egui::Color32::from_rgb(76, 175, 80));
+                    let line = Line::new(cpu_points).color(egui::Color32::from_rgb(0, 229, 255));
                     
                     Plot::new("cpu_plot")
                         .height(200.0)
@@ -1442,7 +1480,7 @@ impl SystemMonitorApp {
                         .map(|p| [p.time, p.value])
                         .collect();
 
-                    let line = Line::new(mem_points).color(egui::Color32::from_rgb(33, 150, 243));
+                    let line = Line::new(mem_points).color(egui::Color32::from_rgb(105, 240, 174));
                     
                     Plot::new("memory_plot")
                         .height(200.0)
@@ -1466,7 +1504,7 @@ impl SystemMonitorApp {
                             .map(|p| [p.time, p.value])
                             .collect();
 
-                        let line = Line::new(gpu_points).color(egui::Color32::from_rgb(255, 152, 0));
+                        let line = Line::new(gpu_points).color(egui::Color32::from_rgb(255, 171, 64));
                         
                         Plot::new("gpu_plot")
                             .height(200.0)
@@ -1531,11 +1569,11 @@ impl SystemMonitorApp {
                     for process in &filtered_processes {
                         let memory_mb = bytes_to_mb(process.memory);
                         let memory_color = if memory_mb > 500.0 {
-                            egui::Color32::from_rgb(244, 67, 54)
+                            egui::Color32::from_rgb(255, 82, 82)
                         } else if memory_mb > 200.0 {
-                            egui::Color32::from_rgb(255, 193, 7)
+                            egui::Color32::from_rgb(255, 171, 64)
                         } else {
-                            egui::Color32::from_rgb(76, 175, 80)
+                            egui::Color32::from_rgb(105, 240, 174)
                         };
 
                         ui.label(process.pid.to_string());
@@ -1654,7 +1692,7 @@ impl SystemMonitorApp {
                         .map(|p| [p.time, p.value])
                         .collect();
 
-                    let line = Line::new(download_points).color(egui::Color32::from_rgb(76, 175, 80));
+                    let line = Line::new(download_points).color(egui::Color32::from_rgb(105, 240, 174));
                     
                     Plot::new("network_download_plot")
                         .height(150.0)
@@ -1675,7 +1713,7 @@ impl SystemMonitorApp {
                         .map(|p| [p.time, p.value])
                         .collect();
 
-                    let line = Line::new(upload_points).color(egui::Color32::from_rgb(33, 150, 243));
+                    let line = Line::new(upload_points).color(egui::Color32::from_rgb(0, 229, 255));
                     
                     Plot::new("network_upload_plot")
                         .height(150.0)
@@ -2083,11 +2121,11 @@ impl SystemMonitorApp {
                             for process in &data.top_processes {
                                 let memory_mb = bytes_to_mb(process.memory);
                                 let memory_color = if memory_mb > 500.0 {
-                                    egui::Color32::from_rgb(244, 67, 54)
+                                    egui::Color32::from_rgb(255, 82, 82)
                                 } else if memory_mb > 200.0 {
-                                    egui::Color32::from_rgb(255, 193, 7)
+                                    egui::Color32::from_rgb(255, 171, 64)
                                 } else {
-                                    egui::Color32::from_rgb(76, 175, 80)
+                                    egui::Color32::from_rgb(105, 240, 174)
                                 };
 
                                 ui.label(process.pid.to_string());
@@ -2168,15 +2206,15 @@ impl SystemMonitorApp {
             ui.group(|ui| {
                 ui.heading("🎨 Color Coding");
                 ui.horizontal(|ui| {
-                    ui.colored_label(egui::Color32::from_rgb(76, 175, 80), "● Green");
+                    ui.colored_label(egui::Color32::from_rgb(105, 240, 174), "● Green");
                     ui.label("= Healthy (< 50%)");
                 });
                 ui.horizontal(|ui| {
-                    ui.colored_label(egui::Color32::from_rgb(255, 193, 7), "● Yellow");
+                    ui.colored_label(egui::Color32::from_rgb(255, 171, 64), "● Amber");
                     ui.label("= Moderate (50-75%)");
                 });
                 ui.horizontal(|ui| {
-                    ui.colored_label(egui::Color32::from_rgb(244, 67, 54), "● Red");
+                    ui.colored_label(egui::Color32::from_rgb(255, 82, 82), "● Red");
                     ui.label("= High (> 75%)");
                 });
             });
@@ -2196,7 +2234,7 @@ fn main() -> Result<(), eframe::Error> {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1100.0, 800.0])
             .with_min_inner_size([900.0, 600.0])
-            .with_title("System Monitor v1.3.0"),
+            .with_title("System Monitor v1.0.0"),
         ..Default::default()
     };
 

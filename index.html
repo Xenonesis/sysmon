@@ -3,145 +3,223 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>System Monitor - Real-time System Monitoring</title>
-    <meta name="description" content="Professional system monitoring application with real-time CPU, memory, and GPU monitoring. Easy installation for Windows.">
+    <title>SysMon — Real-time System Intelligence</title>
+    <meta name="description" content="Professional system monitoring built with Rust. Real-time CPU, memory, GPU and process intelligence for Windows.">
     <link rel="stylesheet" href="styles.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Outfit:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
 </head>
 <body>
+    <!-- Grain overlay for texture -->
+    <div class="grain" aria-hidden="true"></div>
+
     <header>
         <nav>
             <div class="nav-container">
-                <div class="nav-logo">
-                    <h1>🖥️ System Monitor</h1>
-                </div>
-                <div class="nav-links">
+                <a href="#" class="nav-brand" aria-label="SysMon Home">
+                    <span class="brand-glyph" aria-hidden="true">◈</span>
+                    <span class="brand-name">SysMon</span>
+                    <span class="brand-badge">v1.0</span>
+                </a>
+                <div class="nav-links" id="navLinks">
                     <a href="#features">Features</a>
                     <a href="#download">Download</a>
-                    <a href="#docs">Documentation</a>
-                    <a href="https://github.com/Xenonesis/sysmon" target="_blank">GitHub</a>
+                    <a href="#docs">Docs</a>
+                    <a href="https://github.com/Xenonesis/sysmon" target="_blank" rel="noopener" class="nav-gh">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+                        GitHub
+                    </a>
                 </div>
+                <button class="nav-toggle" id="navToggle" aria-label="Toggle navigation" aria-expanded="false">
+                    <span></span><span></span><span></span>
+                </button>
             </div>
         </nav>
 
-        <div class="hero">
-            <div class="hero-content">
-                <h1>Real-time System Monitoring</h1>
-                <p class="hero-subtitle">Professional system monitoring with beautiful GUI. Monitor CPU, memory, GPU, and processes in real-time.</p>
-                <div class="hero-buttons">
-                    <a id="downloadNow" class="btn btn-download" href="https://github.com/Xenonesis/sysmon/releases/latest" target="_blank" rel="noopener">Download Now</a>
-                    <a href="#features" class="btn btn-secondary">Learn More</a>
+        <section class="hero">
+            <div class="hero-grid">
+                <div class="hero-content">
+                    <div class="hero-tag">
+                        <span class="tag-pulse" aria-hidden="true"></span>
+                        Built with Rust — blazing fast, zero overhead
+                    </div>
+                    <h1 class="hero-title">
+                        System intelligence,<br>
+                        <span class="hero-accent">not just monitoring.</span>
+                    </h1>
+                    <p class="hero-desc">
+                        See everything happening on your machine. CPU thermals, memory pressure, GPU load, process trees — all in a single, beautiful dashboard that weighs under 6 MB.
+                    </p>
+                    <div class="hero-actions">
+                        <a id="downloadNow" class="btn btn-primary" href="https://github.com/Xenonesis/sysmon/releases/latest" target="_blank" rel="noopener">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                            Download for Windows
+                        </a>
+                        <a href="#features" class="btn btn-ghost">Explore features →</a>
+                    </div>
+                    <div class="hero-meta">
+                        <span class="meta-item"><span class="meta-dot dot-green" aria-hidden="true"></span> Windows 10+</span>
+                        <span class="meta-item"><span class="meta-dot dot-cyan" aria-hidden="true"></span> x64 architecture</span>
+                        <span class="meta-item"><span class="meta-dot dot-amber" aria-hidden="true"></span> ~5.5 MB</span>
+                    </div>
+                </div>
+                <div class="hero-visual">
+                    <div class="visual-glow" aria-hidden="true"></div>
+                    <div class="terminal-frame">
+                        <div class="frame-bar">
+                            <div class="frame-dots" aria-hidden="true"><span></span><span></span><span></span></div>
+                            <span class="frame-title">system-monitor.exe</span>
+                        </div>
+                        <img src="assets/screenshot.png" alt="System Monitor showing real-time CPU, memory and GPU metrics" class="frame-img" width="1115" height="837" loading="eager">
+                    </div>
                 </div>
             </div>
-            <div class="hero-image">
-                <img src="assets/screenshot.png" alt="System Monitor Application Screenshot" class="hero-screenshot" />
-            </div>
-        </div>
+            <div class="hero-fade" aria-hidden="true"></div>
+        </section>
     </header>
 
     <main>
+        <!-- Stats ribbon -->
+        <section class="ribbon" aria-label="Key metrics">
+            <div class="ribbon-track">
+                <div class="ribbon-item">
+                    <span class="ribbon-val">100%</span>
+                    <span class="ribbon-lbl">Rust — no GC pauses</span>
+                </div>
+                <div class="ribbon-item">
+                    <span class="ribbon-val">&lt;6 MB</span>
+                    <span class="ribbon-lbl">Executable size</span>
+                </div>
+                <div class="ribbon-item">
+                    <span class="ribbon-val">2 s</span>
+                    <span class="ribbon-lbl">Refresh interval</span>
+                </div>
+                <div class="ribbon-item">
+                    <span class="ribbon-val">0</span>
+                    <span class="ribbon-lbl">Runtime dependencies</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- Features -->
         <section id="features" class="features">
             <div class="container">
-                <h2>Powerful Features</h2>
+                <div class="section-head">
+                    <span class="section-tag">Capabilities</span>
+                    <h2>Everything you need to see,<br>nothing you don't.</h2>
+                    <p class="section-sub">A focused set of tools for developers, sysadmins, and power users who need real data fast.</p>
+                </div>
                 <div class="features-grid">
-                    <div class="feature-card">
-                        <div class="feature-icon">⚡</div>
-                        <h3>Real-time Monitoring</h3>
-                        <p>Monitor CPU, memory, and GPU usage in real-time with automatic updates every 2 seconds.</p>
+                    <div class="feature-card card-featured">
+                        <div class="card-icon">
+                            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+                        </div>
+                        <h3>Real-time Dashboard</h3>
+                        <p>CPU, memory, GPU utilization with color-coded progress bars. Green-yellow-red thresholds adapt automatically.</p>
+                        <span class="card-pill">Core</span>
                     </div>
                     <div class="feature-card">
-                        <div class="feature-icon">🎨</div>
-                        <h3>Beautiful GUI</h3>
-                        <p>Modern, responsive interface with color-coded alerts and intuitive design.</p>
+                        <div class="card-icon">
+                            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+                        </div>
+                        <h3>Performance Graphs</h3>
+                        <p>Live line charts tracking CPU, memory, and GPU over time. Spot anomalies and trends at a glance.</p>
                     </div>
                     <div class="feature-card">
-                        <div class="feature-icon">🔍</div>
-                        <h3>Process Management</h3>
-                        <p>View top processes by memory and CPU usage with detailed information.</p>
+                        <div class="card-icon">
+                            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+                        </div>
+                        <h3>Process Manager</h3>
+                        <p>Sort by CPU, memory, or PID. Search, inspect, and kill rogue processes without leaving the app.</p>
                     </div>
                     <div class="feature-card">
-                        <div class="feature-icon">🎯</div>
-                        <h3>NVIDIA GPU Support</h3>
-                        <p>Dedicated GPU monitoring for NVIDIA graphics cards with temperature and memory stats.</p>
+                        <div class="card-icon">
+                            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/></svg>
+                        </div>
+                        <h3>NVIDIA GPU Metrics</h3>
+                        <p>Dedicated NVML integration for GPU utilization, VRAM, and core temperature monitoring.</p>
                     </div>
                     <div class="feature-card">
-                        <div class="feature-icon">📊</div>
-                        <h3>Visual Indicators</h3>
-                        <p>Color-coded progress bars and alerts: Green (healthy), Yellow (moderate), Red (high usage).</p>
+                        <div class="card-icon">
+                            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                        </div>
+                        <h3>Per-Core CPU View</h3>
+                        <p>Individual core utilization breakdown. See exactly which cores are loaded and which are idle.</p>
                     </div>
                     <div class="feature-card">
-                        <div class="feature-icon">🚀</div>
-                        <h3>Lightweight</h3>
-                        <p>Minimal system impact with optimized performance and low resource usage.</p>
+                        <div class="card-icon">
+                            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                        </div>
+                        <h3>Smart Alerts</h3>
+                        <p>Configurable thresholds for CPU, memory, GPU temp and disk space. Get warned before things break.</p>
                     </div>
                 </div>
             </div>
         </section>
 
+        <!-- Download -->
         <section id="download" class="download">
             <div class="container">
-                <h2>Download System Monitor</h2>
-                <div class="download-content">
-                    <div class="download-info">
-                        <h3>Windows Installer</h3>
-                        <p>Get the latest version of System Monitor for Windows. The installer includes everything you need.</p>
-                        <ul class="download-features">
-                            <li>✅ One-click installation</li>
-                            <li>✅ Desktop and Start Menu shortcuts</li>
-                            <li>✅ Automatic updates</li>
-                            <li>✅ No additional dependencies</li>
-                            <li>✅ Professional uninstaller</li>
+                <div class="dl-card">
+                    <div class="dl-body">
+                        <span class="section-tag">Get Started</span>
+                        <h2>One file. Zero install.<br>Just run.</h2>
+                        <p>Download the portable executable, double-click, and your system is transparent. No .NET, no Java, no runtime — just a single Rust binary.</p>
+                        <ul class="dl-list">
+                            <li><span class="dl-check" aria-hidden="true">✓</span> Portable — no installation required</li>
+                            <li><span class="dl-check" aria-hidden="true">✓</span> Auto-update built in</li>
+                            <li><span class="dl-check" aria-hidden="true">✓</span> Dark &amp; light themes</li>
+                            <li><span class="dl-check" aria-hidden="true">✓</span> Export to JSON / CSV</li>
                         </ul>
                     </div>
-                    <div class="download-button">
-                        <a id="downloadNowSection" href="https://github.com/Xenonesis/sysmon/releases/latest" class="btn btn-download">
-                            <span class="download-icon">⬇️</span>
-                            Download Application
+                    <div class="dl-action">
+                        <a id="downloadNowSection" href="https://github.com/Xenonesis/sysmon/releases/latest" class="btn btn-primary btn-lg" target="_blank" rel="noopener">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                            Download .exe
                         </a>
-                        <p id="downloadInfo" class="download-size">Checking for latest version…</p>
-                        <p class="download-note">Click to download the application directly. No installation required - just run the .exe file!</p>
-                    </div>
-                </div>
-
-                <div class="system-requirements">
-                    <h3>System Requirements</h3>
-                    <div class="requirements-grid">
-                        <div class="requirement">
-                            <strong>OS:</strong> Windows 10 or later
-                        </div>
-                        <div class="requirement">
-                            <strong>Architecture:</strong> x64
-                        </div>
-                        <div class="requirement">
-                            <strong>GPU:</strong> NVIDIA (optional)
-                        </div>
-                        <div class="requirement">
-                            <strong>RAM:</strong> 100 MB free
+                        <p id="downloadInfo" class="dl-info">Checking for latest version…</p>
+                        <div class="dl-reqs">
+                            <span>Windows 10+</span>
+                            <span class="dl-sep" aria-hidden="true">·</span>
+                            <span>x64</span>
+                            <span class="dl-sep" aria-hidden="true">·</span>
+                            <span>NVIDIA GPU optional</span>
                         </div>
                     </div>
                 </div>
             </div>
         </section>
 
+        <!-- Docs -->
         <section id="docs" class="docs">
             <div class="container">
-                <h2>Documentation</h2>
+                <div class="section-head">
+                    <span class="section-tag">Resources</span>
+                    <h2>Documentation</h2>
+                </div>
                 <div class="docs-grid">
-                    <div class="doc-card">
-                        <h3>Quick Start Guide</h3>
-                        <p>Get up and running in minutes with our quick start guide.</p>
-                        <a href="https://github.com/Xenonesis/sysmon/blob/main/QUICK_START.md" target="_blank" class="btn btn-outline">Read Guide</a>
-                    </div>
-                    <div class="doc-card">
-                        <h3>User Guide</h3>
-                        <p>Complete user manual with detailed instructions and tips.</p>
-                        <a href="https://github.com/Xenonesis/sysmon/blob/main/USER_GUIDE.md" target="_blank" class="btn btn-outline">Read Guide</a>
-                    </div>
-                    <div class="doc-card">
-                        <h3>Setup Guide</h3>
-                        <p>Build and development setup instructions for contributors.</p>
-                        <a href="https://github.com/Xenonesis/sysmon/blob/main/SETUP_GUIDE.md" target="_blank" class="btn btn-outline">Read Guide</a>
-                    </div>
+                    <a href="https://github.com/Xenonesis/sysmon/blob/main/QUICK_START.md" target="_blank" rel="noopener" class="doc-link">
+                        <span class="doc-arrow" aria-hidden="true">→</span>
+                        <div>
+                            <h3>Quick Start</h3>
+                            <p>Up and running in two minutes.</p>
+                        </div>
+                    </a>
+                    <a href="https://github.com/Xenonesis/sysmon/blob/main/USER_GUIDE.md" target="_blank" rel="noopener" class="doc-link">
+                        <span class="doc-arrow" aria-hidden="true">→</span>
+                        <div>
+                            <h3>User Guide</h3>
+                            <p>Complete feature walkthrough.</p>
+                        </div>
+                    </a>
+                    <a href="https://github.com/Xenonesis/sysmon/blob/main/SETUP_GUIDE.md" target="_blank" rel="noopener" class="doc-link">
+                        <span class="doc-arrow" aria-hidden="true">→</span>
+                        <div>
+                            <h3>Build from Source</h3>
+                            <p>Contributor setup instructions.</p>
+                        </div>
+                    </a>
                 </div>
             </div>
         </section>
@@ -149,31 +227,27 @@
 
     <footer>
         <div class="container">
-            <div class="footer-content">
-                <div class="footer-section">
-                    <h4>System Monitor</h4>
-                    <p>Professional system monitoring application built with Rust and egui.</p>
+            <div class="footer-grid">
+                <div class="footer-brand">
+                    <span class="brand-glyph" aria-hidden="true">◈</span>
+                    <span class="brand-name">SysMon</span>
+                    <p>System intelligence, built with Rust and egui.</p>
                 </div>
-                <div class="footer-section">
-                    <h4>Links</h4>
-                    <ul>
-                        <li><a href="https://github.com/Xenonesis/sysmon" target="_blank">GitHub Repository</a></li>
-                        <li><a href="https://github.com/Xenonesis/sysmon/issues" target="_blank">Report Issues</a></li>
-                        <li><a href="https://github.com/Xenonesis/sysmon/blob/main/README.md" target="_blank">Documentation</a></li>
-                    </ul>
+                <div class="footer-col">
+                    <h4>Project</h4>
+                    <a href="https://github.com/Xenonesis/sysmon" target="_blank" rel="noopener">Repository</a>
+                    <a href="https://github.com/Xenonesis/sysmon/issues" target="_blank" rel="noopener">Issues</a>
+                    <a href="https://github.com/Xenonesis/sysmon/blob/main/CHANGELOG.md" target="_blank" rel="noopener">Changelog</a>
                 </div>
-                <div class="footer-section">
-                    <h4>Built With</h4>
-                    <ul>
-                        <li>Rust Programming Language</li>
-                        <li>egui GUI Framework</li>
-                        <li>sysinfo Library</li>
-                        <li>NVML Wrapper</li>
-                    </ul>
+                <div class="footer-col">
+                    <h4>Resources</h4>
+                    <a href="https://github.com/Xenonesis/sysmon/blob/main/README.md" target="_blank" rel="noopener">README</a>
+                    <a href="https://github.com/Xenonesis/sysmon/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener">Contributing</a>
+                    <a href="https://github.com/Xenonesis/sysmon/blob/main/LICENSE" target="_blank" rel="noopener">MIT License</a>
                 </div>
             </div>
             <div class="footer-bottom">
-                <p>&copy; <span id="currentYear">2026</span> Xenonesis. Licensed under MIT License.</p>
+                <p>&copy; <span id="currentYear">2026</span> <a href="https://github.com/Xenonesis" target="_blank" rel="noopener">Xenonesis</a>. Open source under MIT.</p>
             </div>
         </div>
     </footer>
