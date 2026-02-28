@@ -273,96 +273,24 @@ header::after {
     transform: translateY(-2px);
 }
 
-/* Enhanced Mockup Window */
+/* Hero Screenshot */
 .hero-image {
     animation: fadeInUp 0.8s ease-out 0.2s backwards;
 }
 
-.mockup-window {
-    background: white;
+.hero-screenshot {
+    width: 100%;
+    max-width: 600px;
+    height: auto;
     border-radius: 16px;
     box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
-    overflow: hidden;
-    transition: transform 0.3s ease;
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
     border: 1px solid rgba(226, 232, 240, 0.8);
 }
 
-.mockup-window:hover {
+.hero-screenshot:hover {
     transform: translateY(-5px);
     box-shadow: 0 30px 60px -12px rgba(0, 0, 0, 0.3);
-}
-
-.window-header {
-    background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
-    padding: 1rem;
-    display: flex;
-    align-items: center;
-    gap: 1rem;
-    border-bottom: 1px solid var(--border-color);
-}
-
-.window-controls {
-    display: flex;
-    gap: 0.5rem;
-}
-
-.control {
-    width: 12px;
-    height: 12px;
-    border-radius: 50%;
-    transition: all 0.3s ease;
-}
-
-.control.red {
-    background: linear-gradient(135deg, #ff5f57 0%, #ff3b30 100%);
-}
-
-.control.yellow {
-    background: linear-gradient(135deg, #ffbd2e 0%, #ffa500 100%);
-}
-
-.control.green {
-    background: linear-gradient(135deg, #28c840 0%, #00ba34 100%);
-}
-
-.mockup-window:hover .control {
-    transform: scale(1.1);
-}
-
-.window-title {
-    font-weight: 600;
-    color: var(--text-color);
-    font-size: 0.875rem;
-}
-
-.window-content {
-    padding: 2rem;
-    background: white;
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-}
-
-.mock-cpu,
-.mock-memory,
-.mock-gpu,
-.mock-processes {
-    padding: 1rem;
-    background: var(--background-light);
-    border-radius: 8px;
-    font-family: 'Courier New', monospace;
-    font-size: 0.875rem;
-    color: var(--text-color);
-    border-left: 3px solid var(--primary-color);
-    transition: all 0.3s ease;
-}
-
-.mock-cpu:hover,
-.mock-memory:hover,
-.mock-gpu:hover,
-.mock-processes:hover {
-    background: #e2e8f0;
-    transform: translateX(5px);
 }
 
 /* Enhanced Features Section */

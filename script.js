@@ -54,36 +54,10 @@ document.addEventListener('DOMContentLoaded', function() {
         observer.observe(card);
     });
 
-    // Download button click tracking (optional)
-    const downloadButtons = document.querySelectorAll('.btn-download, .btn-primary[href*="releases"]');
-
-    downloadButtons.forEach(button => {
-        button.addEventListener('click', function() {
-            // You could add analytics tracking here
-            console.log('Download initiated');
-        });
-    });
-
-    // Add loading animation to download buttons
-    downloadButtons.forEach(button => {
-        button.addEventListener('click', function() {
-            const originalText = this.innerHTML;
-            this.innerHTML = '<span class="download-icon">⏳</span> Downloading...';
-            this.disabled = true;
-
-            // Reset after 3 seconds (simulating download start)
-            setTimeout(() => {
-                this.innerHTML = originalText;
-                this.disabled = false;
-            }, 3000);
-        });
-    });
-
-    // Add current year to footer
-    const yearElement = document.querySelector('.footer-bottom p');
-    if (yearElement) {
-        const currentYear = new Date().getFullYear();
-        yearElement.innerHTML = yearElement.innerHTML.replace('2024', currentYear);
+    // Set dynamic year in footer
+    const yearSpan = document.getElementById('currentYear');
+    if (yearSpan) {
+        yearSpan.textContent = new Date().getFullYear();
     }
 
     // Add scroll effect to navigation
@@ -147,98 +121,110 @@ document.addEventListener('DOMContentLoaded', function() {
         heroObserver.observe(heroImage);
     }
 
-    // Try to resolve a direct .exe download - prioritize local downloads folder
+    // Resolve real download URL via GitHub Releases API (CORS-safe)
     async function findDirectDownload() {
-        // Prioritize .exe files first for direct execution
-        const localCandidates = [
-            'downloads/SystemMonitor-latest.exe',
-            'downloads/SystemMonitor-v1.0.0.exe',
-            'downloads/system-monitor-latest.exe',
-            'downloads/system-monitor-1.0.0.exe',
-            'downloads/SystemMonitor-latest.zip',
-            'downloads/SystemMonitor-v1.0.0.zip'
-        ];
-        
-        // GitHub fallback - prioritize .exe files
-        const githubCandidates = [
-            'SystemMonitor-latest.exe',
-            'SystemMonitor-v1.0.0.exe',
-            'system-monitor.exe',
-            'system-monitor-setup.exe',
-            'SystemMonitor.exe',
-            'system-monitor-installer.exe',
-            'SystemMonitor-v1.0.0.zip'
-        ];
-        
-        const base = 'https://github.com/Xenonesis/sysmon/releases/latest/download/';
-        const releases = 'https://github.com/Xenonesis/sysmon/releases/latest';
+        const REPO = 'Xenonesis/sysmon';
+        const API_URL = `https://api.github.com/repos/${REPO}/releases/latest`;
+        const RELEASES_PAGE = `https://github.com/${REPO}/releases/latest`;
+        const CACHE_KEY = 'sysmon_release_cache';
+        const CACHE_TTL = 3600000; // 1 hour in ms
 
         const heroBtn = document.getElementById('downloadNow');
         const sectionBtn = document.getElementById('downloadNowSection');
         const info = document.getElementById('downloadInfo');
         const buttons = [heroBtn, sectionBtn].filter(Boolean);
 
-        // Try local downloads folder first (prioritizing .exe)
+        function applyDownload(url, fileName, sizeMB, version) {
+            buttons.forEach(b => {
+                b.href = url;
+                b.removeAttribute('target');
+            });
+            const sizeStr = sizeMB ? ` (${sizeMB} MB)` : '';
+            const versionStr = version ? ` • ${version}` : '';
+            if (info) info.textContent = `${fileName}${sizeStr}${versionStr} • Ready to download`;
+        }
+
+        function fallbackToReleasesPage() {
+            buttons.forEach(b => {
+                b.href = RELEASES_PAGE;
+                b.target = '_blank';
+            });
+            if (info) info.textContent = 'Visit GitHub Releases for latest version';
+        }
+
+        // Check sessionStorage cache first to avoid GitHub API rate limits (60/hr)
+        try {
+            const cached = JSON.parse(sessionStorage.getItem(CACHE_KEY));
+            if (cached && (Date.now() - cached.timestamp) < CACHE_TTL) {
+                applyDownload(cached.url, cached.fileName, cached.sizeMB, cached.version);
+                console.log('Download resolved from cache:', cached.fileName);
+                return;
+            }
+        } catch (e) { /* cache miss or parse error, continue */ }
+
+        // Try local downloads folder first (works when hosted on GitHub Pages)
+        const localCandidates = [
+            'downloads/SystemMonitor-latest.exe',
+            'downloads/system-monitor-latest.exe'
+        ];
+
         for (const localPath of localCandidates) {
             try {
                 const resp = await fetch(localPath, { method: 'HEAD' });
                 if (resp && resp.ok) {
+                    const fileSize = resp.headers.get('content-length');
+                    const sizeBytes = fileSize ? parseInt(fileSize) : 0;
+                    // Skip placeholder/stub files (real binary is > 100KB)
+                    if (sizeBytes < 102400) continue;
                     const fileName = localPath.split('/').pop();
-                    const fileSize = resp.headers.get('content-length');
-                    const sizeMB = fileSize ? (parseInt(fileSize) / 1048576).toFixed(2) : '?';
-                    
-                    buttons.forEach(b => {
-                        b.href = localPath;
-                        b.setAttribute('download', fileName);
-                        b.removeAttribute('target'); // Direct download without opening new tab
-                    });
-                    
-                    const fileType = fileName.endsWith('.exe') ? 'Direct Application' : 'Installer Package';
-                    if (info) info.textContent = `${fileName} (${sizeMB} MB) • ${fileType} - Ready to download`;
-                    console.log('Local download found:', localPath, `(${sizeMB} MB)`);
+                    const sizeMB = (sizeBytes / 1048576).toFixed(2);
+                    applyDownload(localPath, fileName, sizeMB, null);
+                    console.log('Local download found:', localPath);
                     return;
                 }
-            } catch (err) {
-                console.log('Local file not found:', localPath);
-            }
+            } catch (e) { /* not found, continue */ }
         }
 
-        // Try GitHub releases as fallback
-        for (const name of githubCandidates) {
-            const url = base + name;
-            try {
-                const resp = await fetch(url, { method: 'HEAD' });
-                if (resp && resp.ok) {
-                    const fileSize = resp.headers.get('content-length');
-                    const sizeMB = fileSize ? (parseInt(fileSize) / 1048576).toFixed(2) : '?';
-                    
-                    buttons.forEach(b => {
-                        b.href = url;
-                        b.setAttribute('download', name);
-                        b.removeAttribute('target'); // Direct download
-                    });
-                    
-                    const fileType = name.endsWith('.exe') ? 'Direct Application' : 'Installer Package';
-                    if (info) info.textContent = `${name} (${sizeMB} MB) • ${fileType} - Downloading from GitHub`;
-                    console.log('GitHub download found:', url, `(${sizeMB} MB)`);
-                    return;
-                }
-            } catch (err) {
-                console.log('GitHub HEAD failed for', url, err);
+        // Query GitHub Releases API (supports CORS, unlike direct asset HEAD requests)
+        try {
+            const resp = await fetch(API_URL);
+            if (!resp.ok) throw new Error(`API returned ${resp.status}`);
+            const release = await resp.json();
+            const version = release.tag_name || '';
+            const assets = release.assets || [];
+
+            // Prefer .exe over .zip
+            const exeAsset = assets.find(a => a.name.endsWith('.exe'));
+            const zipAsset = assets.find(a => a.name.endsWith('.zip'));
+            const asset = exeAsset || zipAsset;
+
+            if (asset) {
+                const sizeMB = asset.size ? (asset.size / 1048576).toFixed(2) : null;
+                const downloadUrl = asset.browser_download_url;
+
+                // Cache the result
+                try {
+                    sessionStorage.setItem(CACHE_KEY, JSON.stringify({
+                        url: downloadUrl,
+                        fileName: asset.name,
+                        sizeMB: sizeMB,
+                        version: version,
+                        timestamp: Date.now()
+                    }));
+                } catch (e) { /* storage full or unavailable */ }
+
+                applyDownload(downloadUrl, asset.name, sizeMB, version);
+                console.log('GitHub API download resolved:', asset.name, version);
+                return;
             }
+        } catch (err) {
+            console.warn('GitHub API request failed:', err.message);
         }
 
-        // Final fallback: point to Releases page
-        buttons.forEach(b => {
-            b.href = releases;
-            b.target = '_blank';
-        });
-        if (info) info.textContent = 'Visit Releases page for latest version';
+        // Final fallback
+        fallbackToReleasesPage();
         console.log('No direct download found; pointing to Releases page.');
     }
 
     findDirectDownload();
-    
-    // Check for updates periodically (every 5 minutes)
-    setInterval(findDirectDownload, 300000);
 });
