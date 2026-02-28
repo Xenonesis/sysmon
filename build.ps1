@@ -133,6 +133,10 @@ if ($LASTEXITCODE -eq 0) {
     $versionedName = "SystemMonitor-v$version.exe"
     $latestName = "SystemMonitor-latest.exe"
     
+    # Remove old versions, keep only .gitkeep
+    Get-ChildItem "$downloadsFolder\*.exe" -ErrorAction SilentlyContinue | Remove-Item -Force
+    Get-ChildItem "$docsDownloadsFolder\*.exe" -ErrorAction SilentlyContinue | Remove-Item -Force
+    
     # Root downloads folder
     Copy-Item "target\release\system-monitor.exe" "$downloadsFolder\$versionedName" -Force
     Copy-Item "target\release\system-monitor.exe" "$downloadsFolder\$latestName" -Force
