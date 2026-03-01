@@ -426,6 +426,41 @@ button {
     font-style: italic;
 }
 
+.hero-badges {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-md);
+    margin-bottom: var(--space-lg);
+    animation: fadeIn 0.6s 0.15s var(--ease-out) both;
+}
+
+.hero-badge-link {
+    display: inline-flex;
+    align-items: center;
+    transition: opacity var(--duration-fast) var(--ease-out);
+}
+
+.hero-badge-link:hover {
+    opacity: 0.8;
+}
+
+.hero-opensource {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+    font-size: var(--text-sm);
+    color: var(--color-text-secondary);
+    padding: var(--space-xs) var(--space-sm);
+    background: var(--color-bg-alt);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+}
+
+.hero-opensource svg {
+    opacity: 0.7;
+}
+
 .hero-description {
     font-size: var(--text-lg);
     color: var(--color-text-secondary);
