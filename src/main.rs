@@ -3,6 +3,7 @@ use chrono::Local;
 mod updater;
 use eframe::egui;
 use egui_plot::{Line, Plot, PlotPoints};
+use tracing::{error, info, warn};
 
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -364,8 +365,15 @@ impl SystemMonitor {
 
     fn kill_process(&mut self, pid: u32) -> bool {
         if let Some(process) = self.sys.process(Pid::from_u32(pid)) {
-            process.kill()
+            let result = process.kill();
+            if result {
+                info!(pid = pid, "Process killed successfully");
+            } else {
+                warn!(pid = pid, "Failed to kill process");
+            }
+            result
         } else {
+            warn!(pid = pid, "Process not found for kill");
             false
         }
     }
@@ -461,6 +469,7 @@ impl SystemMonitor {
     #[cfg(target_os = "windows")]
     fn clean_ram(&mut self) -> u64 {
         use std::process::Command;
+        info!("RAM clean operation initiated");
         // Get memory before
         let mem_before = self.sys.used_memory();
 
@@ -494,7 +503,9 @@ Get-Process | ForEach-Object {
         // Refresh system info to get new memory reading
         self.sys.refresh_memory();
         let mem_after = self.sys.used_memory();
-        mem_before.saturating_sub(mem_after)
+        let freed = mem_before.saturating_sub(mem_after);
+        info!(freed_mb = freed / 1024 / 1024, "RAM clean complete");
+        freed
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -3664,7 +3675,144 @@ fn load_icon() -> Option<egui::IconData> {
     })
 }
 
-fn main() -> Result<(), eframe::Error> {
+fn main() {
+    // ── 1. Single-Instance Enforcement ──────────────────────────────────
+    // Prevent multiple copies from running simultaneously using a Windows named mutex.
+    #[cfg(target_os = "windows")]
+    {
+        extern "system" {
+            fn CreateMutexW(
+                lp_mutex_attributes: *const std::ffi::c_void,
+                b_initial_owner: i32,
+                lp_name: *const u16,
+            ) -> *mut std::ffi::c_void;
+            fn GetLastError() -> u32;
+        }
+
+        let mutex_name: Vec<u16> = "Global\\SystemMonitorSingleInstance\0"
+            .encode_utf16()
+            .collect();
+        let _handle = unsafe { CreateMutexW(std::ptr::null(), 1, mutex_name.as_ptr()) };
+        let last_error = unsafe { GetLastError() };
+
+        const ERROR_ALREADY_EXISTS: u32 = 183;
+        if last_error == ERROR_ALREADY_EXISTS {
+            use windows::core::PCWSTR;
+            use windows::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_ICONINFORMATION, MB_OK};
+
+            let title: Vec<u16> = "System Monitor\0".encode_utf16().collect();
+            let msg: Vec<u16> =
+                "System Monitor is already running.\n\nCheck your system tray or taskbar.\0"
+                    .encode_utf16()
+                    .collect();
+            unsafe {
+                let _ = MessageBoxW(
+                    None,
+                    PCWSTR(msg.as_ptr()),
+                    PCWSTR(title.as_ptr()),
+                    MB_OK | MB_ICONINFORMATION,
+                );
+            }
+            std::process::exit(0);
+        }
+    }
+
+    // ── 2. Crash Report Directory ───────────────────────────────────────
+    let log_dir = directories::ProjectDirs::from("com", "Xenonesis", "SystemMonitor")
+        .map(|dirs| dirs.data_local_dir().to_path_buf())
+        .unwrap_or_else(|| std::env::temp_dir().join("SystemMonitor"));
+    let crash_dir = log_dir.join("crash-reports");
+    let logs_dir = log_dir.join("logs");
+    let _ = std::fs::create_dir_all(&crash_dir);
+    let _ = std::fs::create_dir_all(&logs_dir);
+
+    // ── 3. Global Panic Handler ─────────────────────────────────────────
+    // On panic: write a crash report to disk and show a MessageBox.
+    let crash_dir_clone = crash_dir.clone();
+    std::panic::set_hook(Box::new(move |panic_info| {
+        let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S").to_string();
+        let crash_file = crash_dir_clone.join(format!("crash_{}.log", timestamp));
+
+        let location = panic_info
+            .location()
+            .map(|l| format!("{}:{}:{}", l.file(), l.line(), l.column()))
+            .unwrap_or_else(|| "unknown".to_string());
+
+        let payload = if let Some(s) = panic_info.payload().downcast_ref::<&str>() {
+            s.to_string()
+        } else if let Some(s) = panic_info.payload().downcast_ref::<String>() {
+            s.clone()
+        } else {
+            "Unknown panic payload".to_string()
+        };
+
+        let report = format!(
+            "═══════════════════════════════════════════════\n\
+             SYSTEM MONITOR — CRASH REPORT\n\
+             ═══════════════════════════════════════════════\n\
+             Version:   {}\n\
+             Timestamp: {}\n\
+             Location:  {}\n\
+             \n\
+             Error:\n\
+             {}\n\
+             \n\
+             Please report this issue at:\n\
+             https://github.com/Xenonesis/sysmon/issues\n\
+             ═══════════════════════════════════════════════\n",
+            APP_VERSION,
+            chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
+            location,
+            payload,
+        );
+
+        let _ = std::fs::write(&crash_file, &report);
+
+        // Show a MessageBox on Windows so the user sees feedback instead of silent crash
+        #[cfg(target_os = "windows")]
+        {
+            use windows::core::PCWSTR;
+            use windows::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_ICONERROR, MB_OK};
+
+            let title: Vec<u16> = "System Monitor — Unexpected Error\0"
+                .encode_utf16()
+                .collect();
+            let msg_text = format!(
+                "System Monitor encountered an unexpected error and needs to close.\n\n\
+                 Error: {}\n\
+                 Location: {}\n\n\
+                 A crash report has been saved to:\n{}\n\n\
+                 Please report this issue on GitHub.\0",
+                payload,
+                location,
+                crash_file.display()
+            );
+            let msg: Vec<u16> = msg_text.encode_utf16().collect();
+            unsafe {
+                MessageBoxW(None, PCWSTR(msg.as_ptr()), PCWSTR(title.as_ptr()), MB_OK | MB_ICONERROR);
+            }
+        }
+    }));
+
+    // ── 4. Structured Logging ───────────────────────────────────────────
+    let file_appender = tracing_appender::rolling::daily(&logs_dir, "system-monitor.log");
+    let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
+    tracing_subscriber::fmt()
+        .with_writer(non_blocking)
+        .with_ansi(false)
+        .with_target(true)
+        .with_thread_ids(true)
+        .with_level(true)
+        .init();
+
+    info!(
+        version = APP_VERSION,
+        "System Monitor starting — Enterprise Edition"
+    );
+    info!("Log directory: {}", logs_dir.display());
+    info!("Crash report directory: {}", crash_dir.display());
+
+    // ── 5. Launch GUI ───────────────────────────────────────────────────
     let mut viewport_builder = egui::ViewportBuilder::default()
         .with_inner_size([1100.0, 800.0])
         .with_min_inner_size([900.0, 600.0])
@@ -3679,9 +3827,42 @@ fn main() -> Result<(), eframe::Error> {
         ..Default::default()
     };
 
-    eframe::run_native(
+    info!("Launching GUI window");
+
+    let result = eframe::run_native(
         "System Monitor",
         options,
         Box::new(|cc| Ok(Box::new(SystemMonitorApp::new(cc)))),
-    )
+    );
+
+    match result {
+        Ok(()) => {
+            info!("System Monitor shut down gracefully");
+        }
+        Err(e) => {
+            error!("GUI failed to start: {}", e);
+
+            #[cfg(target_os = "windows")]
+            {
+                use windows::core::PCWSTR;
+                use windows::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_ICONERROR, MB_OK};
+
+                let title: Vec<u16> = "System Monitor — Startup Error\0"
+                    .encode_utf16()
+                    .collect();
+                let msg_text = format!(
+                    "System Monitor failed to start.\n\n\
+                     Error: {}\n\n\
+                     Please ensure your graphics drivers are up to date.\0",
+                    e
+                );
+                let msg: Vec<u16> = msg_text.encode_utf16().collect();
+                unsafe {
+                    MessageBoxW(None, PCWSTR(msg.as_ptr()), PCWSTR(title.as_ptr()), MB_OK | MB_ICONERROR);
+                }
+            }
+
+            std::process::exit(1);
+        }
+    }
 }

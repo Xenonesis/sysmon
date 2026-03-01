@@ -110,6 +110,24 @@ if ($LASTEXITCODE -eq 0) {
     Write-Host "Size: $([math]::Round($exeSize, 2)) MB" -ForegroundColor Gray
     Write-Host ""
     
+    # ── Enterprise Metadata Verification ──
+    Write-Host "═══════════════════════════════════════════════" -ForegroundColor Magenta
+    Write-Host "   Enterprise EXE Metadata" -ForegroundColor Magenta
+    Write-Host "═══════════════════════════════════════════════" -ForegroundColor Magenta
+    $versionInfo = (Get-Item "target\release\system-monitor.exe").VersionInfo
+    Write-Host "  Company:     $($versionInfo.CompanyName)" -ForegroundColor White
+    Write-Host "  Product:     $($versionInfo.ProductName)" -ForegroundColor White
+    Write-Host "  Description: $($versionInfo.FileDescription)" -ForegroundColor White
+    Write-Host "  Version:     $($versionInfo.FileVersion)" -ForegroundColor White
+    Write-Host "  Copyright:   $($versionInfo.LegalCopyright)" -ForegroundColor White
+    Write-Host ""
+    
+    # ── SHA256 Hash (Audit Trail) ──
+    $hash = (Get-FileHash "target\release\system-monitor.exe" -Algorithm SHA256).Hash
+    Write-Host "  SHA256: $hash" -ForegroundColor DarkGray
+    Write-Host "═══════════════════════════════════════════════" -ForegroundColor Magenta
+    Write-Host ""
+    
     # Create downloads folder and copy build
     Write-Host "Saving build to downloads folder..." -ForegroundColor Cyan
     $downloadsFolder = "downloads"
