@@ -1,6 +1,6 @@
 # System Monitor - Complete User Guide
 
-Welcome to the **System Monitor v1.0.0** - Your comprehensive system monitoring solution for Windows!
+Welcome to the **System Monitor v2.0.0** - Your comprehensive system monitoring solution for Windows!
 
 ---
 
@@ -69,15 +69,18 @@ When you first launch System Monitor, you'll see:
 ### Key Components
 
 #### 1. Menu Bar (Top)
+
 - **View Menu**: Toggle visibility of components
 - **Help Menu**: Access About page
 - **Timestamp**: Shows last update time
 
 #### 2. Sidebar (Left)
+
 - **Navigation Buttons**: Switch between tabs
 - **Quick Stats Panel**: Real-time system metrics
 
 #### 3. Content Area (Center)
+
 - **Dynamic Content**: Changes based on selected tab
 - **Scrollable**: Handles long content gracefully
 
@@ -90,25 +93,24 @@ When you first launch System Monitor, you'll see:
 **Purpose**: Quick system health check
 
 **What You'll See**:
+
 - 💾 **Memory Usage Panel**
   - Total, Used, Free RAM
   - Progress bar with percentage
-  
 - ⚡ **CPU Usage Panel**
   - Current CPU utilization
   - Color-coded progress bar
-  
 - 🎮 **GPU Usage Panel** (if NVIDIA GPU detected)
   - GPU model name
   - Utilization percentage
   - VRAM usage
   - Temperature
-  
 - 📊 **Top 5 Processes**
   - Quick view of memory hogs
   - Process name, memory, CPU usage
 
 **When to Use**:
+
 - Daily system check
 - Quick health overview
 - Before starting intensive tasks
@@ -121,22 +123,22 @@ When you first launch System Monitor, you'll see:
 **Purpose**: Historical performance analysis
 
 **What You'll See**:
+
 - ⚡ **CPU Usage History Graph**
   - Line chart (green)
   - Last 2 minutes
   - Y-axis: Percentage (0-100%)
-  
 - 💾 **Memory Usage History Graph**
   - Line chart (blue)
   - Last 2 minutes
   - Y-axis: Percentage (0-100%)
-  
 - 🎮 **GPU Usage History Graph** (if available)
   - Line chart (orange)
   - Last 2 minutes
   - Y-axis: Percentage (0-100%)
 
 **When to Use**:
+
 - Investigating performance issues
 - Monitoring during gaming
 - Checking background activity
@@ -144,6 +146,7 @@ When you first launch System Monitor, you'll see:
 - Troubleshooting slowdowns
 
 **How to Read Graphs**:
+
 - **Horizontal axis**: Time (left = oldest, right = newest)
 - **Vertical axis**: Usage percentage
 - **Line height**: Higher = more usage
@@ -158,20 +161,20 @@ When you first launch System Monitor, you'll see:
 **Purpose**: Detailed process monitoring
 
 **What You'll See**:
+
 - **Full Process Table**
   - PID (Process ID)
   - Process Name
   - Memory Usage (MB)
   - CPU Usage (%)
-  
 - **Color-Coded Memory**:
   - 🟢 Green: < 200 MB (low)
   - 🟡 Yellow: 200-500 MB (moderate)
   - 🔴 Red: > 500 MB (high)
-  
 - **Sorted by Memory**: Highest usage first
 
 **When to Use**:
+
 - Finding memory-hungry applications
 - Identifying unknown processes
 - Monitoring specific applications
@@ -179,6 +182,7 @@ When you first launch System Monitor, you'll see:
 - Before closing unnecessary apps
 
 **What to Look For**:
+
 - **High memory processes** (red): Consider closing
 - **Unfamiliar processes**: Research before closing
 - **Multiple instances**: May indicate issues
@@ -191,6 +195,7 @@ When you first launch System Monitor, you'll see:
 **Purpose**: Application information
 
 **What You'll See**:
+
 - Application version
 - Feature list
 - Technical details
@@ -198,6 +203,7 @@ When you first launch System Monitor, you'll see:
 - License information
 
 **When to Use**:
+
 - First time learning the app
 - Understanding color codes
 - Checking version
@@ -210,20 +216,24 @@ When you first launch System Monitor, you'll see:
 ### CPU Usage
 
 **What It Means**:
+
 - Percentage of CPU processing power being used
 - Shows how hard your processor is working
 
 **Normal Ranges**:
+
 - **0-30%**: Light usage (browsing, documents)
 - **30-70%**: Moderate usage (multitasking, video)
 - **70-100%**: Heavy usage (gaming, rendering)
 
 **Color Indicators**:
+
 - 🟢 **Green (< 50%)**: Healthy, room for more
 - 🟡 **Yellow (50-75%)**: Moderate, normal under load
 - 🔴 **Red (> 75%)**: High, may slow down system
 
 **When to Worry**:
+
 - Constantly at 100% when idle
 - Red even with light tasks
 - Sustained high usage without known cause
@@ -233,21 +243,25 @@ When you first launch System Monitor, you'll see:
 ### Memory (RAM) Usage
 
 **What It Means**:
+
 - Amount of RAM being used by applications
 - Shows how much memory is occupied
 
 **Normal Ranges**:
+
 - **0-50%**: Plenty available
 - **50-75%**: Moderate usage
 - **75-90%**: High, may slow down
 - **90-100%**: Very high, system may page to disk
 
 **Color Indicators**:
+
 - 🟢 **Green (< 50%)**: Healthy
 - 🟡 **Yellow (50-75%)**: Moderate
 - 🔴 **Red (> 75%)**: High, consider closing apps
 
 **When to Worry**:
+
 - Constantly in red zone
 - System feels sluggish
 - Frequent disk activity
@@ -258,24 +272,29 @@ When you first launch System Monitor, you'll see:
 ### GPU Usage
 
 **What It Means**:
+
 - How much your graphics card is working
 - Shows GPU processing load
 
 **Normal Ranges**:
+
 - **0-20%**: Desktop/browsing (low)
 - **20-70%**: Video playback, light gaming
 - **70-100%**: Heavy gaming, 3D rendering
 
 **Additional Metrics**:
+
 - **VRAM Usage**: Video memory used
 - **Temperature**: GPU heat level
 
 **Temperature Guide**:
+
 - 🟢 **< 70°C**: Normal, safe
 - 🟡 **70-85°C**: Warm, acceptable
 - 🔴 **> 85°C**: Hot, check cooling
 
 **When to Worry**:
+
 - High usage when idle
 - Temperature constantly > 85°C
 - VRAM always at 100%
@@ -287,18 +306,21 @@ When you first launch System Monitor, you'll see:
 ### Reading the Graphs
 
 #### CPU Graph (Green Line)
+
 - **Flat at bottom**: System idle
 - **Steady middle**: Normal usage
 - **Spikes**: Brief activity bursts
 - **Sustained high**: Intensive task running
 
 #### Memory Graph (Blue Line)
+
 - **Gradually rising**: Apps consuming more RAM
 - **Stable**: Steady memory usage
 - **Sudden jumps**: App launched or allocated memory
 - **Drops**: App closed or memory freed
 
 #### GPU Graph (Orange Line)
+
 - **Flat at bottom**: No GPU work
 - **Regular spikes**: Video playback
 - **Sustained high**: Gaming or 3D work
@@ -307,12 +329,14 @@ When you first launch System Monitor, you'll see:
 ### Identifying Patterns
 
 #### Normal Patterns
+
 - Small variations (±5-10%)
 - Occasional spikes when opening apps
 - Returns to baseline quickly
 - Predictable based on your actions
 
 #### Problematic Patterns
+
 - Constantly 100% usage
 - Sudden unexplained spikes
 - Never returns to baseline
@@ -321,6 +345,7 @@ When you first launch System Monitor, you'll see:
 ### Using Graphs for Troubleshooting
 
 **Scenario 1: Computer Feels Slow**
+
 1. Check Performance tab
 2. Look for sustained high CPU or Memory
 3. Go to Processes tab
@@ -328,6 +353,7 @@ When you first launch System Monitor, you'll see:
 5. Consider closing unnecessary apps
 
 **Scenario 2: Gaming Performance Issues**
+
 1. Launch game
 2. Watch Performance graphs
 3. Check if CPU/GPU hitting 100%
@@ -335,6 +361,7 @@ When you first launch System Monitor, you'll see:
 5. Monitor temperature
 
 **Scenario 3: Background Activity**
+
 1. Leave system idle
 2. Watch graphs for unexpected activity
 3. Identify spikes or high usage
@@ -350,21 +377,25 @@ When you first launch System Monitor, you'll see:
 #### Columns Explained
 
 **PID (Process ID)**
+
 - Unique number identifying the process
 - Used by Windows to track processes
 - Not usually needed by regular users
 
 **Process Name**
+
 - Name of the executable/application
 - May include ".exe" extension
 - Some names may be abbreviated
 
 **Memory Usage**
+
 - RAM consumed by that process
 - Shown in MB (megabytes)
 - Color-coded for easy identification
 
 **CPU %**
+
 - Processor usage by that process
 - Shows current activity level
 - Can spike briefly during operations
@@ -372,18 +403,21 @@ When you first launch System Monitor, you'll see:
 ### Common Processes
 
 #### System Processes (Normal)
+
 - **System**: Windows core process
 - **svchost.exe**: Windows services host
 - **explorer.exe**: Windows Explorer
 - **dwm.exe**: Desktop Window Manager
 
 #### Browsers (Often High)
+
 - **chrome.exe**: Google Chrome
 - **firefox.exe**: Mozilla Firefox
 - **msedge.exe**: Microsoft Edge
 - Each tab may show separately
 
 #### Common Applications
+
 - **Discord.exe**: Discord chat
 - **Spotify.exe**: Spotify music
 - **Teams.exe**: Microsoft Teams
@@ -392,18 +426,21 @@ When you first launch System Monitor, you'll see:
 ### When to Close Processes
 
 **Safe to Close**:
+
 - Applications you're not using
 - Multiple browser tabs
 - Finished downloads
 - Duplicate instances
 
 **Be Careful With**:
+
 - System processes
 - Antivirus software
 - Driver processes
 - Unknown system services
 
 **Never Close**:
+
 - System
 - svchost.exe (unless you know why)
 - winlogon.exe
@@ -418,16 +455,19 @@ When you first launch System Monitor, you'll see:
 Access via **View** menu in menu bar.
 
 #### Show Performance Graphs
+
 - **On**: Graphs visible in Performance tab
 - **Off**: Graphs hidden, shows message
 - **Use When**: Don't need historical data
 
 #### Show GPU Section
+
 - **On**: GPU panel visible in Overview
 - **Off**: GPU section hidden
 - **Use When**: No GPU or not interested in GPU stats
 
 #### Show Process List
+
 - **On**: Process list visible in Overview
 - **Off**: Process list hidden
 - **Use When**: Only want system stats
@@ -435,18 +475,21 @@ Access via **View** menu in menu bar.
 ### Customizing Your Workflow
 
 #### Minimal View
+
 1. Disable Performance Graphs
 2. Disable Process List
 3. Use Overview tab only
 4. Result: Simple, clean interface
 
 #### Performance-Focused View
+
 1. Enable all options
 2. Use Performance tab primarily
 3. Check Processes when needed
 4. Result: Detailed monitoring
 
 #### Quick Check View
+
 1. Enable all options
 2. Use Overview tab
 3. Quick Stats always visible
@@ -459,6 +502,7 @@ Access via **View** menu in menu bar.
 ### Daily Monitoring
 
 **Morning Routine**:
+
 1. Launch System Monitor
 2. Check Overview tab
 3. Verify all metrics in green
@@ -466,12 +510,14 @@ Access via **View** menu in menu bar.
 5. Check Processes if needed
 
 **During Work**:
+
 - Keep System Monitor running
 - Pin to taskbar for easy access
 - Glance at Quick Stats periodically
 - Switch tabs as needed
 
 **Before Intensive Tasks**:
+
 1. Check current usage
 2. Close unnecessary apps
 3. Verify adequate resources
@@ -480,18 +526,21 @@ Access via **View** menu in menu bar.
 ### Performance Optimization
 
 **Reducing CPU Usage**:
+
 1. Close unused applications
 2. Limit browser tabs
 3. Disable startup programs
 4. Update drivers
 
 **Freeing Memory**:
+
 1. Close memory-heavy apps
 2. Restart applications periodically
 3. Clear browser cache
 4. Restart computer if needed
 
 **Managing GPU**:
+
 1. Close games when done
 2. Update graphics drivers
 3. Check for background GPU usage
@@ -500,18 +549,21 @@ Access via **View** menu in menu bar.
 ### Long-Term Monitoring
 
 **Establish Baseline**:
+
 - Note normal idle usage
 - Record typical working usage
 - Understand your patterns
 - Recognize what's abnormal
 
 **Track Trends**:
+
 - Watch for increasing baseline
 - Note degrading performance
 - Check for memory leaks
 - Identify problematic apps
 
 **Preventive Maintenance**:
+
 - Regular restarts (weekly)
 - Update software regularly
 - Clean dust from PC
@@ -524,18 +576,21 @@ Access via **View** menu in menu bar.
 ### Application Issues
 
 #### System Monitor Won't Start
+
 1. Check if already running
 2. Restart computer
 3. Reinstall application
 4. Check Windows event logs
 
 #### Graphs Not Showing
+
 1. Check View menu settings
 2. Enable "Show Performance Graphs"
 3. Wait for data collection (2 minutes)
 4. Restart application if needed
 
 #### GPU Section Missing
+
 1. Normal if no NVIDIA GPU
 2. Check Device Manager for GPU
 3. Update NVIDIA drivers
@@ -544,6 +599,7 @@ Access via **View** menu in menu bar.
 ### System Issues
 
 #### High CPU Usage Shown
+
 1. Go to Processes tab
 2. Identify high-usage process
 3. Research if unfamiliar
@@ -551,6 +607,7 @@ Access via **View** menu in menu bar.
 5. Consider malware scan
 
 #### High Memory Usage
+
 1. Check Processes tab
 2. Identify memory hogs
 3. Close unnecessary apps
@@ -558,6 +615,7 @@ Access via **View** menu in menu bar.
 5. Consider RAM upgrade if chronic
 
 #### High GPU Temperature
+
 1. Check for adequate cooling
 2. Clean dust from vents
 3. Verify fans working
@@ -567,12 +625,14 @@ Access via **View** menu in menu bar.
 ### Data Issues
 
 #### Not Updating
+
 - Check timestamp in menu bar
 - Should update every 2 seconds
 - Restart if frozen
 - Check system resources
 
 #### Incorrect Values
+
 - Values are system-reported
 - Compare with Task Manager
 - Restart application
@@ -583,11 +643,13 @@ Access via **View** menu in menu bar.
 ## 📞 Getting Help
 
 ### Built-in Help
+
 - **About Tab**: Application information
 - **Color Legend**: In About tab
 - **Feature List**: In About tab
 
 ### Documentation
+
 - **README.md**: Full feature documentation
 - **QUICK_START.md**: Getting started guide
 - **GUI_FEATURES.md**: Detailed features
@@ -595,6 +657,7 @@ Access via **View** menu in menu bar.
 - **USER_GUIDE.md**: This document
 
 ### Community Resources
+
 - Windows Task Manager for comparison
 - Online forums for process identification
 - PC manufacturer support
@@ -604,18 +667,21 @@ Access via **View** menu in menu bar.
 ## 🎓 Learning Resources
 
 ### Understanding Processes
+
 - Use online process databases
 - Research unfamiliar processes
 - Learn about Windows services
 - Understand system requirements
 
 ### Performance Tuning
+
 - Learn about computer hardware
 - Understand bottlenecks
 - Study optimization techniques
 - Monitor before and after changes
 
 ### System Monitoring
+
 - Compare with other tools
 - Learn reading patterns
 - Understand normal ranges
@@ -626,20 +692,24 @@ Access via **View** menu in menu bar.
 ## ✅ Quick Reference
 
 ### Color Codes
+
 - 🟢 **Green**: < 50% (Healthy)
 - 🟡 **Yellow**: 50-75% (Moderate)
 - 🔴 **Red**: > 75% (High)
 
 ### Keyboard Shortcuts
+
 - **Alt + F4**: Close application
 - **Windows Key**: Minimize
 
 ### Quick Actions
+
 - **Pin to Taskbar**: Right-click shortcut
 - **Start at Login**: Copy to Startup folder
 - **Create Shortcut**: Right-click .exe
 
 ### Normal Ranges
+
 - **Idle CPU**: 0-15%
 - **Idle RAM**: 20-40%
 - **Idle GPU**: 0-5%
@@ -662,5 +732,5 @@ You're now ready to master System Monitor! Remember:
 
 ---
 
-*System Monitor v1.0.0 - Enhanced GUI Edition*
-*User Guide - Last Updated: December 2024*
+_System Monitor v2.0.0 - Enhanced GUI Edition_
+_User Guide - Last Updated: December 2024_

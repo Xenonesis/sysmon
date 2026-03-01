@@ -8,7 +8,7 @@ param(
 
 # Configuration
 $AppName = "System Monitor"
-$AppVersion = "1.0.0"
+$AppVersion = "2.0.0"
 $InstallDir = "$env:LOCALAPPDATA\Programs\SystemMonitor"
 $ExeName = "system-monitor.exe"
 $SourceExe = "$PSScriptRoot\target\release\$ExeName"

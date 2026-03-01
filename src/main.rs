@@ -1428,8 +1428,8 @@ impl eframe::App for SystemMonitorApp {
             }
         }
 
-        // Ensure repaint for continuous updates
-        ctx.request_repaint();
+        // Ensure repaint for continuous updates but without CPU lock
+        ctx.request_repaint_after(std::time::Duration::from_millis(500));
 
         // Check for updates automatically (once every 24 hours)
         if self.update_check_time.is_none() || self.update_check_time.unwrap().elapsed().as_secs() > 86400 {

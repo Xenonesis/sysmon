@@ -1,6 +1,6 @@
 [Setup]
 AppName=System Monitor
-AppVersion=1.0.0
+AppVersion=2.0.0
 AppPublisher=System Monitor Contributors
 AppPublisherURL=https://github.com/Xenonesis/sysmon
 DefaultDirName={autopf}\System Monitor
