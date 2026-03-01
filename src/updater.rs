@@ -1,11 +1,10 @@
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
-use serde::{Deserialize, Serialize};
 
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 const UPDATE_CHECK_URL: &str = "https://api.github.com/repos/Xenonesis/sysmon/releases/latest";
-const DOWNLOAD_URL_BASE: &str = "https://github.com/Xenonesis/sysmon/releases/latest/download/";
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct UpdateInfo {
@@ -85,14 +84,14 @@ impl Updater {
         // Use a simple HTTP request to fetch release info
         // For now, we'll use std library features
         // In production, you might want to use reqwest or ureq
-        
+
         // This is a simplified version - in production, you'd want proper HTTP handling
         #[cfg(target_os = "windows")]
         {
             let output = Command::new("powershell")
                 .arg("-Command")
                 .arg(format!(
-                    "Invoke-RestMethod -Uri '{}' -Headers @{{Accept='application/vnd.github.v3+json'}}",
+                    "(Invoke-WebRequest -Uri '{}' -Headers @{{Accept='application/vnd.github.v3+json'; 'User-Agent'='SystemMonitor/1.0'}} -UseBasicParsing).Content",
                     UPDATE_CHECK_URL
                 ))
                 .output()
@@ -100,8 +99,7 @@ impl Updater {
 
             if output.status.success() {
                 let json_str = String::from_utf8_lossy(&output.stdout);
-                serde_json::from_str(&json_str)
-                    .map_err(|e| format!("Failed to parse GitHub response: {}", e))
+                serde_json::from_str(&json_str).map_err(|e| format!("Failed to parse GitHub response: {}", e))
             } else {
                 Err("Failed to fetch release info".to_string())
             }

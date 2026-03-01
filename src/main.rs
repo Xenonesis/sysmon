@@ -4,36 +4,49 @@ mod updater;
 use eframe::egui;
 use egui_plot::{Line, Plot, PlotPoints};
 
+const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
+
 struct ThemePalette;
 impl ThemePalette {
-    const ACCENT_PRIMARY: egui::Color32 = egui::Color32::from_rgb(0, 229, 255);
-    const ACCENT_ACTIVE: egui::Color32 = egui::Color32::from_rgb(0, 184, 212);
-    const BG_DEEPEST: egui::Color32 = egui::Color32::from_rgb(8, 9, 12);
-    const BG_DEEP: egui::Color32 = egui::Color32::from_rgb(13, 15, 20);
-    const BG_SURFACE: egui::Color32 = egui::Color32::from_rgb(19, 22, 29);
-    const BG_CARD: egui::Color32 = egui::Color32::from_rgb(25, 28, 38);
-    const BG_TRACK: egui::Color32 = egui::Color32::from_rgb(20, 24, 32);
-    const WIDGET_INACTIVE: egui::Color32 = egui::Color32::from_rgb(26, 30, 40);
-    const WIDGET_HOVERED: egui::Color32 = egui::Color32::from_rgb(35, 40, 54);
-    const BORDER: egui::Color32 = egui::Color32::from_rgb(38, 42, 56);
-    const BORDER_LIGHT: egui::Color32 = egui::Color32::from_rgb(40, 44, 60);
-    const ACCENT_LINE: egui::Color32 = egui::Color32::from_rgb(30, 35, 48);
-    const STATUS_HEALTHY: egui::Color32 = egui::Color32::from_rgb(105, 240, 174);
-    const STATUS_WARNING: egui::Color32 = egui::Color32::from_rgb(255, 171, 64);
-    const STATUS_CRITICAL: egui::Color32 = egui::Color32::from_rgb(255, 82, 82);
-    const TEXT_PRIMARY: egui::Color32 = egui::Color32::from_rgb(220, 225, 240);
-    const TEXT_SELECTED: egui::Color32 = egui::Color32::from_rgb(225, 230, 245);
-    const TEXT_FEATURE: egui::Color32 = egui::Color32::from_rgb(175, 185, 205);
-    const TEXT_SUBTITLE: egui::Color32 = egui::Color32::from_rgb(160, 170, 190);
-    const TEXT_SECONDARY: egui::Color32 = egui::Color32::from_rgb(145, 155, 180);
-    const TEXT_LABEL: egui::Color32 = egui::Color32::from_rgb(120, 130, 155);
-    const TEXT_LABEL_SUB: egui::Color32 = egui::Color32::from_rgb(130, 140, 165);
-    const TEXT_TERTIARY: egui::Color32 = egui::Color32::from_rgb(100, 110, 140);
-    const TEXT_DIMMED: egui::Color32 = egui::Color32::from_rgb(80, 90, 115);
-    const TEXT_NAV: egui::Color32 = egui::Color32::from_rgb(70, 78, 105);
-    const TEXT_ICON_INACTIVE: egui::Color32 = egui::Color32::from_rgb(50, 58, 78);
-    const GPU_UNAVAILABLE: egui::Color32 = egui::Color32::from_rgb(60, 65, 80);
-    const ACCENT_PURPLE: egui::Color32 = egui::Color32::from_rgb(180, 130, 255);
+    // Primary Vibrant Accents (Indigo)
+    const ACCENT_PRIMARY: egui::Color32 = egui::Color32::from_rgb(99, 102, 241); // Indigo 500
+    const ACCENT_ACTIVE: egui::Color32 = egui::Color32::from_rgb(129, 140, 248); // Indigo 400
+
+    // Sleek Dark Backgrounds (Zinc)
+    const BG_DEEPEST: egui::Color32 = egui::Color32::from_rgb(9, 9, 11); // Zinc 950
+    const BG_DEEP: egui::Color32 = egui::Color32::from_rgb(15, 15, 18);
+    const BG_SURFACE: egui::Color32 = egui::Color32::from_rgb(24, 24, 27); // Zinc 900
+    const BG_CARD: egui::Color32 = egui::Color32::from_rgb(28, 28, 32);
+    const BG_TRACK: egui::Color32 = egui::Color32::from_rgb(39, 39, 42); // Zinc 800
+
+    // Component states
+    const WIDGET_INACTIVE: egui::Color32 = egui::Color32::from_rgb(39, 39, 42);
+    const WIDGET_HOVERED: egui::Color32 = egui::Color32::from_rgb(63, 63, 70); // Zinc 700
+    const BORDER: egui::Color32 = egui::Color32::from_rgb(39, 39, 42); // Zinc 800
+    const BORDER_LIGHT: egui::Color32 = egui::Color32::from_rgb(63, 63, 70);
+    const ACCENT_LINE: egui::Color32 = egui::Color32::from_rgb(39, 39, 42);
+
+    // Modern Status Colors (Vibrant but accessible)
+    const STATUS_HEALTHY: egui::Color32 = egui::Color32::from_rgb(52, 211, 153); // Emerald 400
+    const STATUS_WARNING: egui::Color32 = egui::Color32::from_rgb(251, 191, 36); // Amber 400
+    const STATUS_CRITICAL: egui::Color32 = egui::Color32::from_rgb(248, 113, 113); // Red 400
+
+    // Gorgeous Typography hierarchy
+    const TEXT_PRIMARY: egui::Color32 = egui::Color32::from_rgb(250, 250, 250); // Zinc 50
+    const TEXT_SELECTED: egui::Color32 = egui::Color32::from_rgb(255, 255, 255);
+    const TEXT_FEATURE: egui::Color32 = egui::Color32::from_rgb(228, 228, 231); // Zinc 200
+    const TEXT_SUBTITLE: egui::Color32 = egui::Color32::from_rgb(161, 161, 170); // Zinc 400
+    const TEXT_SECONDARY: egui::Color32 = egui::Color32::from_rgb(161, 161, 170); // Zinc 400
+    const TEXT_LABEL: egui::Color32 = egui::Color32::from_rgb(113, 113, 122); // Zinc 500
+    const TEXT_LABEL_SUB: egui::Color32 = egui::Color32::from_rgb(113, 113, 122); // Zinc 500
+    const TEXT_TERTIARY: egui::Color32 = egui::Color32::from_rgb(82, 82, 91); // Zinc 600
+    const TEXT_DIMMED: egui::Color32 = egui::Color32::from_rgb(82, 82, 91); // Zinc 600
+
+    // Sidebar colors
+    const TEXT_NAV: egui::Color32 = egui::Color32::from_rgb(161, 161, 170);
+    const TEXT_ICON_INACTIVE: egui::Color32 = egui::Color32::from_rgb(113, 113, 122);
+    const GPU_UNAVAILABLE: egui::Color32 = egui::Color32::from_rgb(63, 63, 70);
+    const ACCENT_PURPLE: egui::Color32 = egui::Color32::from_rgb(168, 85, 247); // Purple 500
 }
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
@@ -41,7 +54,7 @@ use std::fs;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
-use sysinfo::{Disks, Networks, System, Pid};
+use sysinfo::{Disks, Networks, Pid, System};
 
 #[cfg(target_os = "windows")]
 use nvml_wrapper::Nvml;
@@ -180,8 +193,12 @@ struct AppSettings {
     ram_clean_threshold: f32,
 }
 
-fn default_auto_ram_clean() -> bool { false }
-fn default_ram_clean_threshold() -> f32 { 85.0 }
+fn default_auto_ram_clean() -> bool {
+    false
+}
+fn default_ram_clean_threshold() -> f32 {
+    85.0
+}
 
 #[derive(PartialEq, Clone, Copy)]
 enum ProcessSortColumn {
@@ -383,7 +400,11 @@ impl SystemMonitor {
         } else {
             0.0
         };
-        SwapInfo { total, used, percentage }
+        SwapInfo {
+            total,
+            used,
+            percentage,
+        }
     }
 
     #[cfg(target_os = "windows")]
@@ -394,10 +415,14 @@ impl SystemMonitor {
             .arg("Get-CimInstance Win32_Battery | Select-Object EstimatedChargeRemaining, BatteryStatus | ConvertTo-Json")
             .output()
             .ok()?;
-        if !output.status.success() { return None; }
+        if !output.status.success() {
+            return None;
+        }
         let json_str = String::from_utf8_lossy(&output.stdout);
         let json_str = json_str.trim();
-        if json_str.is_empty() || json_str == "null" { return None; }
+        if json_str.is_empty() || json_str == "null" {
+            return None;
+        }
         // Parse minimal JSON
         let percentage: f32 = json_str
             .split("EstimatedChargeRemaining")
@@ -421,7 +446,11 @@ impl SystemMonitor {
             6 | 7 | 8 | 9 => "Charging".to_string(),
             _ => "Unknown".to_string(),
         };
-        Some(BatteryInfo { percentage, is_charging, status_text })
+        Some(BatteryInfo {
+            percentage,
+            is_charging,
+            status_text,
+        })
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -438,7 +467,8 @@ impl SystemMonitor {
         // Use PowerShell to clean working sets of all user-accessible processes
         let _ = Command::new("powershell")
             .arg("-Command")
-            .arg(r#"
+            .arg(
+                r#"
 Add-Type -TypeDefinition @"
 using System;
 using System.Runtime.InteropServices;
@@ -457,7 +487,8 @@ Get-Process | ForEach-Object {
         }
     } catch {}
 }
-"#)
+"#,
+            )
             .output();
 
         // Refresh system info to get new memory reading
@@ -613,10 +644,7 @@ Get-Process | ForEach-Object {
                 if device_count > 0 {
                     if let Ok(device) = nvml.device_by_index(0) {
                         let name = device.name().unwrap_or_else(|_| "Unknown GPU".to_string());
-                        let utilization = device
-                            .utilization_rates()
-                            .map(|u| u.gpu)
-                            .unwrap_or(0);
+                        let utilization = device.utilization_rates().map(|u| u.gpu).unwrap_or(0);
                         let memory = device.memory_info().ok();
                         let temperature = device
                             .temperature(nvml_wrapper::enum_wrappers::device::TemperatureSensor::Gpu)
@@ -723,8 +751,9 @@ Get-Process | ForEach-Object {
 
     fn get_network_info(&mut self) -> Vec<NetworkInfo> {
         let elapsed = self.last_network_update.elapsed().as_secs_f64();
-        
-        let network_info: Vec<NetworkInfo> = self.networks
+
+        let network_info: Vec<NetworkInfo> = self
+            .networks
             .iter()
             .map(|(interface, data)| {
                 let received_rate = if elapsed > 0.0 {
@@ -760,7 +789,10 @@ Get-Process | ForEach-Object {
             hostname: System::host_name().unwrap_or_else(|| "Unknown".to_string()),
             uptime: System::uptime(),
             cpu_count: self.sys.cpus().len(),
-            cpu_brand: self.sys.cpus().first()
+            cpu_brand: self
+                .sys
+                .cpus()
+                .first()
                 .map(|cpu| cpu.brand().to_string())
                 .unwrap_or_else(|| "Unknown".to_string()),
         }
@@ -798,6 +830,8 @@ struct SystemData {
     swap_info: SwapInfo,
     battery_info: Option<BatteryInfo>,
     network_sample_count: u32,
+    ram_clean_freed_bytes: u64,
+    ram_clean_is_cleaning: bool,
 }
 
 impl Default for SystemData {
@@ -829,9 +863,15 @@ impl Default for SystemData {
             network_upload_history: VecDeque::new(),
             alerts: Vec::new(),
             start_time: Instant::now(),
-            swap_info: SwapInfo { total: 0, used: 0, percentage: 0.0 },
+            swap_info: SwapInfo {
+                total: 0,
+                used: 0,
+                percentage: 0.0,
+            },
             battery_info: None,
             network_sample_count: 0,
+            ram_clean_freed_bytes: 0,
+            ram_clean_is_cleaning: false,
         }
     }
 }
@@ -839,6 +879,7 @@ impl Default for SystemData {
 struct SystemMonitorApp {
     data: Arc<Mutex<SystemData>>,
     settings: AppSettings,
+    shared_settings: Arc<Mutex<AppSettings>>,
     selected_tab: Tab,
     show_settings: bool,
     show_export: bool,
@@ -846,7 +887,6 @@ struct SystemMonitorApp {
     show_process_manager: bool,
     show_cpu_cores: bool,
     selected_process_pid: Option<u32>,
-    monitor_handle: Option<Arc<Mutex<SystemMonitor>>>,
     always_on_top: bool,
     process_search: String,
     process_sort_column: ProcessSortColumn,
@@ -888,78 +928,114 @@ impl SystemMonitorApp {
 
         // Configure fonts and style
         let mut style = (*cc.egui_ctx.style()).clone();
-        style.spacing.item_spacing = egui::vec2(8.0, 6.0);
-        style.spacing.button_padding = egui::vec2(12.0, 6.0);
 
-        // Typographic hierarchy
+        // Premium spacing
+        style.spacing.item_spacing = egui::vec2(12.0, 10.0);
+        style.spacing.button_padding = egui::vec2(16.0, 8.0);
+        style.spacing.window_margin = egui::Margin::same(16.0);
+        style.spacing.menu_margin = egui::Margin::same(10.0);
+
+        // Typographic hierarchy (slightly larger for premium feel)
         use egui::{FontFamily, FontId, TextStyle};
         style.text_styles = [
-            (TextStyle::Heading, FontId::new(20.0, FontFamily::Proportional)),
-            (TextStyle::Body, FontId::new(13.5, FontFamily::Proportional)),
-            (TextStyle::Monospace, FontId::new(13.0, FontFamily::Monospace)),
-            (TextStyle::Button, FontId::new(13.0, FontFamily::Proportional)),
-            (TextStyle::Small, FontId::new(11.0, FontFamily::Proportional)),
-        ].into();
+            (TextStyle::Heading, FontId::new(24.0, FontFamily::Proportional)),
+            (
+                TextStyle::Name("Subheading".into()),
+                FontId::new(18.0, FontFamily::Proportional),
+            ),
+            (TextStyle::Body, FontId::new(15.0, FontFamily::Proportional)),
+            (TextStyle::Monospace, FontId::new(14.0, FontFamily::Monospace)),
+            (TextStyle::Button, FontId::new(14.0, FontFamily::Proportional)),
+            (TextStyle::Small, FontId::new(12.0, FontFamily::Proportional)),
+        ]
+        .into();
 
-        // Apply theme — custom "Terminal Noir" dark or standard light
+        // Apply theme — custom "Terminal Noir" / "Midnight Indigo" dark or standard light
         if settings.theme_dark {
             let mut visuals = egui::Visuals::dark();
             // Deep charcoal backgrounds
-            visuals.panel_fill = ThemePalette::BG_DEEP;         // bg-deep
-            visuals.window_fill = ThemePalette::BG_SURFACE;        // bg-surface
-            visuals.extreme_bg_color = ThemePalette::BG_DEEPEST;     // bg-deepest
+            visuals.panel_fill = ThemePalette::BG_DEEP;
+            visuals.window_fill = ThemePalette::BG_SURFACE;
+            visuals.extreme_bg_color = ThemePalette::BG_DEEPEST;
 
-            // Cyan accent for selections and interactions
-            visuals.selection.bg_fill = egui::Color32::from_rgba_premultiplied(0, 229, 255, 60);
-            visuals.selection.stroke = egui::Stroke::new(1.0, ThemePalette::ACCENT_PRIMARY);
+            // Accent for selections and interactions
+            visuals.selection.bg_fill = ThemePalette::ACCENT_PRIMARY;
+            visuals.selection.stroke = egui::Stroke::new(1.0, ThemePalette::ACCENT_ACTIVE);
             visuals.hyperlink_color = ThemePalette::ACCENT_PRIMARY;
 
-            // Subtle borders
+            // Subtle borders & widgets
+            visuals.widgets.noninteractive.bg_fill = ThemePalette::BG_CARD;
             visuals.widgets.noninteractive.bg_stroke = egui::Stroke::new(1.0, ThemePalette::BORDER);
-            visuals.widgets.inactive.bg_fill = ThemePalette::WIDGET_INACTIVE;
-            visuals.widgets.hovered.bg_fill = ThemePalette::WIDGET_HOVERED;
-            visuals.widgets.active.bg_fill = ThemePalette::ACCENT_ACTIVE;
-            
-            // Rounding
-            visuals.window_rounding = egui::Rounding::same(10.0);
-            visuals.widgets.noninteractive.rounding = egui::Rounding::same(8.0);
-            visuals.widgets.inactive.rounding = egui::Rounding::same(6.0);
-            visuals.widgets.hovered.rounding = egui::Rounding::same(6.0);
-            visuals.widgets.active.rounding = egui::Rounding::same(6.0);
+            visuals.widgets.noninteractive.fg_stroke = egui::Stroke::new(1.0, ThemePalette::TEXT_PRIMARY);
 
-            // Window chrome
-            visuals.window_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgba_premultiplied(0, 229, 255, 30));
+            // Inactive
+            visuals.widgets.inactive.bg_fill = ThemePalette::WIDGET_INACTIVE;
+            visuals.widgets.inactive.bg_stroke = egui::Stroke::new(1.0, ThemePalette::BORDER);
+            visuals.widgets.inactive.fg_stroke = egui::Stroke::new(1.0, ThemePalette::TEXT_SECONDARY);
+
+            // Hovered
+            visuals.widgets.hovered.bg_fill = ThemePalette::WIDGET_HOVERED;
+            visuals.widgets.hovered.bg_stroke = egui::Stroke::new(1.0, ThemePalette::BORDER_LIGHT);
+            visuals.widgets.hovered.fg_stroke = egui::Stroke::new(1.0, ThemePalette::TEXT_SELECTED);
+
+            // Active
+            visuals.widgets.active.bg_fill = ThemePalette::ACCENT_ACTIVE;
+            visuals.widgets.active.bg_stroke = egui::Stroke::new(1.0, ThemePalette::ACCENT_PRIMARY);
+            visuals.widgets.active.fg_stroke = egui::Stroke::new(1.0, ThemePalette::TEXT_SELECTED);
+
+            // Rounding (Modern smooth)
+            visuals.window_rounding = egui::Rounding::same(12.0);
+            visuals.menu_rounding = egui::Rounding::same(10.0);
+            visuals.widgets.noninteractive.rounding = egui::Rounding::same(8.0);
+            visuals.widgets.inactive.rounding = egui::Rounding::same(8.0);
+            visuals.widgets.hovered.rounding = egui::Rounding::same(8.0);
+            visuals.widgets.active.rounding = egui::Rounding::same(8.0);
+
+            // Window chrome and depth
+            visuals.window_stroke = egui::Stroke::new(1.0, ThemePalette::BORDER_LIGHT);
             visuals.window_shadow = egui::epaint::Shadow {
+                offset: egui::vec2(0.0, 12.0),
+                blur: 32.0,
+                spread: -4.0,
+                color: egui::Color32::from_rgba_premultiplied(0, 0, 0, 180),
+            };
+
+            visuals.popup_shadow = egui::epaint::Shadow {
                 offset: egui::vec2(0.0, 8.0),
                 blur: 24.0,
-                spread: 0.0,
-                color: egui::Color32::from_rgba_premultiplied(0, 0, 0, 100),
+                spread: -2.0,
+                color: egui::Color32::from_rgba_premultiplied(0, 0, 0, 150),
             };
 
             cc.egui_ctx.set_visuals(visuals);
         } else {
             cc.egui_ctx.set_visuals(egui::Visuals::light());
         }
-        
+
         cc.egui_ctx.set_style(style);
 
         let data = Arc::new(Mutex::new(SystemData::default()));
         let data_clone = Arc::clone(&data);
-        let refresh_interval = settings.refresh_interval;
-        let settings_clone = settings.clone();
-        let process_count = settings.process_count;
+        let shared_settings = Arc::new(Mutex::new(settings.clone()));
+        let shared_settings_clone = Arc::clone(&shared_settings);
 
         // Background thread for monitoring
         thread::spawn(move || {
             let mut monitor = SystemMonitor::new();
-            
+
             // Get system info once (doesn't change)
             let system_info = monitor.get_system_info();
             let mut battery_check_counter: u32 = 0;
-            
+
             loop {
                 thread::sleep(Duration::from_millis(500));
                 monitor.refresh();
+
+                // Read current settings from shared state
+                let (refresh_interval, process_count, settings_snapshot) = {
+                    let s = shared_settings_clone.lock().unwrap();
+                    (s.refresh_interval, s.process_count, s.clone())
+                };
 
                 let (total_mem, used_mem, mem_percentage) = monitor.get_memory_info();
                 let cpu_usage = monitor.get_cpu_usage();
@@ -985,7 +1061,7 @@ impl SystemMonitorApp {
 
                 if let Ok(mut data) = data_clone.lock() {
                     let elapsed = data.start_time.elapsed().as_secs_f64();
-                    
+
                     // Update current values
                     data.memory_total = total_mem;
                     data.memory_used = used_mem;
@@ -1005,8 +1081,41 @@ impl SystemMonitorApp {
                     data.network_sample_count += 1;
 
                     // Check for alerts
-                    let new_alerts = monitor.check_alerts(&settings_clone, &data);
+                    let new_alerts = monitor.check_alerts(&settings_snapshot, &data);
+
+                    // Send desktop notifications for new alerts
+                    if settings_snapshot.show_notifications {
+                        for alert in &new_alerts {
+                            let _ = notify_rust::Notification::new()
+                                .summary("System Monitor Alert")
+                                .body(&alert.message)
+                                .timeout(notify_rust::Timeout::Milliseconds(5000))
+                                .show();
+                        }
+                    }
+
                     data.alerts.extend(new_alerts);
+
+                    // Auto-clear resolved alerts
+                    if settings_snapshot.auto_clear_alerts {
+                        data.alerts.retain(|alert| {
+                            match alert.alert_type {
+                                AlertType::CpuHigh => cpu_usage > settings_snapshot.notification_cpu_threshold,
+                                AlertType::MemoryHigh => {
+                                    mem_percentage > settings_snapshot.notification_memory_threshold
+                                }
+                                AlertType::GpuTempHigh => {
+                                    if let Some(ref g) = gpu_info {
+                                        g.temperature
+                                            .map_or(false, |t| t > settings_snapshot.notification_temp_threshold)
+                                    } else {
+                                        false
+                                    }
+                                }
+                                AlertType::DiskSpaceLow => true, // disk alerts don't auto-clear
+                            }
+                        });
+                    }
 
                     // Keep only last 10 alerts
                     while data.alerts.len() > 10 {
@@ -1022,7 +1131,7 @@ impl SystemMonitorApp {
                         time: elapsed,
                         value: mem_percentage as f64,
                     });
-                    
+
                     if let Some(ref gpu) = gpu_info {
                         data.gpu_history.push_back(DataPoint {
                             time: elapsed,
@@ -1060,13 +1169,15 @@ impl SystemMonitorApp {
                     }
                 }
 
-                thread::sleep(Duration::from_millis(refresh_interval * 1000 - 500));
+                let sleep_ms = (refresh_interval * 1000).saturating_sub(500);
+                thread::sleep(Duration::from_millis(sleep_ms));
             }
         });
 
         Self {
             data,
             settings,
+            shared_settings,
             selected_tab: Tab::Overview,
             show_settings: false,
             show_export: false,
@@ -1074,7 +1185,6 @@ impl SystemMonitorApp {
             show_process_manager: false,
             show_cpu_cores: false,
             selected_process_pid: None,
-            monitor_handle: None,
             always_on_top: false,
             process_search: String::new(),
             process_sort_column: ProcessSortColumn::Memory,
@@ -1103,17 +1213,17 @@ impl SystemMonitorApp {
 
     fn export_to_csv(&self, data: &SystemData) -> Result<String, Box<dyn std::error::Error>> {
         let mut wtr = csv::Writer::from_writer(vec![]);
-        
+
         // Header
         wtr.write_record(["Category", "Metric", "Value"])?;
-        
+
         // System info
         wtr.write_record(["System", "Timestamp", &data.last_update])?;
         wtr.write_record(["CPU", "Usage %", &format!("{:.2}", data.cpu_usage)])?;
         wtr.write_record(["Memory", "Total GB", &format!("{:.2}", bytes_to_gb(data.memory_total))])?;
         wtr.write_record(["Memory", "Used GB", &format!("{:.2}", bytes_to_gb(data.memory_used))])?;
         wtr.write_record(["Memory", "Usage %", &format!("{:.2}", data.memory_percentage)])?;
-        
+
         // GPU
         if let Some(ref gpu) = data.gpu_info {
             wtr.write_record(["GPU", "Name", &gpu.name])?;
@@ -1122,7 +1232,7 @@ impl SystemMonitorApp {
                 wtr.write_record(["GPU", "Temperature C", &format!("{}", temp)])?;
             }
         }
-        
+
         // Top processes header
         wtr.write_record(["", "", ""])?; // Empty line
         wtr.write_record(["Process PID", "Name", "Memory MB", "CPU %"])?;
@@ -1134,7 +1244,7 @@ impl SystemMonitorApp {
                 &format!("{:.2}", proc.cpu_usage),
             ])?;
         }
-        
+
         let csv_data = String::from_utf8(wtr.into_inner()?)?;
         Ok(csv_data)
     }
@@ -1181,11 +1291,11 @@ fn bytes_to_gb(bytes: u64) -> f64 {
 
 fn get_usage_color(percentage: f32) -> egui::Color32 {
     if percentage < 50.0 {
-        ThemePalette::STATUS_HEALTHY  // Mint green (#69f0ae)
+        ThemePalette::STATUS_HEALTHY // Mint green (#69f0ae)
     } else if percentage < 75.0 {
-        ThemePalette::STATUS_WARNING    // Amber (#ffab40)
+        ThemePalette::STATUS_WARNING // Amber (#ffab40)
     } else {
-        ThemePalette::STATUS_CRITICAL     // Saturated red (#ff5252)
+        ThemePalette::STATUS_CRITICAL // Saturated red (#ff5252)
     }
 }
 
@@ -1195,17 +1305,14 @@ impl eframe::App for SystemMonitorApp {
         ctx.request_repaint();
 
         // Handle always on top
-        ctx.send_viewport_cmd(egui::ViewportCommand::WindowLevel(
-            if self.always_on_top {
-                egui::viewport::WindowLevel::AlwaysOnTop
-            } else {
-                egui::viewport::WindowLevel::Normal
-            }
-        ));
+        ctx.send_viewport_cmd(egui::ViewportCommand::WindowLevel(if self.always_on_top {
+            egui::viewport::WindowLevel::AlwaysOnTop
+        } else {
+            egui::viewport::WindowLevel::Normal
+        }));
 
         // Check for updates automatically (once every 24 hours)
-        if self.update_check_time.is_none() || 
-           self.update_check_time.unwrap().elapsed().as_secs() > 86400 {
+        if self.update_check_time.is_none() || self.update_check_time.unwrap().elapsed().as_secs() > 86400 {
             let mut updater = self.updater.clone();
             let ctx_clone = ctx.clone();
             thread::spawn(move || {
@@ -1302,17 +1409,33 @@ impl eframe::App for SystemMonitorApp {
             };
             if should_clean {
                 self.ram_cleaner_state.is_cleaning = true;
-                let ctx_clone = ctx.clone();
-                thread::spawn(move || {
-                    let mut monitor = SystemMonitor::new();
-                    let _freed = monitor.clean_ram();
-                    ctx_clone.request_repaint();
-                });
                 self.ram_cleaner_state.last_cleaned = Some(Instant::now());
                 self.ram_cleaner_state.last_cleaned_display = Local::now().format("%H:%M:%S").to_string();
                 self.ram_cleaner_state.clean_count += 1;
+                let data_arc = Arc::clone(&self.data);
+                let ctx_clone = ctx.clone();
+                thread::spawn(move || {
+                    let mut monitor = SystemMonitor::new();
+                    let freed = monitor.clean_ram();
+                    // Store freed bytes in SystemData for the UI to pick up
+                    if let Ok(mut d) = data_arc.lock() {
+                        d.ram_clean_freed_bytes += freed;
+                        d.ram_clean_is_cleaning = false;
+                    }
+                    ctx_clone.request_repaint();
+                });
+                // Mark cleaning in shared data too
+                if let Ok(mut d) = self.data.lock() {
+                    d.ram_clean_is_cleaning = true;
+                }
+            }
+        }
+        // Sync back from shared data
+        if let Ok(d) = self.data.lock() {
+            if !d.ram_clean_is_cleaning && self.ram_cleaner_state.is_cleaning {
                 self.ram_cleaner_state.is_cleaning = false;
             }
+            self.ram_cleaner_state.bytes_freed = d.ram_clean_freed_bytes;
         }
 
         // CSV Export window
@@ -1331,12 +1454,10 @@ impl eframe::App for SystemMonitorApp {
                         Ok(csv_data) => {
                             ui.label("Data exported successfully. Copy the CSV below:");
                             ui.add_space(5.0);
-                            
-                            egui::ScrollArea::vertical()
-                                .max_height(300.0)
-                                .show(ui, |ui| {
-                                    ui.text_edit_multiline(&mut csv_data.as_str());
-                                });
+
+                            egui::ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
+                                ui.text_edit_multiline(&mut csv_data.as_str());
+                            });
 
                             ui.add_space(5.0);
                             if ui.button("📋 Copy to Clipboard").clicked() {
@@ -1370,12 +1491,10 @@ impl eframe::App for SystemMonitorApp {
                         Ok(json_data) => {
                             ui.label("Data exported successfully. Copy the JSON below:");
                             ui.add_space(5.0);
-                            
-                            egui::ScrollArea::vertical()
-                                .max_height(300.0)
-                                .show(ui, |ui| {
-                                    ui.text_edit_multiline(&mut json_data.as_str());
-                                });
+
+                            egui::ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
+                                ui.text_edit_multiline(&mut json_data.as_str());
+                            });
 
                             ui.add_space(5.0);
                             if ui.button("📋 Copy to Clipboard").clicked() {
@@ -1408,29 +1527,27 @@ impl eframe::App for SystemMonitorApp {
                     if data.alerts.is_empty() {
                         ui.label("✅ No active alerts. System is running normally.");
                     } else {
-                        egui::ScrollArea::vertical()
-                            .max_height(400.0)
-                            .show(ui, |ui| {
-                                for alert in &data.alerts {
-                                    ui.group(|ui| {
-                                        let (icon, color) = match alert.alert_type {
-                                            AlertType::CpuHigh => ("⚡", egui::Color32::YELLOW),
-                                            AlertType::MemoryHigh => ("💾", egui::Color32::YELLOW),
-                                            AlertType::GpuTempHigh => ("🔥", egui::Color32::RED),
-                                            AlertType::DiskSpaceLow => ("💽", egui::Color32::RED),
-                                        };
+                        egui::ScrollArea::vertical().max_height(400.0).show(ui, |ui| {
+                            for alert in &data.alerts {
+                                ui.group(|ui| {
+                                    let (icon, color) = match alert.alert_type {
+                                        AlertType::CpuHigh => ("⚡", egui::Color32::YELLOW),
+                                        AlertType::MemoryHigh => ("💾", egui::Color32::YELLOW),
+                                        AlertType::GpuTempHigh => ("🔥", egui::Color32::RED),
+                                        AlertType::DiskSpaceLow => ("💽", egui::Color32::RED),
+                                    };
 
-                                        ui.horizontal(|ui| {
-                                            ui.colored_label(color, icon);
-                                            ui.colored_label(color, &alert.message);
-                                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                                ui.label(&alert.timestamp);
-                                            });
+                                    ui.horizontal(|ui| {
+                                        ui.colored_label(color, icon);
+                                        ui.colored_label(color, &alert.message);
+                                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                            ui.label(&alert.timestamp);
                                         });
                                     });
-                                    ui.add_space(5.0);
-                                }
-                            });
+                                });
+                                ui.add_space(5.0);
+                            }
+                        });
 
                         ui.separator();
                         if ui.button("🗑️ Clear All Alerts").clicked() {
@@ -1446,8 +1563,6 @@ impl eframe::App for SystemMonitorApp {
             }
         }
 
-        
-
         // Top menu bar
         egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
             egui::menu::bar(ui, |ui| {
@@ -1461,7 +1576,7 @@ impl eframe::App for SystemMonitorApp {
                         ui.close_menu();
                     }
                 });
-                
+
                 ui.menu_button("Tools", |ui| {
                     if ui.button("💾 Export Data to JSON").clicked() {
                         self.show_export = true;
@@ -1550,97 +1665,132 @@ impl eframe::App for SystemMonitorApp {
         });
 
         // Side panel — branded nav with custom tabs
-        egui::SidePanel::left("sidebar").min_width(190.0).max_width(210.0).show(ctx, |ui| {
-            // ── Brand header ──
-            ui.add_space(6.0);
-            ui.horizontal(|ui| {
-                ui.add_space(8.0);
-                // Painted diamond glyph
-                let r = ui.label(egui::RichText::new(" ").size(17.0));
-                let cy = r.rect.center().y;
-                let cx = r.rect.left() + 2.0;
-                let sz = 7.0;
-                let pts = vec![
-                    egui::pos2(cx, cy - sz),
-                    egui::pos2(cx + sz * 0.65, cy),
-                    egui::pos2(cx, cy + sz),
-                    egui::pos2(cx - sz * 0.65, cy),
-                ];
-                ui.painter().add(egui::Shape::convex_polygon(pts, ThemePalette::ACCENT_PRIMARY, egui::Stroke::NONE));
-                ui.label(egui::RichText::new("Sys").size(17.0).strong().color(ThemePalette::ACCENT_PRIMARY));
-                ui.label(egui::RichText::new("Mon").size(17.0).strong().color(ThemePalette::TEXT_PRIMARY));
-                ui.label(egui::RichText::new("v1.0").size(9.5).color(ThemePalette::TEXT_DIMMED));
+        egui::SidePanel::left("sidebar")
+            .min_width(190.0)
+            .max_width(210.0)
+            .show(ctx, |ui| {
+                // ── Brand header ──
+                ui.add_space(6.0);
+                ui.horizontal(|ui| {
+                    ui.add_space(8.0);
+                    // Painted diamond glyph
+                    let r = ui.label(egui::RichText::new(" ").size(17.0));
+                    let cy = r.rect.center().y;
+                    let cx = r.rect.left() + 2.0;
+                    let sz = 7.0;
+                    let pts = vec![
+                        egui::pos2(cx, cy - sz),
+                        egui::pos2(cx + sz * 0.65, cy),
+                        egui::pos2(cx, cy + sz),
+                        egui::pos2(cx - sz * 0.65, cy),
+                    ];
+                    ui.painter().add(egui::Shape::convex_polygon(
+                        pts,
+                        ThemePalette::ACCENT_PRIMARY,
+                        egui::Stroke::NONE,
+                    ));
+                    ui.label(
+                        egui::RichText::new("Sys")
+                            .size(17.0)
+                            .strong()
+                            .color(ThemePalette::ACCENT_PRIMARY),
+                    );
+                    ui.label(
+                        egui::RichText::new("Mon")
+                            .size(17.0)
+                            .strong()
+                            .color(ThemePalette::TEXT_PRIMARY),
+                    );
+                    ui.label(
+                        egui::RichText::new(format!("v{}", APP_VERSION))
+                            .size(9.5)
+                            .color(ThemePalette::TEXT_DIMMED),
+                    );
+                });
+                ui.add_space(6.0);
+                // Thin accent line under brand
+                {
+                    let r = ui.cursor();
+                    ui.painter().line_segment(
+                        [
+                            egui::pos2(r.left() + 12.0, r.top()),
+                            egui::pos2(r.right() - 12.0, r.top()),
+                        ],
+                        egui::Stroke::new(1.0, ThemePalette::ACCENT_LINE),
+                    );
+                }
+                ui.add_space(10.0);
+
+                // ── Navigation label ──
+                {
+                    let r = ui.cursor();
+                    ui.painter().text(
+                        egui::pos2(r.left() + 14.0, r.top()),
+                        egui::Align2::LEFT_TOP,
+                        "NAVIGATION",
+                        egui::FontId::proportional(9.5),
+                        ThemePalette::TEXT_NAV,
+                    );
+                }
+                ui.add_space(18.0);
+
+                // ── Tab items ──
+                draw_nav_tab(ui, &mut self.selected_tab, Tab::Overview, "Overview", None);
+                draw_nav_tab(ui, &mut self.selected_tab, Tab::Performance, "Performance", None);
+                draw_nav_tab(ui, &mut self.selected_tab, Tab::Processes, "Processes", None);
+                draw_nav_tab(ui, &mut self.selected_tab, Tab::CpuCores, "CPU Cores", None);
+                draw_nav_tab(ui, &mut self.selected_tab, Tab::Storage, "Storage", None);
+                draw_nav_tab(ui, &mut self.selected_tab, Tab::Network, "Network", None);
+                draw_nav_tab(ui, &mut self.selected_tab, Tab::SystemInfo, "System Info", None);
+
+                ui.add_space(6.0);
+                {
+                    let r = ui.cursor();
+                    ui.painter().line_segment(
+                        [
+                            egui::pos2(r.left() + 12.0, r.top()),
+                            egui::pos2(r.right() - 12.0, r.top()),
+                        ],
+                        egui::Stroke::new(1.0, ThemePalette::ACCENT_LINE),
+                    );
+                }
+                ui.add_space(6.0);
+
+                let alert_count = data.alerts.len();
+                draw_nav_tab(
+                    ui,
+                    &mut self.selected_tab,
+                    Tab::Alerts,
+                    "Alerts",
+                    if alert_count > 0 { Some(alert_count) } else { None },
+                );
+                draw_nav_tab(ui, &mut self.selected_tab, Tab::RamCleaner, "RAM Cleaner", None);
+                draw_nav_tab(ui, &mut self.selected_tab, Tab::StartupManager, "Startup Apps", None);
+                draw_nav_tab(ui, &mut self.selected_tab, Tab::About, "About", None);
+
+                // ── Quick stats ──
+                ui.add_space(14.0);
+                {
+                    let r = ui.cursor();
+                    ui.painter().text(
+                        egui::pos2(r.left() + 14.0, r.top()),
+                        egui::Align2::LEFT_TOP,
+                        "QUICK STATS",
+                        egui::FontId::proportional(9.5),
+                        ThemePalette::TEXT_NAV,
+                    );
+                }
+                ui.add_space(18.0);
+
+                draw_mini_stat(ui, "CPU", data.cpu_usage);
+                draw_mini_stat(ui, "RAM", data.memory_percentage);
+                if let Some(ref gpu) = data.gpu_info {
+                    draw_mini_stat(ui, "GPU", gpu.utilization);
+                }
+                if data.swap_info.total > 0 {
+                    draw_mini_stat(ui, "SWAP", data.swap_info.percentage);
+                }
             });
-            ui.add_space(6.0);
-            // Thin accent line under brand
-            {
-                let r = ui.cursor();
-                ui.painter().line_segment(
-                    [egui::pos2(r.left() + 12.0, r.top()), egui::pos2(r.right() - 12.0, r.top())],
-                    egui::Stroke::new(1.0, ThemePalette::ACCENT_LINE),
-                );
-            }
-            ui.add_space(10.0);
-
-            // ── Navigation label ──
-            {
-                let r = ui.cursor();
-                ui.painter().text(
-                    egui::pos2(r.left() + 14.0, r.top()),
-                    egui::Align2::LEFT_TOP, "NAVIGATION",
-                    egui::FontId::proportional(9.5),
-                    ThemePalette::TEXT_NAV,
-                );
-            }
-            ui.add_space(18.0);
-
-            // ── Tab items ──
-            draw_nav_tab(ui, &mut self.selected_tab, Tab::Overview,    "Overview",    None);
-            draw_nav_tab(ui, &mut self.selected_tab, Tab::Performance, "Performance", None);
-            draw_nav_tab(ui, &mut self.selected_tab, Tab::Processes,   "Processes",   None);
-            draw_nav_tab(ui, &mut self.selected_tab, Tab::CpuCores,   "CPU Cores",   None);
-            draw_nav_tab(ui, &mut self.selected_tab, Tab::Storage,     "Storage",     None);
-            draw_nav_tab(ui, &mut self.selected_tab, Tab::Network,     "Network",     None);
-            draw_nav_tab(ui, &mut self.selected_tab, Tab::SystemInfo,  "System Info", None);
-
-            ui.add_space(6.0);
-            {
-                let r = ui.cursor();
-                ui.painter().line_segment(
-                    [egui::pos2(r.left() + 12.0, r.top()), egui::pos2(r.right() - 12.0, r.top())],
-                    egui::Stroke::new(1.0, ThemePalette::ACCENT_LINE),
-                );
-            }
-            ui.add_space(6.0);
-
-            let alert_count = data.alerts.len();
-            draw_nav_tab(ui, &mut self.selected_tab, Tab::Alerts, "Alerts", if alert_count > 0 { Some(alert_count) } else { None });
-            draw_nav_tab(ui, &mut self.selected_tab, Tab::RamCleaner, "RAM Cleaner", None);
-            draw_nav_tab(ui, &mut self.selected_tab, Tab::StartupManager, "Startup Apps", None);
-            draw_nav_tab(ui, &mut self.selected_tab, Tab::About, "About", None);
-
-            // ── Quick stats ──
-            ui.add_space(14.0);
-            {
-                let r = ui.cursor();
-                ui.painter().text(
-                    egui::pos2(r.left() + 14.0, r.top()),
-                    egui::Align2::LEFT_TOP, "QUICK STATS",
-                    egui::FontId::proportional(9.5),
-                    ThemePalette::TEXT_NAV,
-                );
-            }
-            ui.add_space(18.0);
-
-            draw_mini_stat(ui, "CPU", data.cpu_usage);
-            draw_mini_stat(ui, "RAM", data.memory_percentage);
-            if let Some(ref gpu) = data.gpu_info {
-                draw_mini_stat(ui, "GPU", gpu.utilization);
-            }
-            if data.swap_info.total > 0 {
-                draw_mini_stat(ui, "SWAP", data.swap_info.percentage);
-            }
-        });
 
         // Process Manager window
         if self.show_process_manager {
@@ -1657,21 +1807,19 @@ impl eframe::App for SystemMonitorApp {
                 .show(ctx, |ui| {
                     ui.heading("Available Shortcuts");
                     ui.separator();
-                    egui::Grid::new("shortcuts_grid")
-                        .spacing([20.0, 6.0])
-                        .show(ui, |ui| {
-                            let shortcuts = [
-                                ("F5", "Refresh / Reset statistics"),
-                                ("Ctrl + E", "Export data to JSON"),
-                                ("Ctrl + ,", "Open Settings"),
-                                ("Ctrl + U", "Check for updates"),
-                            ];
-                            for (key, desc) in &shortcuts {
-                                ui.label(egui::RichText::new(*key).strong().color(ThemePalette::ACCENT_PRIMARY));
-                                ui.label(*desc);
-                                ui.end_row();
-                            }
-                        });
+                    egui::Grid::new("shortcuts_grid").spacing([20.0, 6.0]).show(ui, |ui| {
+                        let shortcuts = [
+                            ("F5", "Refresh / Reset statistics"),
+                            ("Ctrl + E", "Export data to JSON"),
+                            ("Ctrl + ,", "Open Settings"),
+                            ("Ctrl + U", "Check for updates"),
+                        ];
+                        for (key, desc) in &shortcuts {
+                            ui.label(egui::RichText::new(*key).strong().color(ThemePalette::ACCENT_PRIMARY));
+                            ui.label(*desc);
+                            ui.end_row();
+                        }
+                    });
                 });
         }
         self.show_shortcuts = show_shortcuts;
@@ -1691,38 +1839,41 @@ impl eframe::App for SystemMonitorApp {
         }
 
         // Main content area
-        egui::CentralPanel::default().show(ctx, |ui| {
-            match self.selected_tab {
-                Tab::Overview => self.show_overview_tab(ui, &data),
-                Tab::Performance => self.show_performance_tab(ui, &data),
-                Tab::Processes => self.show_processes_tab(ui, &data),
-                Tab::CpuCores => self.show_cpu_cores_tab(ui, &data),
-                Tab::Storage => self.show_storage_tab(ui, &data),
-                Tab::Network => self.show_network_tab(ui, &data),
-                Tab::SystemInfo => self.show_system_info_tab(ui, &data),
-                Tab::Alerts => self.show_alerts_tab(ui, &data),
-                Tab::RamCleaner => self.show_ram_cleaner_tab(ui, &data),
-                Tab::StartupManager => self.show_startup_manager_tab(ui),
-                Tab::About => self.show_about_tab(ui),
-            }
+        egui::CentralPanel::default().show(ctx, |ui| match self.selected_tab {
+            Tab::Overview => self.show_overview_tab(ui, &data),
+            Tab::Performance => self.show_performance_tab(ui, &data),
+            Tab::Processes => self.show_processes_tab(ui, &data),
+            Tab::CpuCores => self.show_cpu_cores_tab(ui, &data),
+            Tab::Storage => self.show_storage_tab(ui, &data),
+            Tab::Network => self.show_network_tab(ui, &data),
+            Tab::SystemInfo => self.show_system_info_tab(ui, &data),
+            Tab::Alerts => self.show_alerts_tab(ui, &data),
+            Tab::RamCleaner => self.show_ram_cleaner_tab(ui, &data),
+            Tab::StartupManager => self.show_startup_manager_tab(ui),
+            Tab::About => self.show_about_tab(ui),
         });
     }
 }
 
 // ─── Custom UI helpers ───────────────────────────────────────────────
 
-/// Section header with cyan accent underline
+/// Section header with sleek gradient-like accent underline
 fn paint_section_header(ui: &mut egui::Ui, text: &str) {
-    ui.add_space(2.0);
-    let r = ui.label(egui::RichText::new(text)
-        .size(18.0).strong()
-        .color(ThemePalette::TEXT_PRIMARY));
-    let y = r.rect.bottom() + 2.0;
-    ui.painter().line_segment(
-        [egui::pos2(r.rect.left(), y), egui::pos2(r.rect.left() + 36.0, y)],
-        egui::Stroke::new(2.0, ThemePalette::ACCENT_PRIMARY),
+    ui.add_space(4.0);
+    let r = ui.label(
+        egui::RichText::new(text)
+            .size(24.0)
+            .strong()
+            .color(ThemePalette::TEXT_PRIMARY),
     );
-    ui.add_space(8.0);
+    let y = r.rect.bottom() + 4.0;
+
+    // Modern thick rounded line highlight
+    ui.painter().line_segment(
+        [egui::pos2(r.rect.left(), y), egui::pos2(r.rect.left() + 48.0, y)],
+        egui::Stroke::new(3.5, ThemePalette::ACCENT_PRIMARY),
+    );
+    ui.add_space(12.0);
 }
 
 /// Rounded pill progress bar with subtle track
@@ -1730,7 +1881,12 @@ fn paint_progress_bar(ui: &mut egui::Ui, fraction: f32, fill: egui::Color32, h: 
     let w = ui.available_width();
     let (rect, _) = ui.allocate_exact_size(egui::vec2(w, h), egui::Sense::hover());
     let rnd = h / 2.0;
-    ui.painter().rect_filled(rect, rnd, ThemePalette::BG_TRACK);
+
+    // Track background
+    ui.painter().rect_filled(rect, rnd, ThemePalette::BG_DEEPEST);
+    ui.painter()
+        .rect_stroke(rect, rnd, egui::Stroke::new(1.0, ThemePalette::BG_TRACK));
+
     let frac = fraction.clamp(0.0, 1.0);
     if frac > 0.005 {
         let bar = egui::Rect::from_min_size(rect.min, egui::vec2(w * frac, h));
@@ -1741,49 +1897,100 @@ fn paint_progress_bar(ui: &mut egui::Ui, fraction: f32, fill: egui::Color32, h: 
 /// Sidebar navigation tab with left accent bar + hover highlight
 fn draw_nav_tab(ui: &mut egui::Ui, selected: &mut Tab, tab: Tab, label: &str, badge: Option<usize>) {
     let is_sel = *selected == tab;
-    let size = egui::vec2(ui.available_width(), 32.0);
+    let size = egui::vec2(ui.available_width(), 38.0);
     let (rect, resp) = ui.allocate_exact_size(size, egui::Sense::click());
     let p = ui.painter();
+
+    // Pill selection hover/active states
     if is_sel {
-        p.rect_filled(rect, 6.0, egui::Color32::from_rgba_premultiplied(0, 229, 255, 15));
+        // Indigo 500 with low opacity
+        p.rect_filled(rect, 8.0, egui::Color32::from_rgba_premultiplied(99, 102, 241, 24));
+
+        // Left accent bar
         p.rect_filled(
-            egui::Rect::from_min_size(rect.left_top(), egui::vec2(3.0, rect.height())),
-            1.5, ThemePalette::ACCENT_PRIMARY,
+            egui::Rect::from_min_size(
+                egui::pos2(rect.left(), rect.top() + 8.0),
+                egui::vec2(4.0, rect.height() - 16.0),
+            ),
+            2.0,
+            ThemePalette::ACCENT_PRIMARY,
         );
     } else if resp.hovered() {
-        p.rect_filled(rect, 6.0, egui::Color32::from_rgba_premultiplied(255, 255, 255, 6));
+        p.rect_filled(rect, 8.0, egui::Color32::from_rgba_premultiplied(255, 255, 255, 8));
     }
+
     let mid = rect.center().y;
-    let ic = if is_sel { ThemePalette::ACCENT_PRIMARY } else { ThemePalette::TEXT_ICON_INACTIVE };
-    let tc = if is_sel { ThemePalette::TEXT_SELECTED } else { ThemePalette::TEXT_SECONDARY };
+    let ic = if is_sel {
+        ThemePalette::ACCENT_PRIMARY
+    } else {
+        ThemePalette::TEXT_ICON_INACTIVE
+    };
+    let tc = if is_sel {
+        ThemePalette::TEXT_SELECTED
+    } else {
+        ThemePalette::TEXT_SECONDARY
+    };
+
     // Painted dot indicator
-    p.circle_filled(egui::pos2(rect.left() + 16.0, mid), 3.0, ic);
-    p.text(egui::pos2(rect.left() + 30.0, mid), egui::Align2::LEFT_CENTER, label, egui::FontId::proportional(13.0), tc);
+    p.circle_filled(egui::pos2(rect.left() + 20.0, mid), 3.5, ic);
+
+    p.text(
+        egui::pos2(rect.left() + 38.0, mid),
+        egui::Align2::LEFT_CENTER,
+        label,
+        egui::FontId::proportional(15.0),
+        tc,
+    );
+
     if let Some(c) = badge {
         if c > 0 {
-            let bx = rect.right() - 22.0;
-            p.circle_filled(egui::pos2(bx, mid), 9.0, ThemePalette::STATUS_CRITICAL);
-            p.text(egui::pos2(bx, mid), egui::Align2::CENTER_CENTER, &c.to_string(), egui::FontId::proportional(9.0), egui::Color32::WHITE);
+            let bx = rect.right() - 24.0;
+            p.circle_filled(egui::pos2(bx, mid), 10.0, ThemePalette::STATUS_CRITICAL);
+            p.text(
+                egui::pos2(bx, mid),
+                egui::Align2::CENTER_CENTER,
+                &c.to_string(),
+                egui::FontId::proportional(11.0),
+                egui::Color32::WHITE,
+            );
         }
     }
-    if resp.clicked() { *selected = tab; }
+
+    if resp.clicked() {
+        *selected = tab;
+    }
 }
 
 /// Compact stat row for sidebar: label, value %, mini bar
 fn draw_mini_stat(ui: &mut egui::Ui, label: &str, value: f32) {
     let w = ui.available_width();
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(w, 22.0), egui::Sense::hover());
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(w, 24.0), egui::Sense::hover());
     let p = ui.painter();
     let color = get_usage_color(value);
-    p.text(egui::pos2(rect.left() + 12.0, rect.top() + 4.0), egui::Align2::LEFT_TOP, label, egui::FontId::proportional(11.0), ThemePalette::TEXT_LABEL);
-    p.text(egui::pos2(rect.right() - 12.0, rect.top() + 4.0), egui::Align2::RIGHT_TOP, &format!("{:.0}%", value), egui::FontId::proportional(11.0), color);
-    let bar_y = rect.bottom() - 3.0;
-    let bar_w = w - 24.0;
-    let track = egui::Rect::from_min_size(egui::pos2(rect.left() + 12.0, bar_y), egui::vec2(bar_w, 2.5));
-    p.rect_filled(track, 1.0, ThemePalette::BG_TRACK);
+
+    p.text(
+        egui::pos2(rect.left() + 16.0, rect.top() + 4.0),
+        egui::Align2::LEFT_TOP,
+        label,
+        egui::FontId::proportional(12.0),
+        ThemePalette::TEXT_LABEL,
+    );
+    p.text(
+        egui::pos2(rect.right() - 16.0, rect.top() + 4.0),
+        egui::Align2::RIGHT_TOP,
+        &format!("{:.0}%", value),
+        egui::FontId::proportional(12.0),
+        color,
+    );
+
+    let bar_y = rect.bottom() - 4.0;
+    let bar_w = w - 32.0;
+    let track = egui::Rect::from_min_size(egui::pos2(rect.left() + 16.0, bar_y), egui::vec2(bar_w, 3.0));
+    p.rect_filled(track, 1.5, ThemePalette::BG_DEEPEST);
+
     let fw = bar_w * (value / 100.0).clamp(0.0, 1.0);
     if fw > 0.5 {
-        p.rect_filled(egui::Rect::from_min_size(track.min, egui::vec2(fw, 2.5)), 1.0, color);
+        p.rect_filled(egui::Rect::from_min_size(track.min, egui::vec2(fw, 3.0)), 1.5, color);
     }
 }
 
@@ -1794,12 +2001,12 @@ impl SystemMonitorApp {
         egui::ScrollArea::vertical().show(ui, |ui| {
             // ── Metric cards row ──
             let card_bg = ThemePalette::BG_CARD;
-            let card_border = egui::Stroke::new(1.0, ThemePalette::BORDER_LIGHT);
-            let card_rnd = egui::Rounding::same(6.0);
+            let card_border = egui::Stroke::new(1.0, ThemePalette::BORDER);
+            let card_rnd = egui::Rounding::same(12.0); // Premium smooth rounding
 
             let full_avail = ui.available_width();
-            let card_spacing = 8.0;
-            let card_h = 100.0;
+            let card_spacing = 16.0;
+            let card_h = 120.0;
             let (row_rect, _) = ui.allocate_exact_size(egui::vec2(full_avail, card_h), egui::Sense::hover());
             let p = ui.painter();
 
@@ -1816,63 +2023,141 @@ impl SystemMonitorApp {
             // Prepare card data
             let cpu_c = get_usage_color(data.cpu_usage);
             let mem_c = get_usage_color(data.memory_percentage);
+
             let (gpu_val, gpu_sub, gpu_frac, gpu_c) = if let Some(ref gpu) = data.gpu_info {
                 let c = get_usage_color(gpu.utilization);
                 let sub = if let (Some(u), Some(t)) = (gpu.memory_used, gpu.memory_total) {
                     format!("{:.0}/{:.0} MB", bytes_to_mb(u), bytes_to_mb(t))
-                } else { gpu.name.clone() };
+                } else {
+                    gpu.name.clone()
+                };
                 (format!("{:.1}%", gpu.utilization), sub, gpu.utilization / 100.0, c)
             } else {
-                ("N/A".to_string(), "Not detected".to_string(), 0.0, ThemePalette::GPU_UNAVAILABLE)
+                (
+                    "N/A".to_string(),
+                    "Not detected".to_string(),
+                    0.0,
+                    ThemePalette::GPU_UNAVAILABLE,
+                )
             };
 
-            let cards: [(egui::Color32, &str, &str, &str, f32, egui::Color32); 3] = [
-                (ThemePalette::ACCENT_PRIMARY, "CPU", &format!("{:.1}%", data.cpu_usage), &format!("{} cores", data.cpu_cores.len()), data.cpu_usage / 100.0, cpu_c),
-                (ThemePalette::STATUS_HEALTHY, "MEMORY", &format!("{:.1}%", data.memory_percentage), &format!("{:.1} / {:.1} GB", bytes_to_gb(data.memory_used), bytes_to_gb(data.memory_total)), data.memory_percentage / 100.0, mem_c),
-                (ThemePalette::STATUS_WARNING, "GPU", &gpu_val, &gpu_sub, gpu_frac, gpu_c),
+            let cards = [
+                (
+                    ThemePalette::ACCENT_PRIMARY,
+                    "CPU",
+                    format!("{:.1}%", data.cpu_usage),
+                    format!("{} cores", data.cpu_cores.len()),
+                    data.cpu_usage / 100.0,
+                    cpu_c,
+                ),
+                (
+                    ThemePalette::ACCENT_ACTIVE,
+                    "MEMORY",
+                    format!("{:.1}%", data.memory_percentage),
+                    format!(
+                        "{:.1} / {:.1} GB",
+                        bytes_to_gb(data.memory_used),
+                        bytes_to_gb(data.memory_total)
+                    ),
+                    data.memory_percentage / 100.0,
+                    mem_c,
+                ),
+                (ThemePalette::ACCENT_PURPLE, "GPU", gpu_val, gpu_sub, gpu_frac, gpu_c),
             ];
 
             for (i, (accent, label, value, sub, frac, color)) in cards.iter().enumerate() {
                 let x = row_rect.min.x + (card_w + card_spacing) * i as f32;
                 let cr = egui::Rect::from_min_size(egui::pos2(x, row_rect.min.y), egui::vec2(card_w, card_h));
-                p.rect_filled(cr, card_rnd, card_bg);
+
+                // Deep card background with subtle inner border
+                p.rect_filled(cr, card_rnd, ThemePalette::BG_DEEPEST);
+                p.rect_filled(cr.shrink(1.0), card_rnd, card_bg);
                 p.rect_stroke(cr, card_rnd, card_border);
-                let m = 10.0;
-                p.circle_filled(egui::pos2(cr.left() + m + 4.0, cr.top() + m + 5.0), 3.0, *accent);
-                p.text(egui::pos2(cr.left() + m + 14.0, cr.top() + m + 1.0), egui::Align2::LEFT_TOP, *label, egui::FontId::proportional(11.0), egui::Color32::from_rgb(120, 130, 160));
-                // Value
-                p.text(egui::pos2(cr.left() + m, cr.top() + m + 18.0), egui::Align2::LEFT_TOP, *value, egui::FontId::proportional(28.0), *color);
-                // Sub
-                p.text(egui::pos2(cr.left() + m, cr.top() + m + 50.0), egui::Align2::LEFT_TOP, *sub, egui::FontId::proportional(11.0), ThemePalette::TEXT_TERTIARY);
-                // Progress bar
-                let bar_y = cr.top() + m + 68.0;
+
+                let m = 16.0;
+
+                // Card header section
+                p.circle_filled(egui::pos2(cr.left() + m + 4.0, cr.top() + m + 6.0), 3.5, *accent);
+                p.text(
+                    egui::pos2(cr.left() + m + 14.0, cr.top() + m),
+                    egui::Align2::LEFT_TOP,
+                    *label,
+                    egui::FontId::proportional(12.0),
+                    ThemePalette::TEXT_LABEL,
+                );
+
+                // Value text
+                p.text(
+                    egui::pos2(cr.left() + m, cr.top() + m + 22.0),
+                    egui::Align2::LEFT_TOP,
+                    value,
+                    egui::FontId::proportional(32.0),
+                    *color,
+                );
+
+                // Subtitle
+                p.text(
+                    egui::pos2(cr.left() + m, cr.top() + m + 60.0),
+                    egui::Align2::LEFT_TOP,
+                    sub,
+                    egui::FontId::proportional(12.0),
+                    ThemePalette::TEXT_TERTIARY,
+                );
+
+                // Progress bar track
+                let bar_y = cr.top() + m + 80.0;
                 let bar_w = card_w - m * 2.0;
-                let bar_rect = egui::Rect::from_min_size(egui::pos2(cr.left() + m, bar_y), egui::vec2(bar_w, 5.0));
-                p.rect_filled(bar_rect, 2.5, ThemePalette::BG_TRACK);
+                let bar_rect = egui::Rect::from_min_size(egui::pos2(cr.left() + m, bar_y), egui::vec2(bar_w, 6.0));
+
+                p.rect_filled(bar_rect, 3.0, ThemePalette::BG_DEEPEST);
                 let f = frac.clamp(0.0, 1.0);
-                if f > 0.005 { p.rect_filled(egui::Rect::from_min_size(bar_rect.min, egui::vec2(bar_w * f, 5.0)), 2.5, *color); }
+                if f > 0.005 {
+                    p.rect_filled(
+                        egui::Rect::from_min_size(bar_rect.min, egui::vec2(bar_w * f, 6.0)),
+                        3.0,
+                        *color,
+                    );
+                }
             }
 
-            ui.add_space(10.0);
+            ui.add_space(16.0);
 
             // ── Detail strip ──
             ui.group(|ui| {
                 ui.horizontal(|ui| {
                     if let Some(ref gpu) = data.gpu_info {
                         if let Some(temp) = gpu.temperature {
-                            let tc = if temp < 70 { ThemePalette::STATUS_HEALTHY } else if temp < 85 { ThemePalette::STATUS_WARNING } else { ThemePalette::STATUS_CRITICAL };
+                            let tc = if temp < 70 {
+                                ThemePalette::STATUS_HEALTHY
+                            } else if temp < 85 {
+                                ThemePalette::STATUS_WARNING
+                            } else {
+                                ThemePalette::STATUS_CRITICAL
+                            };
                             ui.label(egui::RichText::new(format!("{}°C", temp)).strong().color(tc));
                             ui.separator();
                         }
-                        ui.label(egui::RichText::new(&gpu.name).size(11.5).color(ThemePalette::TEXT_LABEL_SUB));
+                        ui.label(
+                            egui::RichText::new(&gpu.name)
+                                .size(11.5)
+                                .color(ThemePalette::TEXT_LABEL_SUB),
+                        );
                         ui.separator();
                     }
                     let d = data.system_info.uptime / 86400;
                     let h = (data.system_info.uptime % 86400) / 3600;
                     let m = (data.system_info.uptime % 3600) / 60;
-                    ui.label(egui::RichText::new(format!("Uptime {}d {}h {}m", d, h, m)).size(11.5).color(ThemePalette::TEXT_LABEL_SUB));
+                    ui.label(
+                        egui::RichText::new(format!("Uptime {}d {}h {}m", d, h, m))
+                            .size(11.5)
+                            .color(ThemePalette::TEXT_LABEL_SUB),
+                    );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.label(egui::RichText::new(&data.last_update).size(11.0).color(ThemePalette::TEXT_DIMMED));
+                        ui.label(
+                            egui::RichText::new(&data.last_update)
+                                .size(11.0)
+                                .color(ThemePalette::TEXT_DIMMED),
+                        );
                     });
                 });
             });
@@ -1887,19 +2172,34 @@ impl SystemMonitorApp {
                     .striped(true)
                     .spacing([14.0, 5.0])
                     .show(ui, |ui| {
-                        ui.label(egui::RichText::new("PROCESS").size(10.0).color(ThemePalette::TEXT_DIMMED));
-                        ui.label(egui::RichText::new("MEMORY").size(10.0).color(ThemePalette::TEXT_DIMMED));
+                        ui.label(
+                            egui::RichText::new("PROCESS")
+                                .size(10.0)
+                                .color(ThemePalette::TEXT_DIMMED),
+                        );
+                        ui.label(
+                            egui::RichText::new("MEMORY")
+                                .size(10.0)
+                                .color(ThemePalette::TEXT_DIMMED),
+                        );
                         ui.label(egui::RichText::new("CPU").size(10.0).color(ThemePalette::TEXT_DIMMED));
                         ui.end_row();
 
                         for process in data.top_processes.iter().take(8) {
                             let mb = bytes_to_mb(process.memory);
-                            let mc = if mb > 500.0 { ThemePalette::STATUS_CRITICAL }
-                                     else if mb > 200.0 { ThemePalette::STATUS_WARNING }
-                                     else { ThemePalette::STATUS_HEALTHY };
-                            let name = if process.name.len() > 32 {
-                                format!("{}…", &process.name[..30])
-                            } else { process.name.clone() };
+                            let mc = if mb > 500.0 {
+                                ThemePalette::STATUS_CRITICAL
+                            } else if mb > 200.0 {
+                                ThemePalette::STATUS_WARNING
+                            } else {
+                                ThemePalette::STATUS_HEALTHY
+                            };
+                            let name = if process.name.chars().count() > 32 {
+                                let truncated: String = process.name.chars().take(30).collect();
+                                format!("{}…", truncated)
+                            } else {
+                                process.name.clone()
+                            };
                             ui.label(egui::RichText::new(name).size(12.5));
                             ui.colored_label(mc, format!("{:.1} MB", mb));
                             ui.label(format!("{:.1}%", process.cpu_usage));
@@ -1917,14 +2217,16 @@ impl SystemMonitorApp {
             if self.settings.show_graphs {
                 // CPU Graph
                 ui.group(|ui| {
-                    ui.label(egui::RichText::new("CPU Usage History").size(15.0).strong().color(ThemePalette::ACCENT_PRIMARY));
-                    let cpu_points: PlotPoints = data.cpu_history
-                        .iter()
-                        .map(|p| [p.time, p.value])
-                        .collect();
+                    ui.label(
+                        egui::RichText::new("CPU Usage History")
+                            .size(15.0)
+                            .strong()
+                            .color(ThemePalette::ACCENT_PRIMARY),
+                    );
+                    let cpu_points: PlotPoints = data.cpu_history.iter().map(|p| [p.time, p.value]).collect();
 
                     let line = Line::new(cpu_points).color(ThemePalette::ACCENT_PRIMARY);
-                    
+
                     Plot::new("cpu_plot")
                         .height(200.0)
                         .allow_zoom(false)
@@ -1940,14 +2242,16 @@ impl SystemMonitorApp {
 
                 // Memory Graph
                 ui.group(|ui| {
-                    ui.label(egui::RichText::new("Memory Usage History").size(15.0).strong().color(ThemePalette::STATUS_HEALTHY));
-                    let mem_points: PlotPoints = data.memory_history
-                        .iter()
-                        .map(|p| [p.time, p.value])
-                        .collect();
+                    ui.label(
+                        egui::RichText::new("Memory Usage History")
+                            .size(15.0)
+                            .strong()
+                            .color(ThemePalette::STATUS_HEALTHY),
+                    );
+                    let mem_points: PlotPoints = data.memory_history.iter().map(|p| [p.time, p.value]).collect();
 
                     let line = Line::new(mem_points).color(ThemePalette::STATUS_HEALTHY);
-                    
+
                     Plot::new("memory_plot")
                         .height(200.0)
                         .allow_zoom(false)
@@ -1964,14 +2268,16 @@ impl SystemMonitorApp {
                 // GPU Graph
                 if !data.gpu_history.is_empty() {
                     ui.group(|ui| {
-                        ui.label(egui::RichText::new("GPU Usage History").size(15.0).strong().color(ThemePalette::STATUS_WARNING));
-                        let gpu_points: PlotPoints = data.gpu_history
-                            .iter()
-                            .map(|p| [p.time, p.value])
-                            .collect();
+                        ui.label(
+                            egui::RichText::new("GPU Usage History")
+                                .size(15.0)
+                                .strong()
+                                .color(ThemePalette::STATUS_WARNING),
+                        );
+                        let gpu_points: PlotPoints = data.gpu_history.iter().map(|p| [p.time, p.value]).collect();
 
                         let line = Line::new(gpu_points).color(ThemePalette::STATUS_WARNING);
-                        
+
                         Plot::new("gpu_plot")
                             .height(200.0)
                             .allow_zoom(false)
@@ -2004,16 +2310,77 @@ impl SystemMonitorApp {
         ui.add_space(5.0);
 
         // Filter processes
-        let filtered_processes: Vec<_> = if self.process_search.is_empty() {
+        let mut filtered_processes: Vec<_> = if self.process_search.is_empty() {
             data.top_processes.clone()
         } else {
-            data.top_processes.iter()
+            data.top_processes
+                .iter()
                 .filter(|p| p.name.to_lowercase().contains(&self.process_search.to_lowercase()))
                 .cloned()
                 .collect()
         };
 
-        ui.label(format!("Showing {} of {} processes", filtered_processes.len(), data.top_processes.len()));
+        // Sort processes
+        let ascending = self.process_sort_ascending;
+        match self.process_sort_column {
+            ProcessSortColumn::Pid => {
+                filtered_processes.sort_by(|a, b| {
+                    if ascending {
+                        a.pid.cmp(&b.pid)
+                    } else {
+                        b.pid.cmp(&a.pid)
+                    }
+                });
+            }
+            ProcessSortColumn::Name => {
+                filtered_processes.sort_by(|a, b| {
+                    let cmp = a.name.to_lowercase().cmp(&b.name.to_lowercase());
+                    if ascending {
+                        cmp
+                    } else {
+                        cmp.reverse()
+                    }
+                });
+            }
+            ProcessSortColumn::Memory => {
+                filtered_processes.sort_by(|a, b| {
+                    if ascending {
+                        a.memory.cmp(&b.memory)
+                    } else {
+                        b.memory.cmp(&a.memory)
+                    }
+                });
+            }
+            ProcessSortColumn::Cpu => {
+                filtered_processes.sort_by(|a, b| {
+                    let cmp = a
+                        .cpu_usage
+                        .partial_cmp(&b.cpu_usage)
+                        .unwrap_or(std::cmp::Ordering::Equal);
+                    if ascending {
+                        cmp
+                    } else {
+                        cmp.reverse()
+                    }
+                });
+            }
+            ProcessSortColumn::Status => {
+                // Status sorting not applicable for basic process info, fall back to memory
+                filtered_processes.sort_by(|a, b| {
+                    if ascending {
+                        a.memory.cmp(&b.memory)
+                    } else {
+                        b.memory.cmp(&a.memory)
+                    }
+                });
+            }
+        }
+
+        ui.label(format!(
+            "Showing {} of {} processes",
+            filtered_processes.len(),
+            data.top_processes.len()
+        ));
         ui.add_space(5.0);
 
         egui::ScrollArea::vertical().show(ui, |ui| {
@@ -2022,11 +2389,75 @@ impl SystemMonitorApp {
                 .spacing([10.0, 4.0])
                 .min_col_width(80.0)
                 .show(ui, |ui| {
-                    // Header
-                    ui.strong("PID");
-                    ui.strong("Process Name");
-                    ui.strong("Memory Usage");
-                    ui.strong("CPU %");
+                    // Clickable sort headers
+                    let sort_arrow = |col: ProcessSortColumn, current: ProcessSortColumn, asc: bool| -> &'static str {
+                        if col == current {
+                            if asc {
+                                " ▲"
+                            } else {
+                                " ▼"
+                            }
+                        } else {
+                            ""
+                        }
+                    };
+
+                    let sort_col = self.process_sort_column;
+                    let sort_asc = self.process_sort_ascending;
+
+                    if ui
+                        .button(format!("PID{}", sort_arrow(ProcessSortColumn::Pid, sort_col, sort_asc)))
+                        .clicked()
+                    {
+                        if self.process_sort_column == ProcessSortColumn::Pid {
+                            self.process_sort_ascending = !self.process_sort_ascending;
+                        } else {
+                            self.process_sort_column = ProcessSortColumn::Pid;
+                            self.process_sort_ascending = true;
+                        }
+                    }
+                    if ui
+                        .button(format!(
+                            "Process Name{}",
+                            sort_arrow(ProcessSortColumn::Name, sort_col, sort_asc)
+                        ))
+                        .clicked()
+                    {
+                        if self.process_sort_column == ProcessSortColumn::Name {
+                            self.process_sort_ascending = !self.process_sort_ascending;
+                        } else {
+                            self.process_sort_column = ProcessSortColumn::Name;
+                            self.process_sort_ascending = true;
+                        }
+                    }
+                    if ui
+                        .button(format!(
+                            "Memory{}",
+                            sort_arrow(ProcessSortColumn::Memory, sort_col, sort_asc)
+                        ))
+                        .clicked()
+                    {
+                        if self.process_sort_column == ProcessSortColumn::Memory {
+                            self.process_sort_ascending = !self.process_sort_ascending;
+                        } else {
+                            self.process_sort_column = ProcessSortColumn::Memory;
+                            self.process_sort_ascending = false; // default descending for memory
+                        }
+                    }
+                    if ui
+                        .button(format!(
+                            "CPU %{}",
+                            sort_arrow(ProcessSortColumn::Cpu, sort_col, sort_asc)
+                        ))
+                        .clicked()
+                    {
+                        if self.process_sort_column == ProcessSortColumn::Cpu {
+                            self.process_sort_ascending = !self.process_sort_ascending;
+                        } else {
+                            self.process_sort_column = ProcessSortColumn::Cpu;
+                            self.process_sort_ascending = false; // default descending for CPU
+                        }
+                    }
                     ui.strong("Actions");
                     ui.end_row();
 
@@ -2042,17 +2473,18 @@ impl SystemMonitorApp {
                         };
 
                         ui.label(process.pid.to_string());
-                        
-                        let display_name = if process.name.len() > 40 {
-                            format!("{}...", &process.name[..37])
+
+                        let display_name = if process.name.chars().count() > 40 {
+                            let truncated: String = process.name.chars().take(37).collect();
+                            format!("{}...", truncated)
                         } else {
                             process.name.clone()
                         };
                         ui.label(display_name);
-                        
+
                         ui.colored_label(memory_color, format!("{:.2} MB", memory_mb));
                         ui.label(format!("{:.1}%", process.cpu_usage));
-                        
+
                         // Action buttons
                         ui.horizontal(|ui| {
                             if ui.small_button("📋").on_hover_text("Copy PID").clicked() {
@@ -2062,7 +2494,7 @@ impl SystemMonitorApp {
                                 ui.output_mut(|o| o.copied_text = process.name.clone());
                             }
                         });
-                        
+
                         ui.end_row();
                     }
                 });
@@ -2080,7 +2512,7 @@ impl SystemMonitorApp {
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             let color = get_usage_color(disk.usage_percentage);
                             ui.colored_label(color, format!("{:.1}%", disk.usage_percentage));
-                            
+
                             // Warning icon for high usage
                             if disk.usage_percentage > 90.0 {
                                 ui.colored_label(egui::Color32::RED, "⚠️");
@@ -2122,8 +2554,13 @@ impl SystemMonitorApp {
                     // Show warning for low disk space
                     if disk.usage_percentage > 90.0 {
                         ui.add_space(5.0);
-                        ui.colored_label(egui::Color32::RED, 
-                            format!("⚠️ Warning: Only {:.2} GB remaining!", bytes_to_gb(disk.available_space)));
+                        ui.colored_label(
+                            egui::Color32::RED,
+                            format!(
+                                "⚠️ Warning: Only {:.2} GB remaining!",
+                                bytes_to_gb(disk.available_space)
+                            ),
+                        );
                     }
                 });
 
@@ -2143,17 +2580,27 @@ impl SystemMonitorApp {
             // Network graphs
             if self.settings.show_graphs && !data.network_download_history.is_empty() {
                 ui.group(|ui| {
-                    ui.label(egui::RichText::new("Network Activity History").size(15.0).strong().color(ThemePalette::TEXT_PRIMARY));
-                    
+                    ui.label(
+                        egui::RichText::new("Network Activity History")
+                            .size(15.0)
+                            .strong()
+                            .color(ThemePalette::TEXT_PRIMARY),
+                    );
+
                     // Download graph
-                    ui.label(egui::RichText::new("▼ Download Rate (MB/s)").size(12.0).color(ThemePalette::STATUS_HEALTHY));
-                    let download_points: PlotPoints = data.network_download_history
+                    ui.label(
+                        egui::RichText::new("▼ Download Rate (MB/s)")
+                            .size(12.0)
+                            .color(ThemePalette::STATUS_HEALTHY),
+                    );
+                    let download_points: PlotPoints = data
+                        .network_download_history
                         .iter()
                         .map(|p| [p.time, p.value])
                         .collect();
 
                     let line = Line::new(download_points).color(ThemePalette::STATUS_HEALTHY);
-                    
+
                     Plot::new("network_download_plot")
                         .height(150.0)
                         .allow_zoom(false)
@@ -2167,14 +2614,16 @@ impl SystemMonitorApp {
                     ui.add_space(10.0);
 
                     // Upload graph
-                    ui.label(egui::RichText::new("▲ Upload Rate (MB/s)").size(12.0).color(ThemePalette::ACCENT_PRIMARY));
-                    let upload_points: PlotPoints = data.network_upload_history
-                        .iter()
-                        .map(|p| [p.time, p.value])
-                        .collect();
+                    ui.label(
+                        egui::RichText::new("▲ Upload Rate (MB/s)")
+                            .size(12.0)
+                            .color(ThemePalette::ACCENT_PRIMARY),
+                    );
+                    let upload_points: PlotPoints =
+                        data.network_upload_history.iter().map(|p| [p.time, p.value]).collect();
 
                     let line = Line::new(upload_points).color(ThemePalette::ACCENT_PRIMARY);
-                    
+
                     Plot::new("network_upload_plot")
                         .height(150.0)
                         .allow_zoom(false)
@@ -2263,9 +2712,18 @@ impl SystemMonitorApp {
                 ui.heading("Alert Configuration");
                 ui.separator();
                 ui.label("Alerts are triggered when:");
-                ui.label(format!("  • CPU usage > {:.0}%", self.settings.notification_cpu_threshold));
-                ui.label(format!("  • Memory usage > {:.0}%", self.settings.notification_memory_threshold));
-                ui.label(format!("  • GPU temperature > {}°C", self.settings.notification_temp_threshold));
+                ui.label(format!(
+                    "  • CPU usage > {:.0}%",
+                    self.settings.notification_cpu_threshold
+                ));
+                ui.label(format!(
+                    "  • Memory usage > {:.0}%",
+                    self.settings.notification_memory_threshold
+                ));
+                ui.label(format!(
+                    "  • GPU temperature > {}°C",
+                    self.settings.notification_temp_threshold
+                ));
                 ui.label("  • Disk usage > 90%");
                 ui.add_space(5.0);
                 if ui.button("⚙️ Configure Alert Thresholds").clicked() {
@@ -2311,14 +2769,14 @@ impl SystemMonitorApp {
 
             ui.add_space(10.0);
             ui.separator();
-            
+
             ui.horizontal(|ui| {
                 if ui.button("🗑️ Clear All Alerts").clicked() {
                     if let Ok(mut data) = self.data.lock() {
                         data.alerts.clear();
                     }
                 }
-                
+
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.label("💡 Tip: Configure alert thresholds in Settings");
                 });
@@ -2435,8 +2893,7 @@ impl SystemMonitorApp {
                     if let (Some(used), Some(total)) = (gpu_info.memory_used, gpu_info.memory_total) {
                         ui.horizontal(|ui| {
                             ui.label("VRAM:");
-                            ui.strong(format!("{:.0} MB / {:.0} MB", 
-                                bytes_to_mb(used), bytes_to_mb(total)));
+                            ui.strong(format!("{:.0} MB / {:.0} MB", bytes_to_mb(used), bytes_to_mb(total)));
                         });
                     }
 
@@ -2528,8 +2985,11 @@ impl SystemMonitorApp {
         paint_section_header(ui, "CPU Cores Monitoring");
 
         egui::ScrollArea::vertical().show(ui, |ui| {
-            ui.label(format!("Total Cores: {} ({} logical processors)", 
-                data.system_info.cpu_count, data.cpu_cores.len()));
+            ui.label(format!(
+                "Total Cores: {} ({} logical processors)",
+                data.system_info.cpu_count,
+                data.cpu_cores.len()
+            ));
             ui.add_space(10.0);
 
             // Grid layout for cores
@@ -2546,7 +3006,7 @@ impl SystemMonitorApp {
                         let core = &data.cpu_cores[core_index];
                         ui.group(|ui| {
                             ui.set_min_width(180.0);
-                            
+
                             ui.horizontal(|ui| {
                                 ui.strong(format!("Core {}", core.core_id));
                                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -2604,7 +3064,7 @@ impl SystemMonitorApp {
 
     fn show_process_manager_window(&mut self, ctx: &egui::Context, data: &SystemData) {
         let mut show = self.show_process_manager;
-        
+
         egui::Window::new("⚙️ Process Manager")
             .open(&mut show)
             .resizable(true)
@@ -2652,7 +3112,7 @@ impl SystemMonitorApp {
                                 };
 
                                 ui.label(process.pid.to_string());
-                                
+
                                 // Safe truncation using char boundaries
                                 let display_name = if process.name.chars().count() > 25 {
                                     let truncated: String = process.name.chars().take(22).collect();
@@ -2661,7 +3121,7 @@ impl SystemMonitorApp {
                                     process.name.clone()
                                 };
                                 ui.label(display_name);
-                                
+
                                 ui.colored_label(memory_color, format!("{:.2} MB", memory_mb));
                                 ui.label(format!("{:.1}%", process.cpu_usage));
                                 ui.label(&process.status);
@@ -2682,7 +3142,9 @@ impl SystemMonitorApp {
                                                 ui.close_menu();
                                             }
                                         }
-                                    }).response.on_hover_text("Set Priority");
+                                    })
+                                    .response
+                                    .on_hover_text("Set Priority");
                                 });
 
                                 ui.end_row();
@@ -2691,7 +3153,10 @@ impl SystemMonitorApp {
                 });
 
                 ui.separator();
-                ui.colored_label(egui::Color32::YELLOW, "⚠️ Warning: Killing/suspending processes may cause system instability!");
+                ui.colored_label(
+                    egui::Color32::YELLOW,
+                    "⚠️ Warning: Killing/suspending processes may cause system instability!",
+                );
             });
 
         self.show_process_manager = show;
@@ -2712,11 +3177,21 @@ impl SystemMonitorApp {
                 ui.horizontal(|ui| {
                     ui.label("Used RAM:");
                     let color = get_usage_color(data.memory_percentage);
-                    ui.colored_label(color, format!("{:.2} GB ({:.1}%)", bytes_to_gb(data.memory_used), data.memory_percentage));
+                    ui.colored_label(
+                        color,
+                        format!(
+                            "{:.2} GB ({:.1}%)",
+                            bytes_to_gb(data.memory_used),
+                            data.memory_percentage
+                        ),
+                    );
                 });
                 ui.horizontal(|ui| {
                     ui.label("Free RAM:");
-                    ui.strong(format!("{:.2} GB", bytes_to_gb(data.memory_total.saturating_sub(data.memory_used))));
+                    ui.strong(format!(
+                        "{:.2} GB",
+                        bytes_to_gb(data.memory_total.saturating_sub(data.memory_used))
+                    ));
                 });
                 let color = get_usage_color(data.memory_percentage);
                 paint_progress_bar(ui, data.memory_percentage / 100.0, color, 8.0);
@@ -2734,15 +3209,28 @@ impl SystemMonitorApp {
 
                 let is_cleaning = self.ram_cleaner_state.is_cleaning;
                 ui.add_enabled_ui(!is_cleaning, |ui| {
-                    if ui.button(egui::RichText::new("🧹 Clean RAM Now").size(16.0).strong()).clicked() {
+                    if ui
+                        .button(egui::RichText::new("🧹 Clean RAM Now").size(16.0).strong())
+                        .clicked()
+                    {
                         self.ram_cleaner_state.is_cleaning = true;
-                        let mut monitor = SystemMonitor::new();
-                        let freed = monitor.clean_ram();
-                        self.ram_cleaner_state.bytes_freed += freed;
                         self.ram_cleaner_state.last_cleaned = Some(Instant::now());
                         self.ram_cleaner_state.last_cleaned_display = Local::now().format("%H:%M:%S").to_string();
                         self.ram_cleaner_state.clean_count += 1;
-                        self.ram_cleaner_state.is_cleaning = false;
+                        let data_arc = Arc::clone(&self.data);
+                        let ctx_clone = ui.ctx().clone();
+                        thread::spawn(move || {
+                            let mut monitor = SystemMonitor::new();
+                            let freed = monitor.clean_ram();
+                            if let Ok(mut d) = data_arc.lock() {
+                                d.ram_clean_freed_bytes += freed;
+                                d.ram_clean_is_cleaning = false;
+                            }
+                            ctx_clone.request_repaint();
+                        });
+                        if let Ok(mut d) = self.data.lock() {
+                            d.ram_clean_is_cleaning = true;
+                        }
                     }
                 });
 
@@ -2757,20 +3245,27 @@ impl SystemMonitorApp {
             ui.group(|ui| {
                 ui.heading("Auto Clean");
                 ui.separator();
-                
-                ui.checkbox(&mut self.ram_cleaner_state.auto_clean_enabled, "Enable automatic RAM cleaning");
-                
+
+                ui.checkbox(
+                    &mut self.ram_cleaner_state.auto_clean_enabled,
+                    "Enable automatic RAM cleaning",
+                );
+
                 if self.ram_cleaner_state.auto_clean_enabled {
                     ui.add_space(5.0);
                     ui.horizontal(|ui| {
                         ui.label("Clean when RAM usage exceeds:");
-                        ui.add(egui::Slider::new(&mut self.ram_cleaner_state.auto_clean_threshold, 50.0..=95.0)
-                            .suffix("%"));
+                        ui.add(
+                            egui::Slider::new(&mut self.ram_cleaner_state.auto_clean_threshold, 50.0..=95.0)
+                                .suffix("%"),
+                        );
                     });
                     ui.horizontal(|ui| {
                         ui.label("Minimum interval between cleans:");
-                        ui.add(egui::Slider::new(&mut self.ram_cleaner_state.auto_clean_interval, 60..=1800)
-                            .suffix(" sec"));
+                        ui.add(
+                            egui::Slider::new(&mut self.ram_cleaner_state.auto_clean_interval, 60..=1800)
+                                .suffix(" sec"),
+                        );
                     });
                 }
             });
@@ -2894,20 +3389,37 @@ impl SystemMonitorApp {
             ui.group(|ui| {
                 ui.heading("General");
                 ui.add_space(8.0);
-                
+
                 let mut changed = false;
+                let mut theme_changed = false;
 
                 ui.columns(2, |cols| {
                     cols[0].vertical(|ui| {
-                        changed |= ui.checkbox(&mut self.settings.show_graphs, "Show Performance Graphs").changed();
-                        changed |= ui.checkbox(&mut self.settings.show_gpu, "Show GPU Information").changed();
-                        changed |= ui.checkbox(&mut self.settings.show_processes, "Show Process List").changed();
+                        changed |= ui
+                            .checkbox(&mut self.settings.show_graphs, "Show Performance Graphs")
+                            .changed();
+                        changed |= ui
+                            .checkbox(&mut self.settings.show_gpu, "Show GPU Information")
+                            .changed();
+                        changed |= ui
+                            .checkbox(&mut self.settings.show_processes, "Show Process List")
+                            .changed();
                     });
-                    
+
                     cols[1].vertical(|ui| {
-                        changed |= ui.checkbox(&mut self.settings.show_notifications, "Enable System Notifications").changed();
-                        changed |= ui.checkbox(&mut self.settings.theme_dark, "Dark Theme (Terminal Noir)").changed();
-                        changed |= ui.checkbox(&mut self.settings.auto_clear_alerts, "Auto-clear resolved alerts").changed();
+                        changed |= ui
+                            .checkbox(&mut self.settings.show_notifications, "Enable Desktop Notifications")
+                            .changed();
+                        if ui
+                            .checkbox(&mut self.settings.theme_dark, "Dark Theme (Terminal Noir)")
+                            .changed()
+                        {
+                            changed = true;
+                            theme_changed = true;
+                        }
+                        changed |= ui
+                            .checkbox(&mut self.settings.auto_clear_alerts, "Auto-clear resolved alerts")
+                            .changed();
                     });
                 });
 
@@ -2915,11 +3427,19 @@ impl SystemMonitorApp {
                 ui.separator();
                 ui.add_space(10.0);
 
-                ui.heading("Monitoring Intervals");
+                ui.heading("Monitoring");
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
                     ui.label("Data refresh interval (seconds):");
-                    changed |= ui.add(egui::Slider::new(&mut self.settings.refresh_interval, 1..=10)).changed();
+                    changed |= ui
+                        .add(egui::Slider::new(&mut self.settings.refresh_interval, 1..=10))
+                        .changed();
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Number of processes to show:");
+                    changed |= ui
+                        .add(egui::Slider::new(&mut self.settings.process_count, 5..=100))
+                        .changed();
                 });
 
                 ui.add_space(10.0);
@@ -2928,9 +3448,24 @@ impl SystemMonitorApp {
 
                 ui.heading("Alert Thresholds");
                 ui.add_space(8.0);
-                changed |= ui.add(egui::Slider::new(&mut self.settings.notification_cpu_threshold, 50.0..=100.0).text("CPU Usage % Alert")).changed();
-                changed |= ui.add(egui::Slider::new(&mut self.settings.notification_memory_threshold, 50.0..=100.0).text("Memory Usage % Alert")).changed();
-                changed |= ui.add(egui::Slider::new(&mut self.settings.notification_temp_threshold, 60..=105).text("Temperature °C Alert")).changed();
+                changed |= ui
+                    .add(
+                        egui::Slider::new(&mut self.settings.notification_cpu_threshold, 50.0..=100.0)
+                            .text("CPU Usage % Alert"),
+                    )
+                    .changed();
+                changed |= ui
+                    .add(
+                        egui::Slider::new(&mut self.settings.notification_memory_threshold, 50.0..=100.0)
+                            .text("Memory Usage % Alert"),
+                    )
+                    .changed();
+                changed |= ui
+                    .add(
+                        egui::Slider::new(&mut self.settings.notification_temp_threshold, 60..=105)
+                            .text("Temperature °C Alert"),
+                    )
+                    .changed();
 
                 #[cfg(target_os = "windows")]
                 {
@@ -2940,16 +3475,68 @@ impl SystemMonitorApp {
 
                     ui.heading("Windows Integration");
                     ui.add_space(8.0);
-                    if ui.checkbox(&mut self.settings.auto_start, "Start with Windows").changed() {
+                    if ui
+                        .checkbox(&mut self.settings.auto_start, "Start with Windows")
+                        .changed()
+                    {
                         changed = true;
                         let _ = self.settings.set_auto_start(self.settings.auto_start);
                     }
-                    changed |= ui.checkbox(&mut self.settings.minimize_to_tray, "Minimize to System Tray").changed();
-                    changed |= ui.checkbox(&mut self.settings.start_minimized, "Start Minimized").changed();
                 }
 
                 if changed {
                     let _ = self.settings.save();
+                    // Sync settings to the background thread
+                    if let Ok(mut shared) = self.shared_settings.lock() {
+                        *shared = self.settings.clone();
+                    }
+                }
+
+                // Apply theme change live
+                if theme_changed {
+                    if self.settings.theme_dark {
+                        let mut visuals = egui::Visuals::dark();
+                        visuals.panel_fill = ThemePalette::BG_DEEP;
+                        visuals.window_fill = ThemePalette::BG_SURFACE;
+                        visuals.extreme_bg_color = ThemePalette::BG_DEEPEST;
+                        visuals.selection.bg_fill = ThemePalette::ACCENT_PRIMARY;
+                        visuals.selection.stroke = egui::Stroke::new(1.0, ThemePalette::ACCENT_ACTIVE);
+                        visuals.hyperlink_color = ThemePalette::ACCENT_PRIMARY;
+                        visuals.widgets.noninteractive.bg_fill = ThemePalette::BG_CARD;
+                        visuals.widgets.noninteractive.bg_stroke = egui::Stroke::new(1.0, ThemePalette::BORDER);
+                        visuals.widgets.noninteractive.fg_stroke = egui::Stroke::new(1.0, ThemePalette::TEXT_PRIMARY);
+                        visuals.widgets.inactive.bg_fill = ThemePalette::WIDGET_INACTIVE;
+                        visuals.widgets.inactive.bg_stroke = egui::Stroke::new(1.0, ThemePalette::BORDER);
+                        visuals.widgets.inactive.fg_stroke = egui::Stroke::new(1.0, ThemePalette::TEXT_SECONDARY);
+                        visuals.widgets.hovered.bg_fill = ThemePalette::WIDGET_HOVERED;
+                        visuals.widgets.hovered.bg_stroke = egui::Stroke::new(1.0, ThemePalette::BORDER_LIGHT);
+                        visuals.widgets.hovered.fg_stroke = egui::Stroke::new(1.0, ThemePalette::TEXT_SELECTED);
+                        visuals.widgets.active.bg_fill = ThemePalette::ACCENT_ACTIVE;
+                        visuals.widgets.active.bg_stroke = egui::Stroke::new(1.0, ThemePalette::ACCENT_PRIMARY);
+                        visuals.widgets.active.fg_stroke = egui::Stroke::new(1.0, ThemePalette::TEXT_SELECTED);
+                        visuals.window_rounding = egui::Rounding::same(12.0);
+                        visuals.menu_rounding = egui::Rounding::same(10.0);
+                        visuals.widgets.noninteractive.rounding = egui::Rounding::same(8.0);
+                        visuals.widgets.inactive.rounding = egui::Rounding::same(8.0);
+                        visuals.widgets.hovered.rounding = egui::Rounding::same(8.0);
+                        visuals.widgets.active.rounding = egui::Rounding::same(8.0);
+                        visuals.window_stroke = egui::Stroke::new(1.0, ThemePalette::BORDER_LIGHT);
+                        visuals.window_shadow = egui::epaint::Shadow {
+                            offset: egui::vec2(0.0, 12.0),
+                            blur: 32.0,
+                            spread: -4.0,
+                            color: egui::Color32::from_rgba_premultiplied(0, 0, 0, 180),
+                        };
+                        visuals.popup_shadow = egui::epaint::Shadow {
+                            offset: egui::vec2(0.0, 8.0),
+                            blur: 24.0,
+                            spread: -2.0,
+                            color: egui::Color32::from_rgba_premultiplied(0, 0, 0, 150),
+                        };
+                        ui.ctx().set_visuals(visuals);
+                    } else {
+                        ui.ctx().set_visuals(egui::Visuals::light());
+                    }
                 }
             });
         });
@@ -2966,23 +3553,40 @@ impl SystemMonitorApp {
                     ui.add(
                         egui::Image::new(egui::include_image!("../assets/icon.png"))
                             .max_width(40.0)
-                            .max_height(40.0)
+                            .max_height(40.0),
                     );
                     ui.add_space(8.0);
                     ui.vertical(|ui| {
-                        ui.label(egui::RichText::new("System Monitor").size(22.0).strong().color(ThemePalette::TEXT_PRIMARY));
-                        ui.label(egui::RichText::new("v1.0.0 · Terminal Noir").size(12.0).color(ThemePalette::TEXT_TERTIARY));
+                        ui.label(
+                            egui::RichText::new("System Monitor")
+                                .size(22.0)
+                                .strong()
+                                .color(ThemePalette::TEXT_PRIMARY),
+                        );
+                        ui.label(
+                            egui::RichText::new(format!("v{} · Terminal Noir", APP_VERSION))
+                                .size(12.0)
+                                .color(ThemePalette::TEXT_TERTIARY),
+                        );
                     });
                 });
                 ui.add_space(6.0);
-                ui.label(egui::RichText::new("Professional system intelligence for Windows — built with Rust and egui.").size(13.0).color(ThemePalette::TEXT_SUBTITLE));
+                ui.label(
+                    egui::RichText::new("Professional system intelligence for Windows — built with Rust and egui.")
+                        .size(13.0)
+                        .color(ThemePalette::TEXT_SUBTITLE),
+                );
             });
 
             ui.add_space(10.0);
 
             ui.columns(2, |cols| {
                 cols[0].group(|ui| {
-                    ui.label(egui::RichText::new("FEATURES").size(10.0).color(ThemePalette::ACCENT_PRIMARY));
+                    ui.label(
+                        egui::RichText::new("FEATURES")
+                            .size(10.0)
+                            .color(ThemePalette::ACCENT_PRIMARY),
+                    );
                     ui.add_space(6.0);
                     for item in &[
                         "Real-time CPU, Memory & GPU",
@@ -3000,20 +3604,29 @@ impl SystemMonitorApp {
                 });
 
                 cols[1].group(|ui| {
-                    ui.label(egui::RichText::new("TECHNICAL").size(10.0).color(ThemePalette::ACCENT_PRIMARY));
+                    ui.label(
+                        egui::RichText::new("TECHNICAL")
+                            .size(10.0)
+                            .color(ThemePalette::ACCENT_PRIMARY),
+                    );
                     ui.add_space(6.0);
-                    let specs = [
+                    let refresh_str = format!("{} s interval", self.settings.refresh_interval);
+                    let specs: Vec<(&str, &str)> = vec![
                         ("Framework", "egui + eframe"),
                         ("System", "sysinfo crate"),
                         ("GPU", "NVML (NVIDIA)"),
-                        ("Refresh", "2 s interval"),
+                        ("Refresh", &refresh_str),
                         ("History", "60 data points"),
                         ("License", "MIT — open source"),
                     ];
                     for (k, v) in &specs {
                         ui.horizontal(|ui| {
                             ui.label(egui::RichText::new(*k).size(11.5).color(ThemePalette::TEXT_TERTIARY));
-                            ui.label(egui::RichText::new(*v).size(12.0).color(egui::Color32::from_rgb(185, 195, 215)));
+                            ui.label(
+                                egui::RichText::new(*v)
+                                    .size(12.0)
+                                    .color(egui::Color32::from_rgb(185, 195, 215)),
+                            );
                         });
                     }
                 });
@@ -3022,7 +3635,11 @@ impl SystemMonitorApp {
             ui.add_space(10.0);
 
             ui.group(|ui| {
-                ui.label(egui::RichText::new("COLOR LEGEND").size(10.0).color(ThemePalette::ACCENT_PRIMARY));
+                ui.label(
+                    egui::RichText::new("COLOR LEGEND")
+                        .size(10.0)
+                        .color(ThemePalette::ACCENT_PRIMARY),
+                );
                 ui.add_space(6.0);
                 ui.horizontal(|ui| {
                     ui.colored_label(ThemePalette::STATUS_HEALTHY, "●  Healthy < 50%");
@@ -3051,7 +3668,7 @@ fn main() -> Result<(), eframe::Error> {
     let mut viewport_builder = egui::ViewportBuilder::default()
         .with_inner_size([1100.0, 800.0])
         .with_min_inner_size([900.0, 600.0])
-        .with_title("System Monitor v1.0.0");
+        .with_title(format!("System Monitor v{}", APP_VERSION));
 
     if let Some(icon) = load_icon() {
         viewport_builder = viewport_builder.with_icon(std::sync::Arc::new(icon));
@@ -3068,4 +3685,3 @@ fn main() -> Result<(), eframe::Error> {
         Box::new(|cc| Ok(Box::new(SystemMonitorApp::new(cc)))),
     )
 }
-
