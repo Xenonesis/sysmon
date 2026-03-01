@@ -146,6 +146,38 @@ if ($LASTEXITCODE -eq 0) {
     } else {
         $version = "1.0.0"
     }
+
+    # ── Code Signing (Main EXE) ──
+    if (Test-Path "sign-binary.ps1") {
+        Write-Host "Signing executable..." -ForegroundColor Cyan
+        & .\sign-binary.ps1 -FilePath "target\release\system-monitor.exe"
+    }
+
+    # ── Compile Installer (Inno Setup) ──
+    $isccPath = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+    $installerExists = $false
+    if (Test-Path $isccPath) {
+        Write-Host "Inno Setup found. Compiling installer..." -ForegroundColor Cyan
+        & $isccPath "installer.iss" | Out-Null
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host "✅ Installer SystemMonitor-Setup.exe compiled to downloads folder." -ForegroundColor Green
+            $installerExists = $true
+            # Sign the installer
+            if (Test-Path "sign-binary.ps1") {
+                Write-Host "Signing installer..." -ForegroundColor Cyan
+                & .\sign-binary.ps1 -FilePath "downloads\SystemMonitor-Setup.exe"
+            }
+            # Copy versioned installer
+            Copy-Item "downloads\SystemMonitor-Setup.exe" "downloads\SystemMonitor-Setup-v$version.exe" -Force
+            Copy-Item "downloads\SystemMonitor-Setup.exe" "docs\downloads\SystemMonitor-Setup-v$version.exe" -Force
+            Copy-Item "downloads\SystemMonitor-Setup.exe" "docs\downloads\SystemMonitor-Setup.exe" -Force
+        } else {
+            Write-Host "❌ Failed to compile installer." -ForegroundColor Red
+        }
+    } else {
+        Write-Host "ℹ️ Inno Setup (ISCC.exe) not found. Skipping installer compilation." -ForegroundColor Yellow
+        Write-Host "   Install Inno Setup 6 if you want to build the setup wizard." -ForegroundColor DarkGray
+    }
     
     # Copy executable to downloads folders with version naming
     $versionedName = "SystemMonitor-v$version.exe"

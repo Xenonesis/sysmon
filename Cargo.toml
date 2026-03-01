@@ -29,6 +29,8 @@ egui_extras = { version = "0.28.1", features = ["image"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
 tracing-appender = "0.2"
+tray-icon = "0.21.3"
+muda = "0.17.1"
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.52", features = [

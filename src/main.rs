@@ -59,6 +59,8 @@ use sysinfo::{Disks, Networks, Pid, System};
 
 #[cfg(target_os = "windows")]
 use nvml_wrapper::Nvml;
+#[cfg(target_os = "windows")]
+use tray_icon::{TrayIconBuilder, menu::{Menu, MenuItem, MenuEvent}, TrayIconEvent};
 
 // Data structures
 #[derive(Clone, Serialize)]
@@ -217,6 +219,7 @@ struct SystemMonitor {
     #[cfg(target_os = "windows")]
     nvml: Option<Nvml>,
     last_network_update: Instant,
+    last_disk_update: Instant,
 }
 
 impl Default for AppSettings {
@@ -311,6 +314,7 @@ impl SystemMonitor {
             #[cfg(target_os = "windows")]
             nvml,
             last_network_update: Instant::now(),
+            last_disk_update: Instant::now(),
         }
     }
 
@@ -705,6 +709,34 @@ Get-Process | ForEach-Object {
             .collect()
     }
 
+    fn get_disk_io(&mut self) -> (f64, f64) {
+        let elapsed = self.last_disk_update.elapsed().as_secs_f64();
+        let mut total_read = 0;
+        let mut total_written = 0;
+
+        for process in self.sys.processes().values() {
+            let usage = process.disk_usage();
+            total_read += usage.read_bytes;
+            total_written += usage.written_bytes;
+        }
+
+        self.last_disk_update = Instant::now();
+
+        let read_rate = if elapsed > 0.0 {
+            total_read as f64 / elapsed / 1024.0 / 1024.0 // MB/s
+        } else {
+            0.0
+        };
+
+        let write_rate = if elapsed > 0.0 {
+            total_written as f64 / elapsed / 1024.0 / 1024.0 // MB/s
+        } else {
+            0.0
+        };
+
+        (read_rate, write_rate)
+    }
+
     fn check_alerts(&self, settings: &AppSettings, data: &SystemData) -> Vec<AlertInfo> {
         let mut alerts = Vec::new();
         let timestamp = Local::now().format("%H:%M:%S").to_string();
@@ -843,6 +875,10 @@ struct SystemData {
     network_sample_count: u32,
     ram_clean_freed_bytes: u64,
     ram_clean_is_cleaning: bool,
+    disk_read_rate: f64,
+    disk_write_rate: f64,
+    disk_read_history: VecDeque<DataPoint>,
+    disk_write_history: VecDeque<DataPoint>,
 }
 
 impl Default for SystemData {
@@ -883,6 +919,10 @@ impl Default for SystemData {
             network_sample_count: 0,
             ram_clean_freed_bytes: 0,
             ram_clean_is_cleaning: false,
+            disk_read_rate: 0.0,
+            disk_write_rate: 0.0,
+            disk_read_history: VecDeque::new(),
+            disk_write_history: VecDeque::new(),
         }
     }
 }
@@ -912,6 +952,14 @@ struct SystemMonitorApp {
     show_shortcuts: bool,
     suspend_process_pid: Option<u32>,
     priority_change: Option<(u32, String)>,
+    #[allow(dead_code)]
+    #[cfg(target_os = "windows")]
+    tray_icon: Option<tray_icon::TrayIcon>,
+    #[cfg(target_os = "windows")]
+    tray_menu_show_id: Option<tray_icon::menu::MenuId>,
+    #[cfg(target_os = "windows")]
+    tray_menu_quit_id: Option<tray_icon::menu::MenuId>,
+    is_hidden: bool,
 }
 
 #[derive(PartialEq)]
@@ -1056,6 +1104,7 @@ impl SystemMonitorApp {
                 let disk_info = monitor.get_disk_info();
                 let network_info = monitor.get_network_info();
                 let swap_info = monitor.get_swap_info();
+                let (disk_read_rate, disk_write_rate) = monitor.get_disk_io();
                 let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
 
                 // Get battery info every 30 seconds (it's slow via WMI)
@@ -1086,6 +1135,8 @@ impl SystemMonitorApp {
                     data.system_info = system_info.clone();
                     data.last_update = timestamp;
                     data.swap_info = swap_info;
+                    data.disk_read_rate = disk_read_rate;
+                    data.disk_write_rate = disk_write_rate;
                     if let Some(bi) = battery_info {
                         data.battery_info = Some(bi);
                     }
@@ -1160,6 +1211,14 @@ impl SystemMonitorApp {
                             time: elapsed,
                             value: total_upload_rate,
                         });
+                        data.disk_read_history.push_back(DataPoint {
+                            time: elapsed,
+                            value: disk_read_rate,
+                        });
+                        data.disk_write_history.push_back(DataPoint {
+                            time: elapsed,
+                            value: disk_write_rate,
+                        });
                     }
 
                     // Keep only last 60 points
@@ -1178,12 +1237,43 @@ impl SystemMonitorApp {
                     while data.network_upload_history.len() > 60 {
                         data.network_upload_history.pop_front();
                     }
+                    while data.disk_read_history.len() > 60 {
+                        data.disk_read_history.pop_front();
+                    }
+                    while data.disk_write_history.len() > 60 {
+                        data.disk_write_history.pop_front();
+                    }
                 }
 
                 let sleep_ms = (refresh_interval * 1000).saturating_sub(500);
                 thread::sleep(Duration::from_millis(sleep_ms));
             }
         });
+
+        let mut tray_icon = None;
+        let mut tray_menu_show_id = None;
+        let mut tray_menu_quit_id = None;
+
+        #[cfg(target_os = "windows")]
+        if let Some(icon) = load_tray_icon() {
+            let tray_menu = Menu::new();
+            let show_i = MenuItem::new("Show Dashboard", true, None);
+            let quit_i = MenuItem::new("Quit System Monitor", true, None);
+            
+            tray_menu_show_id = Some(show_i.id().clone());
+            tray_menu_quit_id = Some(quit_i.id().clone());
+
+            let _ = tray_menu.append_items(&[&show_i, &quit_i]);
+
+            if let Ok(tray) = TrayIconBuilder::new()
+                .with_menu(Box::new(tray_menu))
+                .with_tooltip("System Monitor")
+                .with_icon(icon)
+                .build()
+            {
+                tray_icon = Some(tray);
+            }
+        }
 
         Self {
             data,
@@ -1219,6 +1309,13 @@ impl SystemMonitorApp {
             show_shortcuts: false,
             suspend_process_pid: None,
             priority_change: None,
+            #[cfg(target_os = "windows")]
+            tray_icon,
+            #[cfg(target_os = "windows")]
+            tray_menu_show_id,
+            #[cfg(target_os = "windows")]
+            tray_menu_quit_id,
+            is_hidden: false,
         }
     }
 
@@ -1312,15 +1409,27 @@ fn get_usage_color(percentage: f32) -> egui::Color32 {
 
 impl eframe::App for SystemMonitorApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Request repaint for continuous updates
-        ctx.request_repaint();
+        #[cfg(target_os = "windows")]
+        if let Ok(event) = MenuEvent::receiver().try_recv() {
+            if Some(&event.id) == self.tray_menu_quit_id.as_ref() {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            } else if Some(&event.id) == self.tray_menu_show_id.as_ref() {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+                ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+                self.is_hidden = false;
+            }
+        }
 
-        // Handle always on top
-        ctx.send_viewport_cmd(egui::ViewportCommand::WindowLevel(if self.always_on_top {
-            egui::viewport::WindowLevel::AlwaysOnTop
-        } else {
-            egui::viewport::WindowLevel::Normal
-        }));
+        if ctx.input(|i| i.viewport().close_requested()) {
+            if self.settings.minimize_to_tray {
+                ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+                ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+                self.is_hidden = true;
+            }
+        }
+
+        // Ensure repaint for continuous updates
+        ctx.request_repaint();
 
         // Check for updates automatically (once every 24 hours)
         if self.update_check_time.is_none() || self.update_check_time.unwrap().elapsed().as_secs() > 86400 {
@@ -1648,6 +1757,11 @@ impl eframe::App for SystemMonitorApp {
 
                 ui.menu_button("Window", |ui| {
                     if ui.checkbox(&mut self.always_on_top, "Always on Top").clicked() {
+                        ui.ctx().send_viewport_cmd(egui::ViewportCommand::WindowLevel(if self.always_on_top {
+                            egui::viewport::WindowLevel::AlwaysOnTop
+                        } else {
+                            egui::viewport::WindowLevel::Normal
+                        }));
                         ui.close_menu();
                     }
                     if ui.button("🔄 Restart Application").clicked() {
@@ -2029,7 +2143,7 @@ impl SystemMonitorApp {
             } else {
                 full_avail
             };
-            let card_w = (visible_w - card_spacing * 2.0) / 3.0;
+            let card_w = (visible_w - card_spacing * 3.0) / 4.0;
 
             // Prepare card data
             let cpu_c = get_usage_color(data.cpu_usage);
@@ -2074,6 +2188,14 @@ impl SystemMonitorApp {
                     mem_c,
                 ),
                 (ThemePalette::ACCENT_PURPLE, "GPU", gpu_val, gpu_sub, gpu_frac, gpu_c),
+                (
+                    ThemePalette::TEXT_LABEL_SUB,
+                    "DISK I/O",
+                    format!("{:.1} MB/s", data.disk_read_rate + data.disk_write_rate),
+                    format!("R: {:.1}  W: {:.1}", data.disk_read_rate, data.disk_write_rate),
+                    ((data.disk_read_rate + data.disk_write_rate) / 200.0).clamp(0.0, 1.0) as f32,
+                    ThemePalette::TEXT_LABEL_SUB,
+                ),
             ];
 
             for (i, (accent, label, value, sub, frac, color)) in cards.iter().enumerate() {
@@ -2300,6 +2422,35 @@ impl SystemMonitorApp {
                             });
                     });
                 }
+
+                ui.add_space(10.0);
+
+                // Disk I/O Graph
+                ui.group(|ui| {
+                    ui.label(
+                        egui::RichText::new("Disk I/O History")
+                            .size(15.0)
+                            .strong()
+                            .color(ThemePalette::TEXT_LABEL_SUB),
+                    );
+                    let read_points: PlotPoints = data.disk_read_history.iter().map(|p| [p.time, p.value]).collect();
+                    let write_points: PlotPoints = data.disk_write_history.iter().map(|p| [p.time, p.value]).collect();
+
+                    let line_r = Line::new(read_points).name("Read MB/s").color(ThemePalette::STATUS_HEALTHY);
+                    let line_w = Line::new(write_points).name("Write MB/s").color(ThemePalette::STATUS_WARNING);
+
+                    Plot::new("disk_plot")
+                        .height(200.0)
+                        .allow_zoom(false)
+                        .allow_drag(false)
+                        .allow_scroll(false)
+                        .legend(egui_plot::Legend::default())
+                        .y_axis_label("MB/s")
+                        .show(ui, |plot_ui| {
+                            plot_ui.line(line_r);
+                            plot_ui.line(line_w);
+                        });
+                });
             } else {
                 ui.label("Performance graphs are disabled. Enable them in View menu.");
             }
@@ -3673,6 +3824,14 @@ fn load_icon() -> Option<egui::IconData> {
         width,
         height,
     })
+}
+
+#[cfg(target_os = "windows")]
+fn load_tray_icon() -> Option<tray_icon::Icon> {
+    let image = image::load_from_memory(include_bytes!("../assets/icon.png")).ok()?.into_rgba8();
+    let (width, height) = image.dimensions();
+    let rgba = image.into_raw();
+    tray_icon::Icon::from_rgba(rgba, width, height).ok()
 }
 
 fn main() {
