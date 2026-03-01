@@ -320,14 +320,23 @@ async function resolveDownload() {
             }
         });
         
-        if (!response.ok) throw new Error('API request failed');
+        if (!response.ok) {
+            // Handle 404 (no releases yet) gracefully
+            if (response.status === 404) {
+                console.info('No releases found yet. Using releases page fallback.');
+                if (info) {
+                    info.textContent = 'No releases yet — check back soon!';
+                }
+            }
+            throw new Error('API request failed');
+        }
         
         const release = await response.json();
         const version = release.tag_name?.replace(/^v/, '') || release.tag_name;
         
         // Find Windows executable
-        const exeAsset = release.assets?.find(asset => 
-            asset.name?.endsWith('.exe') && 
+        const exeAsset = release.assets?.find(asset =>
+            asset.name?.endsWith('.exe') &&
             !asset.name?.toLowerCase().includes('installer')
         );
         
