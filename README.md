@@ -10,7 +10,7 @@
 
 A comprehensive, professional system monitoring application built with Rust featuring a beautiful native Windows GUI. Monitor CPU, RAM, GPU, storage, network, and processes in real-time with historical performance graphs.
 
-![System Monitor](https://img.shields.io/badge/version-2.0.0-brightgreen)
+![System Monitor](https://img.shields.io/badge/version-2.2.0-brightgreen)
 
 ---
 

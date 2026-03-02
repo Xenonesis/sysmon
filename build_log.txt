@@ -1,0 +1,9 @@
+   Compiling system-monitor v1.0.0 (C:\Users\addy\Pictures\rust app)
+src\updater.rs:3:5: warning: unused import: `std::path::PathBuf`
+src\main.rs:77:5: warning: field `name` is never read
+src\main.rs:145:5: warning: field `enabled` is never read
+src\main.rs:210:5: warning: variant `Status` is never constructed
+src\main.rs:366:8: warning: method `kill_process` is never used
+src\main.rs:899:5: warning: field `show_cpu_cores` is never read
+warning: `system-monitor` (bin "system-monitor") generated 6 warnings (run `cargo fix --bin "system-monitor" -p system-monitor` to apply 1 suggestion)
+    Finished `release` profile [optimized] target(s) in 1m 32s

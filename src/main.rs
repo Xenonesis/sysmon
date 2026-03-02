@@ -385,8 +385,9 @@ impl SystemMonitor {
     #[cfg(target_os = "windows")]
     fn suspend_process(&mut self, pid: u32) -> bool {
         use std::process::Command;
+        use std::os::windows::process::CommandExt;
         // Use pssuspend-like approach via powershell to suspend a process
-        let output = Command::new("powershell")
+        let output = Command::new("powershell").creation_flags(0x08000000)
             .arg("-Command")
             .arg(format!(
                 "try {{ $proc = Get-Process -Id {} -ErrorAction Stop; $proc.Suspend(); $true }} catch {{ try {{ $code = @'\nAdd-Type -Name Suspender -Namespace Win32 -MemberDefinition @\"\n[DllImport(\"ntdll.dll\", SetLastError=true)] public static extern int NtSuspendProcess(IntPtr hProcess);\n[DllImport(\"kernel32.dll\", SetLastError=true)] public static extern IntPtr OpenProcess(int access, bool inherit, int pid);\n[DllImport(\"kernel32.dll\")] public static extern bool CloseHandle(IntPtr h);\n\"@\n'@; Invoke-Expression $code; $h = [Win32.Suspender]::OpenProcess(0x0800, $false, {}); if($h -ne [IntPtr]::Zero) {{ [Win32.Suspender]::NtSuspendProcess($h); [Win32.Suspender]::CloseHandle($h); $true }} else {{ $false }} }} catch {{ $false }} }}",
@@ -421,42 +422,38 @@ impl SystemMonitor {
 
     #[cfg(target_os = "windows")]
     fn get_battery_info(&self) -> Option<BatteryInfo> {
-        use std::process::Command;
-        let output = Command::new("powershell")
-            .arg("-Command")
-            .arg("Get-CimInstance Win32_Battery | Select-Object EstimatedChargeRemaining, BatteryStatus | ConvertTo-Json")
-            .output()
-            .ok()?;
-        if !output.status.success() {
+        // Use native Win32 API — no PowerShell process spawning
+        use windows::Win32::System::Power::{GetSystemPowerStatus, SYSTEM_POWER_STATUS};
+        let mut status: SYSTEM_POWER_STATUS = unsafe { std::mem::zeroed() };
+        let result = unsafe { GetSystemPowerStatus(&mut status) };
+        if result.is_err() {
             return None;
         }
-        let json_str = String::from_utf8_lossy(&output.stdout);
-        let json_str = json_str.trim();
-        if json_str.is_empty() || json_str == "null" {
+        // BatteryFlag 128 = no battery present
+        if status.BatteryFlag == 128 {
             return None;
         }
-        // Parse minimal JSON
-        let percentage: f32 = json_str
-            .split("EstimatedChargeRemaining")
-            .nth(1)
-            .and_then(|s| s.split([',', '}'].as_ref()).next())
-            .and_then(|s| s.trim().trim_start_matches([':', ' '].as_ref()).parse().ok())
-            .unwrap_or(0.0);
-        let status_num: u32 = json_str
-            .split("BatteryStatus")
-            .nth(1)
-            .and_then(|s| s.split([',', '}'].as_ref()).next())
-            .and_then(|s| s.trim().trim_start_matches([':', ' '].as_ref()).parse().ok())
-            .unwrap_or(0);
-        let is_charging = status_num == 2 || status_num == 6 || status_num == 7 || status_num == 8 || status_num == 9;
-        let status_text = match status_num {
-            1 => "Discharging".to_string(),
-            2 => "Plugged In".to_string(),
-            3 => "Fully Charged".to_string(),
-            4 => "Low".to_string(),
-            5 => "Critical".to_string(),
-            6 | 7 | 8 | 9 => "Charging".to_string(),
-            _ => "Unknown".to_string(),
+        let percentage = if status.BatteryLifePercent <= 100 {
+            status.BatteryLifePercent as f32
+        } else {
+            0.0 // 255 means unknown
+        };
+        // ACLineStatus: 0=Offline, 1=Online
+        let is_charging = status.ACLineStatus == 1 && status.BatteryLifePercent < 100;
+        let status_text = if status.ACLineStatus == 1 {
+            if status.BatteryLifePercent >= 100 {
+                "Fully Charged".to_string()
+            } else {
+                "Charging".to_string()
+            }
+        } else {
+            if percentage <= 10.0 {
+                "Critical".to_string()
+            } else if percentage <= 25.0 {
+                "Low".to_string()
+            } else {
+                "Discharging".to_string()
+            }
         };
         Some(BatteryInfo {
             percentage,
@@ -473,12 +470,13 @@ impl SystemMonitor {
     #[cfg(target_os = "windows")]
     fn clean_ram(&mut self) -> u64 {
         use std::process::Command;
+        use std::os::windows::process::CommandExt;
         info!("RAM clean operation initiated");
         // Get memory before
         let mem_before = self.sys.used_memory();
 
         // Use PowerShell to clean working sets of all user-accessible processes
-        let _ = Command::new("powershell")
+        let _ = Command::new("powershell").creation_flags(0x08000000)
             .arg("-Command")
             .arg(
                 r#"
@@ -520,10 +518,11 @@ Get-Process | ForEach-Object {
     #[cfg(target_os = "windows")]
     fn get_startup_items(&self) -> Vec<StartupItem> {
         use std::process::Command;
+        use std::os::windows::process::CommandExt;
         let mut items = Vec::new();
 
         // Read from HKCU Run key
-        let output = Command::new("powershell")
+        let output = Command::new("powershell").creation_flags(0x08000000)
             .arg("-Command")
             .arg(r#"Get-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -ErrorAction SilentlyContinue | ForEach-Object { $_.PSObject.Properties | Where-Object { $_.Name -notlike 'PS*' } | ForEach-Object { "$($_.Name)|$($_.Value)" } }"#)
             .output();
@@ -543,7 +542,7 @@ Get-Process | ForEach-Object {
         }
 
         // Read from HKLM Run key
-        let output = Command::new("powershell")
+        let output = Command::new("powershell").creation_flags(0x08000000)
             .arg("-Command")
             .arg(r#"Get-ItemProperty -Path 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Run' -ErrorAction SilentlyContinue | ForEach-Object { $_.PSObject.Properties | Where-Object { $_.Name -notlike 'PS*' } | ForEach-Object { "$($_.Name)|$($_.Value)" } }"#)
             .output();
@@ -563,7 +562,7 @@ Get-Process | ForEach-Object {
         }
 
         // Read from startup folder
-        let output = Command::new("powershell")
+        let output = Command::new("powershell").creation_flags(0x08000000)
             .arg("-Command")
             .arg(r#"Get-ChildItem "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup" -ErrorAction SilentlyContinue | ForEach-Object { "$($_.BaseName)|$($_.FullName)" }"#)
             .output();
@@ -593,8 +592,9 @@ Get-Process | ForEach-Object {
     #[cfg(target_os = "windows")]
     fn remove_startup_item(name: &str, source: &str) -> bool {
         use std::process::Command;
+        use std::os::windows::process::CommandExt;
         if source.contains("HKCU") {
-            Command::new("powershell")
+            Command::new("powershell").creation_flags(0x08000000)
                 .arg("-Command")
                 .arg(format!(
                     "Remove-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run' -Name '{}' -ErrorAction SilentlyContinue",
@@ -605,7 +605,7 @@ Get-Process | ForEach-Object {
                 .unwrap_or(false)
         } else if source.contains("Startup Folder") {
             // Remove shortcut from startup folder
-            Command::new("powershell")
+            Command::new("powershell").creation_flags(0x08000000)
                 .arg("-Command")
                 .arg(format!(
                     "Remove-Item \"$env:APPDATA\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\{}*\" -ErrorAction SilentlyContinue",
@@ -627,6 +627,7 @@ Get-Process | ForEach-Object {
     #[cfg(target_os = "windows")]
     fn set_process_priority(pid: u32, priority: &str) -> bool {
         use std::process::Command;
+        use std::os::windows::process::CommandExt;
         let priority_class = match priority {
             "Realtime" => "RealTime",
             "High" => "High",
@@ -636,7 +637,7 @@ Get-Process | ForEach-Object {
             "Idle" => "Idle",
             _ => return false,
         };
-        Command::new("powershell")
+        Command::new("powershell").creation_flags(0x08000000)
             .arg("-Command")
             .arg(format!(
                 "try {{ (Get-Process -Id {}).PriorityClass = '{}'; $true }} catch {{ $false }}",

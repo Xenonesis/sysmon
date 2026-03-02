@@ -1,6 +1,6 @@
 # System Monitor - Complete User Guide
 
-Welcome to the **System Monitor v2.0.0** - Your comprehensive system monitoring solution for Windows!
+Welcome to the **System Monitor v2.2.0** - Your comprehensive system monitoring solution for Windows!
 
 ---
 

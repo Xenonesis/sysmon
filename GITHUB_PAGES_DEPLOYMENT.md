@@ -2,7 +2,7 @@
 
 ## ✅ Configuration Complete!
 
-Your website is now configured to work with GitHub Pages and serve direct `.exe` downloads with versioned naming (e.g., `SystemMonitor-v2.0.0.exe`).
+Your website is now configured to work with GitHub Pages and serve direct `.exe` downloads with versioned naming (e.g., `SystemMonitor-v2.2.0.exe`).
 
 ---
 
@@ -10,7 +10,7 @@ Your website is now configured to work with GitHub Pages and serve direct `.exe`
 
 ### 1. **Versioned Naming** ✅
 
-- Files now named as: `SystemMonitor-v2.0.0.exe` (instead of `system-monitor-2.0.0.exe`)
+- Files now named as: `SystemMonitor-v2.2.0.exe` (instead of `system-monitor-2.2.0.exe`)
 - Version automatically extracted from `Cargo.toml`
 - Both versioned and "latest" copies created
 
@@ -41,11 +41,11 @@ Your website is now configured to work with GitHub Pages and serve direct `.exe`
 
 ```
 downloads/
-├── SystemMonitor-v2.0.0.exe
+├── SystemMonitor-v2.2.0.exe
 └── SystemMonitor-latest.exe
 
 docs/downloads/
-├── SystemMonitor-v2.0.0.exe
+├── SystemMonitor-v2.2.0.exe
 └── SystemMonitor-latest.exe
 ```
 
@@ -70,7 +70,7 @@ Visit your GitHub Pages URL:
 
 - **Your URL:** `https://xenonesis.github.io/sysmon/`
 - Click "Download Now" button
-- Should download: `SystemMonitor-v2.0.0.exe`
+- Should download: `SystemMonitor-v2.2.0.exe`
 
 ---
 
@@ -79,13 +79,13 @@ Visit your GitHub Pages URL:
 ```
 project/
 ├── downloads/                          # Root downloads (not deployed)
-│   ├── SystemMonitor-v2.0.0.exe
+│   ├── SystemMonitor-v2.2.0.exe
 │   └── SystemMonitor-latest.exe
 │
 ├── docs/                               # GitHub Pages source
 │   ├── downloads/                      # Deployed downloads
 │   │   ├── .gitkeep
-│   │   ├── SystemMonitor-v2.0.0.exe   ✅ Deployed to Pages
+│   │   ├── SystemMonitor-v2.2.0.exe   ✅ Deployed to Pages
 │   │   └── SystemMonitor-latest.exe   ✅ Deployed to Pages
 │   ├── index.html                      # Main page
 │   ├── script.js                       # Download logic
@@ -120,19 +120,19 @@ project/
 ```javascript
 // Priority 1: Local .exe files (versioned)
 'downloads/SystemMonitor-latest.exe'
-'downloads/SystemMonitor-v2.0.0.exe'
+'downloads/SystemMonitor-v2.2.0.exe'
 
 // Priority 2: Local legacy names (backward compatibility)
 'downloads/system-monitor-latest.exe'
-'downloads/system-monitor-2.0.0.exe'
+'downloads/system-monitor-2.2.0.exe'
 
 // Priority 3: Local ZIP files
 'downloads/SystemMonitor-latest.zip'
-'downloads/SystemMonitor-v2.0.0.zip'
+'downloads/SystemMonitor-v2.2.0.zip'
 
 // Priority 4: GitHub Releases (remote fallback)
 'SystemMonitor-latest.exe'
-'SystemMonitor-v2.0.0.exe'
+'SystemMonitor-v2.2.0.exe'
 'system-monitor.exe'
 ...
 ```
@@ -147,7 +147,7 @@ Located in `Cargo.toml`:
 
 ```toml
 [package]
-version = "2.0.0"
+version = "2.2.0"
 ```
 
 ### To Update Version:
@@ -167,7 +167,7 @@ version = "2.0.0"
 ### Before Deployment:
 
 - [ ] Run `.\build.ps1` successfully
-- [ ] Verify `docs/downloads/SystemMonitor-v2.0.0.exe` exists
+- [ ] Verify `docs/downloads/SystemMonitor-v2.2.0.exe` exists
 - [ ] Verify `docs/downloads/SystemMonitor-latest.exe` exists
 - [ ] Check file size (~5-6 MB expected)
 
@@ -175,7 +175,7 @@ version = "2.0.0"
 
 - [ ] Visit `https://xenonesis.github.io/sysmon/`
 - [ ] Click "Download Now"
-- [ ] Verify `SystemMonitor-v2.0.0.exe` or `SystemMonitor-latest.exe` downloads
+- [ ] Verify `SystemMonitor-v2.2.0.exe` or `SystemMonitor-latest.exe` downloads
 - [ ] Open browser console - check for "Local download found" message
 - [ ] Run downloaded `.exe` - verify it works
 
@@ -334,4 +334,4 @@ Once you complete the deployment steps:
 3. Push → `git push origin main`
 4. Visit → `https://xenonesis.github.io/sysmon/`
 
-Your users will be able to download `SystemMonitor-v2.0.0.exe` directly from your website! 🎉
+Your users will be able to download `SystemMonitor-v2.2.0.exe` directly from your website! 🎉
