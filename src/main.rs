@@ -60,7 +60,7 @@ use sysinfo::{Disks, Networks, Pid, System};
 #[cfg(target_os = "windows")]
 use nvml_wrapper::Nvml;
 #[cfg(target_os = "windows")]
-use tray_icon::{TrayIconBuilder, menu::{Menu, MenuItem, MenuEvent}, TrayIconEvent};
+use tray_icon::{TrayIconBuilder, menu::{Menu, MenuItem, MenuEvent}};
 
 // Data structures
 #[derive(Clone, Serialize)]
@@ -76,6 +76,7 @@ struct ProcessInfo {
 struct CpuCoreInfo {
     core_id: usize,
     usage: f32,
+    #[allow(dead_code)]
     name: String,
 }
 
@@ -144,6 +145,7 @@ struct BatteryInfo {
 struct StartupItem {
     name: String,
     command: String,
+    #[allow(dead_code)]
     enabled: bool,
     source: String, // "Registry" or "Startup Folder"
 }
@@ -209,6 +211,7 @@ enum ProcessSortColumn {
     Name,
     Memory,
     Cpu,
+    #[allow(dead_code)]
     Status,
 }
 
@@ -367,6 +370,7 @@ impl SystemMonitor {
             .collect()
     }
 
+    #[allow(dead_code)]
     fn kill_process(&mut self, pid: u32) -> bool {
         if let Some(process) = self.sys.process(Pid::from_u32(pid)) {
             let result = process.kill();
@@ -937,6 +941,7 @@ struct SystemMonitorApp {
     show_export: bool,
     show_alerts: bool,
     show_process_manager: bool,
+    #[allow(dead_code)]
     show_cpu_cores: bool,
     selected_process_pid: Option<u32>,
     always_on_top: bool,
