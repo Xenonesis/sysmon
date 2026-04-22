@@ -1,6 +1,8 @@
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 use chrono::Local;
 mod updater;
+mod startup;
+use startup::{StartupItem, ImpactTier, Recommendation, StartupSortColumn, BootDiagnostics, StartupOptimizationEntry};
 use eframe::egui;
 use egui_plot::{Line, Plot, PlotPoints};
 use tracing::{error, info, warn};
@@ -152,6 +154,8 @@ enum AlertType {
     MemoryHigh,
     GpuTempHigh,
     DiskSpaceLow,
+    #[allow(dead_code)]
+    StartupHighImpact,
 }
 
 // Swap / Page File info
@@ -170,15 +174,7 @@ struct BatteryInfo {
     status_text: String,
 }
 
-// Startup item info
-#[derive(Clone)]
-struct StartupItem {
-    name: String,
-    command: String,
-    #[allow(dead_code)]
-    enabled: bool,
-    source: String, // "Registry" or "Startup Folder"
-}
+// StartupItem is now in startup.rs module
 
 // RAM Cleaner state
 #[derive(Clone)]
@@ -228,6 +224,10 @@ struct AppSettings {
     ram_clean_threshold: f32,
     #[serde(default = "default_enable_sounds")]
     enable_sounds: bool,
+    #[serde(default)]
+    startup_optimization_history: Vec<StartupOptimizationEntry>,
+    #[serde(default)]
+    last_boot_diagnostics: Option<BootDiagnostics>,
 }
 
 fn default_enable_sounds() -> bool {
@@ -282,6 +282,8 @@ impl Default for AppSettings {
             auto_ram_clean: false,
             ram_clean_threshold: 85.0,
             enable_sounds: true,
+            startup_optimization_history: Vec::new(),
+            last_boot_diagnostics: None,
         }
     }
 }
@@ -556,114 +558,7 @@ Get-Process | ForEach-Object {
         0
     }
 
-    #[cfg(target_os = "windows")]
-    fn get_startup_items(&self) -> Vec<StartupItem> {
-        use std::process::Command;
-        use std::os::windows::process::CommandExt;
-        let mut items = Vec::new();
-
-        // Read from HKCU Run key
-        let output = Command::new("powershell").creation_flags(0x08000000)
-            .arg("-Command")
-            .arg(r#"Get-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -ErrorAction SilentlyContinue | ForEach-Object { $_.PSObject.Properties | Where-Object { $_.Name -notlike 'PS*' } | ForEach-Object { "$($_.Name)|$($_.Value)" } }"#)
-            .output();
-        if let Ok(o) = output {
-            let text = String::from_utf8_lossy(&o.stdout);
-            for line in text.lines() {
-                let parts: Vec<&str> = line.splitn(2, '|').collect();
-                if parts.len() == 2 {
-                    items.push(StartupItem {
-                        name: parts[0].trim().to_string(),
-                        command: parts[1].trim().to_string(),
-                        enabled: true,
-                        source: "Registry (HKCU)".to_string(),
-                    });
-                }
-            }
-        }
-
-        // Read from HKLM Run key
-        let output = Command::new("powershell").creation_flags(0x08000000)
-            .arg("-Command")
-            .arg(r#"Get-ItemProperty -Path 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Run' -ErrorAction SilentlyContinue | ForEach-Object { $_.PSObject.Properties | Where-Object { $_.Name -notlike 'PS*' } | ForEach-Object { "$($_.Name)|$($_.Value)" } }"#)
-            .output();
-        if let Ok(o) = output {
-            let text = String::from_utf8_lossy(&o.stdout);
-            for line in text.lines() {
-                let parts: Vec<&str> = line.splitn(2, '|').collect();
-                if parts.len() == 2 {
-                    items.push(StartupItem {
-                        name: parts[0].trim().to_string(),
-                        command: parts[1].trim().to_string(),
-                        enabled: true,
-                        source: "Registry (HKLM)".to_string(),
-                    });
-                }
-            }
-        }
-
-        // Read from startup folder
-        let output = Command::new("powershell").creation_flags(0x08000000)
-            .arg("-Command")
-            .arg(r#"Get-ChildItem "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup" -ErrorAction SilentlyContinue | ForEach-Object { "$($_.BaseName)|$($_.FullName)" }"#)
-            .output();
-        if let Ok(o) = output {
-            let text = String::from_utf8_lossy(&o.stdout);
-            for line in text.lines() {
-                let parts: Vec<&str> = line.splitn(2, '|').collect();
-                if parts.len() == 2 {
-                    items.push(StartupItem {
-                        name: parts[0].trim().to_string(),
-                        command: parts[1].trim().to_string(),
-                        enabled: true,
-                        source: "Startup Folder".to_string(),
-                    });
-                }
-            }
-        }
-
-        items
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    fn get_startup_items(&self) -> Vec<StartupItem> {
-        Vec::new()
-    }
-
-    #[cfg(target_os = "windows")]
-    fn remove_startup_item(name: &str, source: &str) -> bool {
-        use std::process::Command;
-        use std::os::windows::process::CommandExt;
-        if source.contains("HKCU") {
-            Command::new("powershell").creation_flags(0x08000000)
-                .arg("-Command")
-                .arg(format!(
-                    "Remove-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run' -Name '{}' -ErrorAction SilentlyContinue",
-                    name
-                ))
-                .output()
-                .map(|o| o.status.success())
-                .unwrap_or(false)
-        } else if source.contains("Startup Folder") {
-            // Remove shortcut from startup folder
-            Command::new("powershell").creation_flags(0x08000000)
-                .arg("-Command")
-                .arg(format!(
-                    "Remove-Item \"$env:APPDATA\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\{}*\" -ErrorAction SilentlyContinue",
-                    name
-                ))
-                .output()
-                .map(|o| o.status.success())
-                .unwrap_or(false)
-        } else {
-            false // HKLM requires admin
-        }
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    fn remove_startup_item(_name: &str, _source: &str) -> bool {
-        false
-    }
+    // Startup item collection and actions are now in startup.rs module
 
     #[cfg(target_os = "windows")]
     fn set_process_priority(pid: u32, priority: &str) -> bool {
@@ -992,6 +887,15 @@ struct SystemMonitorApp {
     ram_cleaner_state: RamCleanerState,
     startup_items: Vec<StartupItem>,
     startup_items_loaded: bool,
+    startup_search: String,
+    startup_sort: StartupSortColumn,
+    startup_sort_ascending: bool,
+    startup_filter_impact: Option<ImpactTier>,
+    startup_filter_signed: Option<bool>,
+    startup_filter_broken: bool,
+    startup_show_confirm: Option<usize>,
+    boot_diagnostics: Option<BootDiagnostics>,
+    boot_diagnostics_loaded: bool,
     show_shortcuts: bool,
     suspend_process_pid: Option<u32>,
     priority_change: Option<(u32, String)>,
@@ -1221,6 +1125,7 @@ impl SystemMonitorApp {
                                     }
                                 }
                                 AlertType::DiskSpaceLow => true, // disk alerts don't auto-clear
+                                AlertType::StartupHighImpact => true,
                             }
                         });
                     }
@@ -1352,6 +1257,15 @@ impl SystemMonitorApp {
             },
             startup_items: Vec::new(),
             startup_items_loaded: false,
+            startup_search: String::new(),
+            startup_sort: StartupSortColumn::Impact,
+            startup_sort_ascending: true,
+            startup_filter_impact: None,
+            startup_filter_signed: None,
+            startup_filter_broken: false,
+            startup_show_confirm: None,
+            boot_diagnostics: None,
+            boot_diagnostics_loaded: false,
             show_shortcuts: false,
             suspend_process_pid: None,
             priority_change: None,
@@ -1416,6 +1330,9 @@ impl SystemMonitorApp {
             disk_info: Vec<DiskInfo>,
             network_info: Vec<NetworkInfo>,
             system_info: SystemInfo,
+            startup_item_count: usize,
+            high_impact_startup_count: usize,
+            boot_diagnostics: Option<BootDiagnostics>,
         }
 
         let export = ExportData {
@@ -1429,6 +1346,9 @@ impl SystemMonitorApp {
             disk_info: data.disk_info.clone(),
             network_info: data.network_info.clone(),
             system_info: data.system_info.clone(),
+            startup_item_count: self.startup_items.len(),
+            high_impact_startup_count: startup::high_impact_count(&self.startup_items),
+            boot_diagnostics: self.boot_diagnostics.clone(),
         };
 
         Ok(serde_json::to_string_pretty(&export)?)
@@ -1718,6 +1638,7 @@ impl eframe::App for SystemMonitorApp {
                                         AlertType::MemoryHigh => ("💾", egui::Color32::YELLOW),
                                         AlertType::GpuTempHigh => ("🔥", egui::Color32::RED),
                                         AlertType::DiskSpaceLow => ("💽", egui::Color32::RED),
+                                        AlertType::StartupHighImpact => ("🚀", egui::Color32::YELLOW),
                                     };
 
                                     ui.horizontal(|ui| {
@@ -1953,7 +1874,9 @@ impl eframe::App for SystemMonitorApp {
                     if alert_count > 0 { Some(alert_count) } else { None },
                 );
                 draw_nav_tab(ui, &mut self.selected_tab, Tab::RamCleaner, "RAM Cleaner", None);
-                draw_nav_tab(ui, &mut self.selected_tab, Tab::StartupManager, "Startup Apps", None);
+                let startup_high = startup::high_impact_count(&self.startup_items);
+                draw_nav_tab(ui, &mut self.selected_tab, Tab::StartupManager, "Startup Apps",
+                    if startup_high > 0 { Some(startup_high) } else { None });
                 draw_nav_tab(ui, &mut self.selected_tab, Tab::About, "About", None);
 
                 // ── Quick stats ──
@@ -2185,7 +2108,7 @@ fn draw_mini_stat(ui: &mut egui::Ui, label: &str, value: f32) {
 }
 
 impl SystemMonitorApp {
-    fn show_overview_tab(&self, ui: &mut egui::Ui, data: &SystemData) {
+    fn show_overview_tab(&mut self, ui: &mut egui::Ui, data: &SystemData) {
         paint_section_header(ui, "System Overview");
 
         // Show loading state until first data arrives
@@ -2378,6 +2301,50 @@ impl SystemMonitorApp {
                     });
                 });
             });
+
+            ui.add_space(12.0);
+
+            // ── Startup Health ──
+            {
+                let high = startup::high_impact_count(&self.startup_items);
+                let total = self.startup_items.len();
+                let boot_text = self.boot_diagnostics.as_ref()
+                    .and_then(|bd| bd.boot_duration_ms)
+                    .map(|ms| format!("{:.1}s", ms as f64 / 1000.0));
+
+                ui.group(|ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new("STARTUP HEALTH")
+                            .size(10.0).color(ThemePalette::TEXT_DIMMED));
+
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.small_button("View All →").clicked() {
+                                self.selected_tab = Tab::StartupManager;
+                            }
+                        });
+                    });
+
+                    ui.horizontal(|ui| {
+                        if let Some(ref bt) = boot_text {
+                            let boot_ms = self.boot_diagnostics.as_ref().and_then(|b| b.boot_duration_ms).unwrap_or(0);
+                            let c = if boot_ms < 30000 { ThemePalette::STATUS_HEALTHY }
+                                    else if boot_ms < 60000 { ThemePalette::STATUS_WARNING }
+                                    else { ThemePalette::STATUS_CRITICAL };
+                            ui.colored_label(c, egui::RichText::new(format!("Boot: {}", bt)).strong());
+                            ui.separator();
+                        }
+                        if high > 0 {
+                            ui.colored_label(ThemePalette::STATUS_CRITICAL,
+                                format!("{} high-impact", high));
+                        } else {
+                            ui.colored_label(ThemePalette::STATUS_HEALTHY, "✓ Healthy");
+                        }
+                        ui.separator();
+                        ui.label(egui::RichText::new(format!("{} startup items", total))
+                            .color(ThemePalette::TEXT_LABEL_SUB));
+                    });
+                });
+            }
 
             ui.add_space(12.0);
 
@@ -2994,6 +2961,7 @@ impl SystemMonitorApp {
                             AlertType::MemoryHigh => ("💾", egui::Color32::YELLOW, "WARNING"),
                             AlertType::GpuTempHigh => ("🔥", egui::Color32::RED, "CRITICAL"),
                             AlertType::DiskSpaceLow => ("💽", egui::Color32::RED, "CRITICAL"),
+                            AlertType::StartupHighImpact => ("🚀", egui::Color32::YELLOW, "INFO"),
                         };
 
                         ui.horizontal(|ui| {
@@ -3562,81 +3530,401 @@ impl SystemMonitorApp {
         paint_section_header(ui, "Startup Programs");
 
         egui::ScrollArea::vertical().show(ui, |ui| {
+            // ── Load data lazily ──
+            if !self.startup_items_loaded {
+                self.startup_items = startup::get_startup_items();
+                self.startup_items_loaded = true;
+            }
+            if !self.boot_diagnostics_loaded {
+                self.boot_diagnostics = startup::get_boot_diagnostics();
+                self.boot_diagnostics_loaded = true;
+            }
+
+            // ── Header card with boot info ──
             ui.group(|ui| {
                 ui.horizontal(|ui| {
                     ui.heading("Startup Items");
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui.button("🔄 Refresh").clicked() {
                             self.startup_items_loaded = false;
+                            self.boot_diagnostics_loaded = false;
+                            self.startup_show_confirm = None;
                         }
                     });
                 });
                 ui.separator();
-                ui.label("Programs that run automatically when Windows starts.");
-                ui.label("⚠️ Only user-level (HKCU) items can be removed. System-level items require Administrator privileges.");
+
+                // Boot diagnostics summary
+                ui.horizontal(|ui| {
+                    let total = self.startup_items.len();
+                    let high = startup::high_impact_count(&self.startup_items);
+
+                    if let Some(ref bd) = self.boot_diagnostics {
+                        if let Some(ms) = bd.boot_duration_ms {
+                            let secs = ms as f64 / 1000.0;
+                            let c = if secs < 30.0 { ThemePalette::STATUS_HEALTHY }
+                                    else if secs < 60.0 { ThemePalette::STATUS_WARNING }
+                                    else { ThemePalette::STATUS_CRITICAL };
+                            ui.colored_label(c, format!("Boot: {:.1}s", secs));
+                            ui.separator();
+                        }
+                    }
+                    if high > 0 {
+                        ui.colored_label(ThemePalette::STATUS_CRITICAL, format!("{} high-impact", high));
+                    } else {
+                        ui.colored_label(ThemePalette::STATUS_HEALTHY, "No high-impact items");
+                    }
+                    ui.separator();
+                    ui.label(egui::RichText::new(format!("{} total", total)).color(ThemePalette::TEXT_LABEL));
+                });
             });
 
-            // Load startup items lazily
-            if !self.startup_items_loaded {
-                let monitor = SystemMonitor::new();
-                self.startup_items = monitor.get_startup_items();
-                self.startup_items_loaded = true;
+            ui.add_space(8.0);
+
+            // ── Search & Filter toolbar ──
+            ui.group(|ui| {
+                ui.horizontal(|ui| {
+                    ui.label("🔍");
+                    ui.add(egui::TextEdit::singleline(&mut self.startup_search)
+                        .hint_text("Search by name, command, publisher...")
+                        .desired_width(250.0));
+
+                    ui.separator();
+
+                    // Impact filter
+                    egui::ComboBox::from_id_source("impact_filter")
+                        .selected_text(match &self.startup_filter_impact {
+                            Some(ImpactTier::High) => "🔴 High",
+                            Some(ImpactTier::Medium) => "🟡 Medium",
+                            Some(ImpactTier::Low) => "🟢 Low",
+                            _ => "Impact: All",
+                        })
+                        .show_ui(ui, |ui: &mut egui::Ui| {
+                            if ui.selectable_label(self.startup_filter_impact.is_none(), "All").clicked() {
+                                self.startup_filter_impact = None;
+                            }
+                            if ui.selectable_label(self.startup_filter_impact == Some(ImpactTier::High), "🔴 High").clicked() {
+                                self.startup_filter_impact = Some(ImpactTier::High);
+                            }
+                            if ui.selectable_label(self.startup_filter_impact == Some(ImpactTier::Medium), "🟡 Medium").clicked() {
+                                self.startup_filter_impact = Some(ImpactTier::Medium);
+                            }
+                            if ui.selectable_label(self.startup_filter_impact == Some(ImpactTier::Low), "🟢 Low").clicked() {
+                                self.startup_filter_impact = Some(ImpactTier::Low);
+                            }
+                        });
+
+                    // Signed filter
+                    egui::ComboBox::from_id_source("signed_filter")
+                        .selected_text(match self.startup_filter_signed {
+                            Some(true) => "✅ Signed",
+                            Some(false) => "⚠️ Unsigned",
+                            None => "Signed: All",
+                        })
+                        .show_ui(ui, |ui: &mut egui::Ui| {
+                            if ui.selectable_label(self.startup_filter_signed.is_none(), "All").clicked() {
+                                self.startup_filter_signed = None;
+                            }
+                            if ui.selectable_label(self.startup_filter_signed == Some(true), "✅ Signed").clicked() {
+                                self.startup_filter_signed = Some(true);
+                            }
+                            if ui.selectable_label(self.startup_filter_signed == Some(false), "⚠️ Unsigned").clicked() {
+                                self.startup_filter_signed = Some(false);
+                            }
+                        });
+
+                    ui.checkbox(&mut self.startup_filter_broken, "Broken only");
+                });
+
+                // Sort controls
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new("Sort:").color(ThemePalette::TEXT_LABEL).small());
+
+                    let sorts = [
+                        (StartupSortColumn::Impact, "Impact"),
+                        (StartupSortColumn::Name, "Name"),
+                        (StartupSortColumn::Source, "Source"),
+                        (StartupSortColumn::Publisher, "Publisher"),
+                    ];
+                    for (col, label) in &sorts {
+                        let is_active = self.startup_sort == *col;
+                        let text = if is_active {
+                            let arrow = if self.startup_sort_ascending { "▲" } else { "▼" };
+                            format!("{} {}", label, arrow)
+                        } else {
+                            label.to_string()
+                        };
+                        if ui.selectable_label(is_active,
+                            egui::RichText::new(text).small()
+                        ).clicked() {
+                            if is_active {
+                                self.startup_sort_ascending = !self.startup_sort_ascending;
+                            } else {
+                                self.startup_sort = *col;
+                                self.startup_sort_ascending = true;
+                            }
+                        }
+                    }
+                });
+            });
+
+            ui.add_space(8.0);
+
+            // ── Apply filters and sort ──
+            let search_lower = self.startup_search.to_lowercase();
+            let mut filtered_indices: Vec<usize> = self.startup_items.iter().enumerate()
+                .filter(|(_, item)| {
+                    // Search filter
+                    if !search_lower.is_empty() {
+                        let matches = item.name.to_lowercase().contains(&search_lower)
+                            || item.command.to_lowercase().contains(&search_lower)
+                            || item.publisher.as_ref().map(|p| p.to_lowercase().contains(&search_lower)).unwrap_or(false);
+                        if !matches { return false; }
+                    }
+                    // Impact filter
+                    if let Some(ref filter) = self.startup_filter_impact {
+                        if item.impact_tier != *filter { return false; }
+                    }
+                    // Signed filter
+                    if let Some(filter_signed) = self.startup_filter_signed {
+                        if item.is_signed != Some(filter_signed) { return false; }
+                    }
+                    // Broken filter
+                    if self.startup_filter_broken && item.exe_exists { return false; }
+                    true
+                })
+                .map(|(i, _)| i)
+                .collect();
+
+            // Sort the filtered view
+            {
+                let items_ref = &self.startup_items;
+                let sort_col = self.startup_sort;
+                let ascending = self.startup_sort_ascending;
+                filtered_indices.sort_by(|a, b| {
+                    let ia = &items_ref[*a];
+                    let ib = &items_ref[*b];
+                    let cmp = match sort_col {
+                        StartupSortColumn::Name => ia.name.to_lowercase().cmp(&ib.name.to_lowercase()),
+                        StartupSortColumn::Impact => ia.impact_tier.sort_key().cmp(&ib.impact_tier.sort_key()),
+                        StartupSortColumn::Source => ia.source.cmp(&ib.source),
+                        StartupSortColumn::Publisher => {
+                            let pa = ia.publisher.as_deref().unwrap_or("zzz").to_lowercase();
+                            let pb = ib.publisher.as_deref().unwrap_or("zzz").to_lowercase();
+                            pa.cmp(&pb)
+                        }
+                    };
+                    if ascending { cmp } else { cmp.reverse() }
+                });
             }
 
-            ui.add_space(10.0);
-
-            if self.startup_items.is_empty() {
+            if filtered_indices.is_empty() {
                 ui.group(|ui| {
                     ui.add_space(20.0);
-                    ui.label("No startup items found.");
+                    if self.startup_items.is_empty() {
+                        ui.label("No startup items found.");
+                    } else {
+                        ui.label("No items match the current filters.");
+                    }
                     ui.add_space(20.0);
                 });
             } else {
-                ui.label(format!("Found {} startup item(s)", self.startup_items.len()));
-                ui.add_space(5.0);
+                ui.label(egui::RichText::new(format!("Showing {} of {} item(s)", filtered_indices.len(), self.startup_items.len()))
+                    .small().color(ThemePalette::TEXT_LABEL));
+                ui.add_space(4.0);
 
-                let mut item_to_remove: Option<usize> = None;
+                let mut action: Option<(usize, &str)> = None;
 
-                for (i, item) in self.startup_items.iter().enumerate() {
+                for &idx in &filtered_indices {
+                    let item = &self.startup_items[idx];
+                    let is_confirming = self.startup_show_confirm == Some(idx);
+
                     ui.group(|ui| {
+                        // ── Row 1: Impact badge + Name + Source ──
                         ui.horizontal(|ui| {
+                            // Impact badge
+                            let (badge_text, badge_color) = match item.impact_tier {
+                                ImpactTier::High => ("🔴 HIGH", ThemePalette::STATUS_CRITICAL),
+                                ImpactTier::Medium => ("🟡 MED", ThemePalette::STATUS_WARNING),
+                                ImpactTier::Low => ("🟢 LOW", ThemePalette::STATUS_HEALTHY),
+                                ImpactTier::Unknown => ("⚪ ?", ThemePalette::TEXT_DIMMED),
+                            };
+                            ui.colored_label(badge_color,
+                                egui::RichText::new(badge_text).size(11.0).strong());
+                            ui.separator();
                             ui.strong(&item.name);
+
                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                ui.colored_label(ThemePalette::TEXT_TERTIARY, &item.source);
+                                ui.colored_label(ThemePalette::TEXT_TERTIARY,
+                                    egui::RichText::new(&item.source).small());
                             });
                         });
 
-                        // Safe truncation of command path
-                        let cmd_display = if item.command.chars().count() > 80 {
-                            let truncated: String = item.command.chars().take(77).collect();
+                        // ── Row 2: Command path ──
+                        let cmd_display = if item.command.chars().count() > 90 {
+                            let truncated: String = item.command.chars().take(87).collect();
                             format!("{}...", truncated)
                         } else {
                             item.command.clone()
                         };
                         ui.label(egui::RichText::new(cmd_display).small().color(ThemePalette::TEXT_DIMMED));
 
+                        // ── Row 3: Publisher + Signed status ──
                         ui.horizontal(|ui| {
-                            // Only allow removal of HKCU and Startup Folder items
-                            let can_remove = item.source.contains("HKCU") || item.source.contains("Startup Folder");
-                            ui.add_enabled_ui(can_remove, |ui| {
-                                if ui.button("🗑️ Remove from Startup").clicked() {
-                                    if SystemMonitor::remove_startup_item(&item.name, &item.source) {
-                                        item_to_remove = Some(i);
-                                    }
-                                }
-                            });
-                            if !can_remove {
-                                ui.colored_label(ThemePalette::TEXT_DIMMED, "(Requires Admin)");
+                            if let Some(ref pub_name) = item.publisher {
+                                ui.label(egui::RichText::new(format!("Publisher: {}", pub_name))
+                                    .small().color(ThemePalette::TEXT_LABEL));
+                            }
+                            match item.is_signed {
+                                Some(true) => { ui.colored_label(ThemePalette::STATUS_HEALTHY,
+                                    egui::RichText::new("✅ Signed").small()); }
+                                Some(false) => { ui.colored_label(ThemePalette::STATUS_CRITICAL,
+                                    egui::RichText::new("⚠️ Unsigned").small()); }
+                                None => {}
+                            }
+                            if !item.exe_exists && item.exe_path.is_some() {
+                                ui.colored_label(ThemePalette::STATUS_CRITICAL,
+                                    egui::RichText::new("❌ File missing").small());
                             }
                         });
+
+                        // ── Row 4: Recommendation + Reason ──
+                        ui.horizontal(|ui| {
+                            let rec_color = match item.recommendation {
+                                Recommendation::Keep => ThemePalette::STATUS_HEALTHY,
+                                Recommendation::Review => ThemePalette::STATUS_WARNING,
+                                Recommendation::Disable => ThemePalette::STATUS_CRITICAL,
+                                Recommendation::Cleanup => ThemePalette::STATUS_CRITICAL,
+                            };
+                            ui.colored_label(rec_color,
+                                egui::RichText::new(format!("→ {}", item.recommendation.label()))
+                                    .small().strong());
+                            ui.label(egui::RichText::new(format!("— {}", item.reason))
+                                .small().color(ThemePalette::TEXT_LABEL_SUB));
+                        });
+
+                        // ── Row 5: Actions ──
+                        if is_confirming {
+                            // Confirmation dialog
+                            ui.horizontal(|ui| {
+                                ui.colored_label(ThemePalette::STATUS_WARNING,
+                                    egui::RichText::new(format!("⚠️ Disable \"{}\" from startup?", item.name)).strong());
+                                if ui.button("✅ Yes, disable").clicked() {
+                                    action = Some((idx, "disable"));
+                                    self.startup_show_confirm = None;
+                                }
+                                if ui.button("❌ Cancel").clicked() {
+                                    self.startup_show_confirm = None;
+                                }
+                            });
+                        } else {
+                            ui.horizontal(|ui| {
+                                let can_modify = item.source.contains("HKCU") || item.source.contains("Startup Folder");
+                                let is_keep = item.recommendation == Recommendation::Keep;
+
+                                // Disable button
+                                ui.add_enabled_ui(can_modify && !is_keep, |ui| {
+                                    if ui.button("🚫 Disable").on_hover_text(
+                                        if is_keep { "System component — disabling not recommended" }
+                                        else if !can_modify { "Requires Administrator privileges" }
+                                        else { "Disable this startup item (reversible)" }
+                                    ).clicked() {
+                                        self.startup_show_confirm = Some(idx);
+                                    }
+                                });
+
+                                // Open location
+                                if let Some(ref path) = item.exe_path {
+                                    if item.exe_exists {
+                                        let path_clone = path.clone();
+                                        if ui.button("📂 Open").on_hover_text("Open file location in Explorer").clicked() {
+                                            startup::open_file_location(&path_clone);
+                                        }
+                                    }
+                                }
+
+                                // Copy command
+                                if ui.button("📋 Copy").on_hover_text("Copy full command to clipboard").clicked() {
+                                    ui.output_mut(|o| o.copied_text = item.command.clone());
+                                }
+
+                                // Search online
+                                let name_clone = item.name.clone();
+                                if ui.button("🔍 Search").on_hover_text("Search online for info about this item").clicked() {
+                                    startup::search_online(&name_clone);
+                                }
+
+                                // Admin message for HKLM items
+                                if !can_modify {
+                                    ui.colored_label(ThemePalette::TEXT_DIMMED,
+                                        egui::RichText::new("(Requires Admin)").small());
+                                }
+                            });
+                        }
                     });
                     ui.add_space(3.0);
                 }
 
-                // Remove item if requested
-                if let Some(idx) = item_to_remove {
-                    self.startup_items.remove(idx);
+                // Process actions
+                if let Some((idx, act)) = action {
+                    let item = &self.startup_items[idx];
+                    let item_name = item.name.clone();
+                    let item_source = item.source.clone();
+                    let item_command = item.command.clone();
+                    let tier_before = item.impact_tier.label().to_string();
+                    let high_before = startup::high_impact_count(&self.startup_items);
+
+                    let success = match act {
+                        "disable" => startup::disable_startup_item(&item_name, &item_source, &item_command),
+                        "remove" => startup::remove_startup_item(&item_name, &item_source),
+                        _ => false,
+                    };
+
+                    if success {
+                        let high_after = if self.startup_items[idx].impact_tier == ImpactTier::High {
+                            high_before.saturating_sub(1)
+                        } else {
+                            high_before
+                        };
+
+                        self.settings.startup_optimization_history.push(StartupOptimizationEntry {
+                            timestamp: chrono::Local::now().format("%Y-%m-%d %H:%M").to_string(),
+                            action: act.to_string(),
+                            item_name: item_name.clone(),
+                            item_source,
+                            impact_tier_before: tier_before,
+                            high_impact_count_before: high_before,
+                            high_impact_count_after: high_after,
+                        });
+                        let _ = self.settings.save();
+                        self.startup_items.remove(idx);
+                    }
                 }
+            }
+
+            // ── Optimization History ──
+            if !self.settings.startup_optimization_history.is_empty() {
+                ui.add_space(16.0);
+                ui.group(|ui| {
+                    ui.heading("Optimization History");
+                    ui.separator();
+
+                    let history = &self.settings.startup_optimization_history;
+                    let show_count = history.len().min(10);
+                    for entry in history.iter().rev().take(show_count) {
+                        ui.horizontal(|ui| {
+                            ui.colored_label(ThemePalette::TEXT_LABEL,
+                                egui::RichText::new(&entry.timestamp).small());
+                            ui.label(egui::RichText::new(format!("{} \"{}\"",
+                                entry.action, entry.item_name)).small());
+                            let delta = entry.high_impact_count_before as i32 - entry.high_impact_count_after as i32;
+                            if delta > 0 {
+                                ui.colored_label(ThemePalette::STATUS_HEALTHY,
+                                    egui::RichText::new(format!("-{} high", delta)).small());
+                            }
+                        });
+                    }
+                });
             }
         });
     }
