@@ -9,45 +9,45 @@ const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 struct ThemePalette;
 impl ThemePalette {
-    // Primary Vibrant Accents (Indigo)
-    const ACCENT_PRIMARY: egui::Color32 = egui::Color32::from_rgb(99, 102, 241); // Indigo 500
-    const ACCENT_ACTIVE: egui::Color32 = egui::Color32::from_rgb(129, 140, 248); // Indigo 400
+    // Primary Vibrant Accents -> Muted Minimalist Primary
+    const ACCENT_PRIMARY: egui::Color32 = egui::Color32::from_rgb(198, 198, 199); // #c6c6c7
+    const ACCENT_ACTIVE: egui::Color32 = egui::Color32::from_rgb(226, 226, 226); // #e2e2e2
 
-    // Sleek Dark Backgrounds (Zinc)
-    const BG_DEEPEST: egui::Color32 = egui::Color32::from_rgb(9, 9, 11); // Zinc 950
-    const BG_DEEP: egui::Color32 = egui::Color32::from_rgb(15, 15, 18);
-    const BG_SURFACE: egui::Color32 = egui::Color32::from_rgb(24, 24, 27); // Zinc 900
-    const BG_CARD: egui::Color32 = egui::Color32::from_rgb(28, 28, 32);
-    const BG_TRACK: egui::Color32 = egui::Color32::from_rgb(39, 39, 42); // Zinc 800
+    // Sleek Dark Backgrounds -> Graphite Core
+    const BG_DEEPEST: egui::Color32 = egui::Color32::from_rgb(14, 14, 14); // #0e0e0e
+    const BG_DEEP: egui::Color32 = egui::Color32::from_rgb(14, 14, 14); 
+    const BG_SURFACE: egui::Color32 = egui::Color32::from_rgb(19, 19, 19); // #131313
+    const BG_CARD: egui::Color32 = egui::Color32::from_rgb(19, 19, 19);
+    const BG_TRACK: egui::Color32 = egui::Color32::from_rgb(31, 32, 32); // #1f2020
 
     // Component states
-    const WIDGET_INACTIVE: egui::Color32 = egui::Color32::from_rgb(39, 39, 42);
-    const WIDGET_HOVERED: egui::Color32 = egui::Color32::from_rgb(63, 63, 70); // Zinc 700
-    const BORDER: egui::Color32 = egui::Color32::from_rgb(39, 39, 42); // Zinc 800
-    const BORDER_LIGHT: egui::Color32 = egui::Color32::from_rgb(63, 63, 70);
-    const ACCENT_LINE: egui::Color32 = egui::Color32::from_rgb(39, 39, 42);
+    const WIDGET_INACTIVE: egui::Color32 = egui::Color32::from_rgb(31, 32, 32); // #1f2020
+    const WIDGET_HOVERED: egui::Color32 = egui::Color32::from_rgb(37, 38, 38); // #252626
+    const BORDER: egui::Color32 = egui::Color32::from_rgb(19, 19, 19); // Hidden in #131313
+    const BORDER_LIGHT: egui::Color32 = egui::Color32::from_rgb(31, 32, 32); // Just slight edge
+    const ACCENT_LINE: egui::Color32 = egui::Color32::from_rgb(72, 72, 72); // #484848
 
-    // Modern Status Colors (Vibrant but accessible)
-    const STATUS_HEALTHY: egui::Color32 = egui::Color32::from_rgb(52, 211, 153); // Emerald 400
-    const STATUS_WARNING: egui::Color32 = egui::Color32::from_rgb(251, 191, 36); // Amber 400
-    const STATUS_CRITICAL: egui::Color32 = egui::Color32::from_rgb(248, 113, 113); // Red 400
+    // Modern Status Colors -> Minimalist Status
+    const STATUS_HEALTHY: egui::Color32 = egui::Color32::from_rgb(230, 255, 244); // #e6fff4
+    const STATUS_WARNING: egui::Color32 = egui::Color32::from_rgb(192, 191, 191); // Soft grey
+    const STATUS_CRITICAL: egui::Color32 = egui::Color32::from_rgb(238, 125, 119); // #ee7d77
 
-    // Gorgeous Typography hierarchy
-    const TEXT_PRIMARY: egui::Color32 = egui::Color32::from_rgb(250, 250, 250); // Zinc 50
+    // Gorgeous Typography hierarchy -> Crisp and Stark
+    const TEXT_PRIMARY: egui::Color32 = egui::Color32::from_rgb(255, 255, 255); // Stark white
     const TEXT_SELECTED: egui::Color32 = egui::Color32::from_rgb(255, 255, 255);
-    const TEXT_FEATURE: egui::Color32 = egui::Color32::from_rgb(228, 228, 231); // Zinc 200
-    const TEXT_SUBTITLE: egui::Color32 = egui::Color32::from_rgb(161, 161, 170); // Zinc 400
-    const TEXT_SECONDARY: egui::Color32 = egui::Color32::from_rgb(161, 161, 170); // Zinc 400
-    const TEXT_LABEL: egui::Color32 = egui::Color32::from_rgb(113, 113, 122); // Zinc 500
-    const TEXT_LABEL_SUB: egui::Color32 = egui::Color32::from_rgb(113, 113, 122); // Zinc 500
-    const TEXT_TERTIARY: egui::Color32 = egui::Color32::from_rgb(82, 82, 91); // Zinc 600
-    const TEXT_DIMMED: egui::Color32 = egui::Color32::from_rgb(82, 82, 91); // Zinc 600
+    const TEXT_FEATURE: egui::Color32 = egui::Color32::from_rgb(231, 229, 229); // #e7e5e5
+    const TEXT_SUBTITLE: egui::Color32 = egui::Color32::from_rgb(172, 171, 170); // #acabaa
+    const TEXT_SECONDARY: egui::Color32 = egui::Color32::from_rgb(172, 171, 170); 
+    const TEXT_LABEL: egui::Color32 = egui::Color32::from_rgb(118, 117, 117); // #767575
+    const TEXT_LABEL_SUB: egui::Color32 = egui::Color32::from_rgb(118, 117, 117); 
+    const TEXT_TERTIARY: egui::Color32 = egui::Color32::from_rgb(86, 85, 85); // #565555
+    const TEXT_DIMMED: egui::Color32 = egui::Color32::from_rgb(86, 85, 85);
 
     // Sidebar colors
-    const TEXT_NAV: egui::Color32 = egui::Color32::from_rgb(161, 161, 170);
-    const TEXT_ICON_INACTIVE: egui::Color32 = egui::Color32::from_rgb(113, 113, 122);
-    const GPU_UNAVAILABLE: egui::Color32 = egui::Color32::from_rgb(63, 63, 70);
-    const ACCENT_PURPLE: egui::Color32 = egui::Color32::from_rgb(168, 85, 247); // Purple 500
+    const TEXT_NAV: egui::Color32 = egui::Color32::from_rgb(172, 171, 170);
+    const TEXT_ICON_INACTIVE: egui::Color32 = egui::Color32::from_rgb(118, 117, 117);
+    const GPU_UNAVAILABLE: egui::Color32 = egui::Color32::from_rgb(86, 85, 85);
+    const ACCENT_PURPLE: egui::Color32 = egui::Color32::from_rgb(198, 198, 199); // Map purple to primary grey
 }
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
@@ -1062,51 +1062,51 @@ impl SystemMonitorApp {
 
             // Accent for selections and interactions
             visuals.selection.bg_fill = ThemePalette::ACCENT_PRIMARY;
-            visuals.selection.stroke = egui::Stroke::new(1.0, ThemePalette::ACCENT_ACTIVE);
+            visuals.selection.stroke = egui::Stroke::NONE;
             visuals.hyperlink_color = ThemePalette::ACCENT_PRIMARY;
 
-            // Subtle borders & widgets
+            // Subtle borders & widgets (No borders)
             visuals.widgets.noninteractive.bg_fill = ThemePalette::BG_CARD;
-            visuals.widgets.noninteractive.bg_stroke = egui::Stroke::new(1.0, ThemePalette::BORDER);
+            visuals.widgets.noninteractive.bg_stroke = egui::Stroke::NONE;
             visuals.widgets.noninteractive.fg_stroke = egui::Stroke::new(1.0, ThemePalette::TEXT_PRIMARY);
 
             // Inactive
             visuals.widgets.inactive.bg_fill = ThemePalette::WIDGET_INACTIVE;
-            visuals.widgets.inactive.bg_stroke = egui::Stroke::new(1.0, ThemePalette::BORDER);
+            visuals.widgets.inactive.bg_stroke = egui::Stroke::NONE;
             visuals.widgets.inactive.fg_stroke = egui::Stroke::new(1.0, ThemePalette::TEXT_SECONDARY);
 
             // Hovered
             visuals.widgets.hovered.bg_fill = ThemePalette::WIDGET_HOVERED;
-            visuals.widgets.hovered.bg_stroke = egui::Stroke::new(1.0, ThemePalette::BORDER_LIGHT);
+            visuals.widgets.hovered.bg_stroke = egui::Stroke::NONE;
             visuals.widgets.hovered.fg_stroke = egui::Stroke::new(1.0, ThemePalette::TEXT_SELECTED);
 
             // Active
             visuals.widgets.active.bg_fill = ThemePalette::ACCENT_ACTIVE;
-            visuals.widgets.active.bg_stroke = egui::Stroke::new(1.0, ThemePalette::ACCENT_PRIMARY);
+            visuals.widgets.active.bg_stroke = egui::Stroke::NONE;
             visuals.widgets.active.fg_stroke = egui::Stroke::new(1.0, ThemePalette::TEXT_SELECTED);
 
-            // Rounding (Modern smooth)
-            visuals.window_rounding = egui::Rounding::same(12.0);
-            visuals.menu_rounding = egui::Rounding::same(10.0);
-            visuals.widgets.noninteractive.rounding = egui::Rounding::same(8.0);
-            visuals.widgets.inactive.rounding = egui::Rounding::same(8.0);
-            visuals.widgets.hovered.rounding = egui::Rounding::same(8.0);
-            visuals.widgets.active.rounding = egui::Rounding::same(8.0);
+            // Rounding (Sharp minimal 4px)
+            visuals.window_rounding = egui::Rounding::same(4.0);
+            visuals.menu_rounding = egui::Rounding::same(4.0);
+            visuals.widgets.noninteractive.rounding = egui::Rounding::same(4.0);
+            visuals.widgets.inactive.rounding = egui::Rounding::same(4.0);
+            visuals.widgets.hovered.rounding = egui::Rounding::same(4.0);
+            visuals.widgets.active.rounding = egui::Rounding::same(4.0);
 
             // Window chrome and depth
-            visuals.window_stroke = egui::Stroke::new(1.0, ThemePalette::BORDER_LIGHT);
+            visuals.window_stroke = egui::Stroke::NONE;
             visuals.window_shadow = egui::epaint::Shadow {
-                offset: egui::vec2(0.0, 12.0),
-                blur: 32.0,
-                spread: -4.0,
-                color: egui::Color32::from_rgba_premultiplied(0, 0, 0, 180),
+                offset: egui::vec2(0.0, 8.0),
+                blur: 40.0,
+                spread: 0.0,
+                color: egui::Color32::from_rgba_premultiplied(0, 0, 0, 20), // Ambient 8%
             };
 
             visuals.popup_shadow = egui::epaint::Shadow {
                 offset: egui::vec2(0.0, 8.0),
-                blur: 24.0,
-                spread: -2.0,
-                color: egui::Color32::from_rgba_premultiplied(0, 0, 0, 150),
+                blur: 40.0,
+                spread: 0.0,
+                color: egui::Color32::from_rgba_premultiplied(0, 0, 0, 20),
             };
 
             cc.egui_ctx.set_visuals(visuals);
