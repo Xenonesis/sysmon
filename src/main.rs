@@ -3897,7 +3897,7 @@ impl SystemMonitorApp {
 
                     if success {
                         let high_after = if self.startup_items[idx].impact_tier == ImpactTier::High {
-                            high_before.saturating_sub(1)
+                            if act == "disable" { high_before.saturating_sub(1) } else { high_before + 1 }
                         } else {
                             high_before
                         };
@@ -3912,7 +3912,7 @@ impl SystemMonitorApp {
                             high_impact_count_after: high_after,
                         });
                         let _ = self.settings.save();
-                        self.startup_items.remove(idx);
+                        self.startup_items_loaded = false;
                     }
                 }
             }

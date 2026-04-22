@@ -517,5 +517,5 @@ pub fn sort_items(items: &mut Vec<StartupItem>, col: StartupSortColumn, ascendin
 }
 
 pub fn high_impact_count(items: &[StartupItem]) -> usize {
-    items.iter().filter(|i| i.impact_tier == ImpactTier::High).count()
+    items.iter().filter(|i| i.impact_tier == ImpactTier::High && i.enabled).count()
 }
