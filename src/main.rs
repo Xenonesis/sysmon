@@ -62,6 +62,36 @@ use nvml_wrapper::Nvml;
 #[cfg(target_os = "windows")]
 use tray_icon::{TrayIconBuilder, menu::{Menu, MenuItem, MenuEvent}};
 
+#[cfg(target_os = "windows")]
+fn play_alert_sound() {
+    use std::os::windows::process::CommandExt;
+    std::thread::spawn(|| {
+        let _ = std::process::Command::new("powershell")
+            .creation_flags(0x08000000) // CREATE_NO_WINDOW
+            .arg("-c")
+            .arg("[System.Media.SystemSounds]::Exclamation.Play()")
+            .output();
+    });
+}
+
+#[cfg(target_os = "windows")]
+fn play_success_sound() {
+    use std::os::windows::process::CommandExt;
+    std::thread::spawn(|| {
+        let _ = std::process::Command::new("powershell")
+            .creation_flags(0x08000000) // CREATE_NO_WINDOW
+            .arg("-c")
+            .arg("[System.Media.SystemSounds]::Asterisk.Play()")
+            .output();
+    });
+}
+
+#[cfg(not(target_os = "windows"))]
+fn play_alert_sound() {}
+
+#[cfg(not(target_os = "windows"))]
+fn play_success_sound() {}
+
 // Data structures
 #[derive(Clone, Serialize)]
 struct ProcessInfo {
@@ -196,6 +226,12 @@ struct AppSettings {
     auto_ram_clean: bool,
     #[serde(default = "default_ram_clean_threshold")]
     ram_clean_threshold: f32,
+    #[serde(default = "default_enable_sounds")]
+    enable_sounds: bool,
+}
+
+fn default_enable_sounds() -> bool {
+    true
 }
 
 fn default_auto_ram_clean() -> bool {
@@ -245,6 +281,7 @@ impl Default for AppSettings {
             minimize_to_tray: false,
             auto_ram_clean: false,
             ram_clean_threshold: 85.0,
+            enable_sounds: true,
         }
     }
 }
@@ -1150,6 +1187,10 @@ impl SystemMonitorApp {
                     // Check for alerts
                     let new_alerts = monitor.check_alerts(&settings_snapshot, &data);
 
+                    if !new_alerts.is_empty() && settings_snapshot.enable_sounds {
+                        play_alert_sound();
+                    }
+
                     // Send desktop notifications for new alerts
                     if settings_snapshot.show_notifications {
                         for alert in &new_alerts {
@@ -1402,6 +1443,19 @@ fn bytes_to_gb(bytes: u64) -> f64 {
     bytes as f64 / 1024.0 / 1024.0 / 1024.0
 }
 
+fn format_rate(mb_per_sec: f64) -> String {
+    let bytes_per_sec = mb_per_sec * 1024.0 * 1024.0;
+    if bytes_per_sec >= 1_073_741_824.0 {
+        format!("{:.2} GB/s", bytes_per_sec / 1_073_741_824.0)
+    } else if bytes_per_sec >= 1_048_576.0 {
+        format!("{:.2} MB/s", bytes_per_sec / 1_048_576.0)
+    } else if bytes_per_sec >= 1024.0 {
+        format!("{:.0} KB/s", bytes_per_sec / 1024.0)
+    } else {
+        format!("{:.0} B/s", bytes_per_sec)
+    }
+}
+
 fn get_usage_color(percentage: f32) -> egui::Color32 {
     if percentage < 50.0 {
         ThemePalette::STATUS_HEALTHY // Mint green (#69f0ae)
@@ -1510,6 +1564,7 @@ impl eframe::App for SystemMonitorApp {
             temp_sys.refresh_processes();
             if let Some(process) = temp_sys.process(Pid::from_u32(pid)) {
                 let _ = process.kill();
+                if self.settings.enable_sounds { play_success_sound(); }
             }
         }
 
@@ -1517,6 +1572,7 @@ impl eframe::App for SystemMonitorApp {
         if let Some(pid) = self.suspend_process_pid.take() {
             let mut monitor = SystemMonitor::new();
             monitor.suspend_process(pid);
+            if self.settings.enable_sounds { play_success_sound(); }
         }
 
         // Handle process priority changes
@@ -1539,9 +1595,11 @@ impl eframe::App for SystemMonitorApp {
                 self.ram_cleaner_state.clean_count += 1;
                 let data_arc = Arc::clone(&self.data);
                 let ctx_clone = ctx.clone();
+                let enable_sounds = self.settings.enable_sounds;
                 thread::spawn(move || {
                     let mut monitor = SystemMonitor::new();
                     let freed = monitor.clean_ram();
+                    if enable_sounds { play_success_sound(); }
                     // Store freed bytes in SystemData for the UI to pick up
                     if let Ok(mut d) = data_arc.lock() {
                         d.ram_clean_freed_bytes += freed;
@@ -2217,8 +2275,8 @@ impl SystemMonitorApp {
                 (
                     ThemePalette::TEXT_LABEL_SUB,
                     "DISK I/O",
-                    format!("{:.1} MB/s", data.disk_read_rate + data.disk_write_rate),
-                    format!("R: {:.1}  W: {:.1}", data.disk_read_rate, data.disk_write_rate),
+                    format_rate(data.disk_read_rate + data.disk_write_rate),
+                    format!("R: {}  W: {}", format_rate(data.disk_read_rate), format_rate(data.disk_write_rate)),
                     ((data.disk_read_rate + data.disk_write_rate) / 200.0).clamp(0.0, 1.0) as f32,
                     ThemePalette::TEXT_LABEL_SUB,
                 ),
@@ -2859,7 +2917,7 @@ impl SystemMonitorApp {
                         } else {
                             ThemePalette::TEXT_TERTIARY
                         };
-                        ui.colored_label(color, format!("{:.2} MB/s", network.received_rate));
+                        ui.colored_label(color, format_rate(network.received_rate));
                     });
 
                     ui.horizontal(|ui| {
@@ -2871,7 +2929,7 @@ impl SystemMonitorApp {
                         } else {
                             ThemePalette::TEXT_TERTIARY
                         };
-                        ui.colored_label(color, format!("{:.2} MB/s", network.transmitted_rate));
+                        ui.colored_label(color, format_rate(network.transmitted_rate));
                     });
                 });
 
@@ -3418,9 +3476,11 @@ impl SystemMonitorApp {
                         self.ram_cleaner_state.clean_count += 1;
                         let data_arc = Arc::clone(&self.data);
                         let ctx_clone = ui.ctx().clone();
+                        let enable_sounds = self.settings.enable_sounds;
                         thread::spawn(move || {
                             let mut monitor = SystemMonitor::new();
                             let freed = monitor.clean_ram();
+                            if enable_sounds { play_success_sound(); }
                             if let Ok(mut d) = data_arc.lock() {
                                 d.ram_clean_freed_bytes += freed;
                                 d.ram_clean_is_cleaning = false;
@@ -3608,6 +3668,9 @@ impl SystemMonitorApp {
                     cols[1].vertical(|ui| {
                         changed |= ui
                             .checkbox(&mut self.settings.show_notifications, "Enable Desktop Notifications")
+                            .changed();
+                        changed |= ui
+                            .checkbox(&mut self.settings.enable_sounds, "Enable System Event Sounds")
                             .changed();
                         if ui
                             .checkbox(&mut self.settings.theme_dark, "Dark Theme (Terminal Noir)")
