@@ -236,7 +236,7 @@ impl Default for AppSettings {
             notification_cpu_threshold: 90.0,
             notification_memory_threshold: 90.0,
             notification_temp_threshold: 85,
-            theme_dark: false,
+            theme_dark: true,
             show_per_core_cpu: false,
             process_count: 15,
             auto_clear_alerts: false,
@@ -1113,12 +1113,14 @@ impl SystemMonitorApp {
                 let (disk_read_rate, disk_write_rate) = monitor.get_disk_io();
                 let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
 
-                // Get battery info every 30 seconds (it's slow via WMI)
-                let battery_info = if battery_check_counter % 15 == 0 {
-                    monitor.get_battery_info()
-                } else {
-                    None
-                };
+                // Get battery info every 15 ticks (~7.5s) — retain previous value if unavailable
+                if battery_check_counter % 15 == 0 {
+                    if let Some(bi) = monitor.get_battery_info() {
+                        if let Ok(mut data) = data_clone.lock() {
+                            data.battery_info = Some(bi);
+                        }
+                    }
+                }
                 battery_check_counter = battery_check_counter.wrapping_add(1);
 
                 // Calculate total network rates
@@ -1143,9 +1145,6 @@ impl SystemMonitorApp {
                     data.swap_info = swap_info;
                     data.disk_read_rate = disk_read_rate;
                     data.disk_write_rate = disk_write_rate;
-                    if let Some(bi) = battery_info {
-                        data.battery_info = Some(bi);
-                    }
                     data.network_sample_count += 1;
 
                     // Check for alerts
@@ -1298,7 +1297,7 @@ impl SystemMonitorApp {
             process_sort_ascending: false,
             show_export_csv: false,
             updater: updater::Updater::new(),
-            show_update_notification: false,
+            show_update_notification: true,
             update_check_time: None,
             ram_cleaner_state: RamCleanerState {
                 last_cleaned: None,
@@ -1452,7 +1451,7 @@ impl eframe::App for SystemMonitorApp {
         }
 
         // Show update notification banner
-        if self.updater.get_update_info().update_available {
+        if self.updater.get_update_info().update_available && self.show_update_notification {
             egui::TopBottomPanel::top("update_notification").show(ctx, |ui| {
                 ui.horizontal(|ui| {
                     ui.colored_label(ThemePalette::STATUS_HEALTHY, "🎉");
@@ -1921,6 +1920,7 @@ impl eframe::App for SystemMonitorApp {
                 if data.swap_info.total > 0 {
                     draw_mini_stat(ui, "SWAP", data.swap_info.percentage);
                 }
+                ui.add_space(12.0);
             });
 
         // Process Manager window
@@ -2000,8 +2000,9 @@ fn paint_section_header(ui: &mut egui::Ui, text: &str) {
     let y = r.rect.bottom() + 4.0;
 
     // Modern thick rounded line highlight
+    let underline_w = (r.rect.width()).min(80.0).max(36.0);
     ui.painter().line_segment(
-        [egui::pos2(r.rect.left(), y), egui::pos2(r.rect.left() + 48.0, y)],
+        [egui::pos2(r.rect.left(), y), egui::pos2(r.rect.left() + underline_w, y)],
         egui::Stroke::new(3.5, ThemePalette::ACCENT_PRIMARY),
     );
     ui.add_space(12.0);
@@ -2129,6 +2130,25 @@ impl SystemMonitorApp {
     fn show_overview_tab(&self, ui: &mut egui::Ui, data: &SystemData) {
         paint_section_header(ui, "System Overview");
 
+        // Show loading state until first data arrives
+        if data.memory_total == 0 {
+            ui.add_space(40.0);
+            ui.vertical_centered(|ui| {
+                ui.label(
+                    egui::RichText::new("⏳ Collecting system data...")
+                        .size(18.0)
+                        .color(ThemePalette::TEXT_SUBTITLE),
+                );
+                ui.add_space(8.0);
+                ui.label(
+                    egui::RichText::new("Please wait a moment.")
+                        .size(13.0)
+                        .color(ThemePalette::TEXT_DIMMED),
+                );
+            });
+            return;
+        }
+
         egui::ScrollArea::vertical().show(ui, |ui| {
             // ── Metric cards row ──
             let card_bg = ThemePalette::BG_CARD;
@@ -2149,7 +2169,7 @@ impl SystemMonitorApp {
             } else {
                 full_avail
             };
-            let card_w = (visible_w - card_spacing * 3.0) / 4.0;
+            let card_w = ((visible_w - card_spacing * 3.0) / 4.0).max(80.0);
 
             // Prepare card data
             let cpu_c = get_usage_color(data.cpu_usage);
@@ -2371,6 +2391,8 @@ impl SystemMonitorApp {
                         .allow_zoom(false)
                         .allow_drag(false)
                         .allow_scroll(false)
+                        .include_y(0.0)
+                        .include_y(100.0)
                         .y_axis_label("CPU %")
                         .show(ui, |plot_ui| {
                             plot_ui.line(line);
@@ -2396,6 +2418,8 @@ impl SystemMonitorApp {
                         .allow_zoom(false)
                         .allow_drag(false)
                         .allow_scroll(false)
+                        .include_y(0.0)
+                        .include_y(100.0)
                         .y_axis_label("Memory %")
                         .show(ui, |plot_ui| {
                             plot_ui.line(line);
@@ -2422,6 +2446,8 @@ impl SystemMonitorApp {
                             .allow_zoom(false)
                             .allow_drag(false)
                             .allow_scroll(false)
+                            .include_y(0.0)
+                            .include_y(100.0)
                             .y_axis_label("GPU %")
                             .show(ui, |plot_ui| {
                                 plot_ui.line(line);
@@ -2468,8 +2494,8 @@ impl SystemMonitorApp {
 
         // Search box
         ui.horizontal(|ui| {
-            ui.label("🔍 Search:");
-            ui.text_edit_singleline(&mut self.process_search);
+            ui.label("🔍");
+            ui.add(egui::TextEdit::singleline(&mut self.process_search).hint_text("Filter processes...").desired_width(200.0));
             if ui.button("✖").clicked() {
                 self.process_search.clear();
             }
@@ -2827,11 +2853,11 @@ impl SystemMonitorApp {
                     ui.horizontal(|ui| {
                         ui.label("📥 Download Rate:");
                         let color = if network.received_rate > 10.0 {
-                            egui::Color32::GREEN
+                            ThemePalette::STATUS_CRITICAL
                         } else if network.received_rate > 1.0 {
-                            egui::Color32::YELLOW
+                            ThemePalette::STATUS_WARNING
                         } else {
-                            egui::Color32::GRAY
+                            ThemePalette::TEXT_TERTIARY
                         };
                         ui.colored_label(color, format!("{:.2} MB/s", network.received_rate));
                     });
@@ -2839,11 +2865,11 @@ impl SystemMonitorApp {
                     ui.horizontal(|ui| {
                         ui.label("📤 Upload Rate:");
                         let color = if network.transmitted_rate > 10.0 {
-                            egui::Color32::GREEN
+                            ThemePalette::STATUS_CRITICAL
                         } else if network.transmitted_rate > 1.0 {
-                            egui::Color32::YELLOW
+                            ThemePalette::STATUS_WARNING
                         } else {
-                            egui::Color32::GRAY
+                            ThemePalette::TEXT_TERTIARY
                         };
                         ui.colored_label(color, format!("{:.2} MB/s", network.transmitted_rate));
                     });
@@ -2895,7 +2921,6 @@ impl SystemMonitorApp {
                 ui.label("  • Disk usage > 90%");
                 ui.add_space(5.0);
                 if ui.button("⚙️ Configure Alert Thresholds").clicked() {
-                    self.selected_tab = Tab::About; // temp, will switch below
                     self.show_settings = true;
                 }
             });
@@ -3061,7 +3086,13 @@ impl SystemMonitorApp {
                     if let (Some(used), Some(total)) = (gpu_info.memory_used, gpu_info.memory_total) {
                         ui.horizontal(|ui| {
                             ui.label("VRAM:");
-                            ui.strong(format!("{:.0} MB / {:.0} MB", bytes_to_mb(used), bytes_to_mb(total)));
+                            let used_mb = bytes_to_mb(used);
+                            let total_mb = bytes_to_mb(total);
+                            if total_mb >= 1024.0 {
+                                ui.strong(format!("{:.1} / {:.1} GB", used_mb / 1024.0, total_mb / 1024.0));
+                            } else {
+                                ui.strong(format!("{:.0} / {:.0} MB", used_mb, total_mb));
+                            }
                         });
                     }
 
@@ -3069,11 +3100,11 @@ impl SystemMonitorApp {
                         ui.horizontal(|ui| {
                             ui.label("Temperature:");
                             let temp_color = if temp < 70 {
-                                egui::Color32::GREEN
+                                ThemePalette::STATUS_HEALTHY
                             } else if temp < 85 {
-                                egui::Color32::YELLOW
+                                ThemePalette::STATUS_WARNING
                             } else {
-                                egui::Color32::RED
+                                ThemePalette::STATUS_CRITICAL
                             };
                             ui.colored_label(temp_color, format!("🌡️ {}°C", temp));
                         });
@@ -3650,6 +3681,9 @@ impl SystemMonitorApp {
                         changed = true;
                         let _ = self.settings.set_auto_start(self.settings.auto_start);
                     }
+                    changed |= ui
+                        .checkbox(&mut self.settings.minimize_to_tray, "Minimize to system tray on close")
+                        .changed();
                 }
 
                 if changed {
