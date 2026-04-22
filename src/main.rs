@@ -3752,7 +3752,11 @@ impl SystemMonitorApp {
                             ui.colored_label(badge_color,
                                 egui::RichText::new(badge_text).size(11.0).strong());
                             ui.separator();
-                            ui.strong(&item.name);
+                            if item.enabled {
+                                ui.strong(&item.name);
+                            } else {
+                                ui.label(egui::RichText::new(&item.name).strong().strikethrough().color(ThemePalette::TEXT_DIMMED));
+                            }
 
                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                                 ui.colored_label(ThemePalette::TEXT_TERTIARY,
@@ -3822,16 +3826,27 @@ impl SystemMonitorApp {
                                 let can_modify = item.source.contains("HKCU") || item.source.contains("Startup Folder");
                                 let is_keep = item.recommendation == Recommendation::Keep;
 
-                                // Disable button
-                                ui.add_enabled_ui(can_modify && !is_keep, |ui| {
-                                    if ui.button("🚫 Disable").on_hover_text(
-                                        if is_keep { "System component — disabling not recommended" }
-                                        else if !can_modify { "Requires Administrator privileges" }
-                                        else { "Disable this startup item (reversible)" }
-                                    ).clicked() {
-                                        self.startup_show_confirm = Some(idx);
-                                    }
-                                });
+                                // Disable/Enable button
+                                if item.enabled {
+                                    ui.add_enabled_ui(can_modify && !is_keep, |ui| {
+                                        if ui.button("🚫 Disable").on_hover_text(
+                                            if is_keep { "System component — disabling not recommended" }
+                                            else if !can_modify { "Requires Administrator privileges" }
+                                            else { "Disable this startup item (reversible)" }
+                                        ).clicked() {
+                                            self.startup_show_confirm = Some(idx);
+                                        }
+                                    });
+                                } else {
+                                    ui.add_enabled_ui(can_modify, |ui| {
+                                        if ui.button("✅ Enable").on_hover_text(
+                                            if !can_modify { "Requires Administrator privileges" }
+                                            else { "Re-enable this startup item" }
+                                        ).clicked() {
+                                            action = Some((idx, "enable"));
+                                        }
+                                    });
+                                }
 
                                 // Open location
                                 if let Some(ref path) = item.exe_path {
@@ -3876,7 +3891,7 @@ impl SystemMonitorApp {
 
                     let success = match act {
                         "disable" => startup::disable_startup_item(&item_name, &item_source, &item_command),
-                        "remove" => startup::remove_startup_item(&item_name, &item_source),
+                        "enable" => startup::reenable_startup_item(&item_name, &item_source),
                         _ => false,
                     };
 
