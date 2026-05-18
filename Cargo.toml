@@ -31,6 +31,9 @@ tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
 tracing-appender = "0.2"
 tray-icon = "0.21.3"
 muda = "0.17.1"
+parking_lot = "0.12"
+ureq = { version = "2.9", features = ["json"] }
+percent-encoding = "2.3"
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.52", features = [
@@ -40,8 +43,16 @@ windows = { version = "0.52", features = [
     "Win32_System_Registry",
     "Win32_UI_WindowsAndMessaging",
     "Win32_System_Power",
+    "Win32_System_Memory",
+    "Win32_Media",
+    "Win32_Security",
+    "Win32_System_ProcessStatus",
 ] }
 winreg = "0.52"
+ntapi = "0.4"
+widestring = "1.1"
+wmi = "0.9"
+chrono = "0.4"
 
 [profile.release]
 opt-level = 3

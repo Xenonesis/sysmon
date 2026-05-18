@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::process::Command;
+use std::io::Read;
 
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 const UPDATE_CHECK_URL: &str = "https://api.github.com/repos/Xenonesis/sysmon/releases/latest";
@@ -56,14 +56,14 @@ impl Updater {
     }
 
     pub fn check_for_updates(&mut self) -> Result<UpdateInfo, String> {
-        // Try to fetch latest release info from GitHub
         match self.fetch_latest_release() {
             Ok(release) => {
                 let latest_version = release.tag_name.trim_start_matches('v');
                 let current_version = CURRENT_VERSION;
 
                 self.update_info.latest_version = latest_version.to_string();
-                self.update_info.update_available = self.is_newer_version(current_version, latest_version);
+                self.update_info.update_available =
+                    self.is_newer_version(current_version, latest_version);
 
                 // Find the installer asset
                 for asset in release.assets {
@@ -80,38 +80,22 @@ impl Updater {
     }
 
     fn fetch_latest_release(&self) -> Result<GitHubRelease, String> {
-        // Use a simple HTTP request to fetch release info
-        // For now, we'll use std library features
-        // In production, you might want to use reqwest or ureq
+        let response = ureq::get(UPDATE_CHECK_URL)
+            .set("Accept", "application/vnd.github.v3+json")
+            .set("User-Agent", "SystemMonitor/1.0")
+            .call()
+            .map_err(|e| format!("Failed to fetch release info: {}", e))?;
 
-        // This is a simplified version - in production, you'd want proper HTTP handling
-        #[cfg(target_os = "windows")]
-        {
-            let output = Command::new("powershell")
-                .arg("-Command")
-                .arg(format!(
-                    "(Invoke-WebRequest -Uri '{}' -Headers @{{Accept='application/vnd.github.v3+json'; 'User-Agent'='SystemMonitor/1.0'}} -UseBasicParsing).Content",
-                    UPDATE_CHECK_URL
-                ))
-                .output()
-                .map_err(|e| format!("Failed to execute PowerShell: {}", e))?;
+        let mut body = String::new();
+        response
+            .into_reader()
+            .read_to_string(&mut body)
+            .map_err(|e| format!("Failed to read response body: {}", e))?;
 
-            if output.status.success() {
-                let json_str = String::from_utf8_lossy(&output.stdout);
-                serde_json::from_str(&json_str).map_err(|e| format!("Failed to parse GitHub response: {}", e))
-            } else {
-                Err("Failed to fetch release info".to_string())
-            }
-        }
-
-        #[cfg(not(target_os = "windows"))]
-        {
-            Err("Update checking not implemented for this platform".to_string())
-        }
+        serde_json::from_str(&body).map_err(|e| format!("Failed to parse GitHub response: {}", e))
     }
 
     fn is_newer_version(&self, current: &str, latest: &str) -> bool {
-        // Simple version comparison
         let current_parts: Vec<u32> = current.split('.').filter_map(|s| s.parse().ok()).collect();
         let latest_parts: Vec<u32> = latest.split('.').filter_map(|s| s.parse().ok()).collect();
 
@@ -130,36 +114,40 @@ impl Updater {
     }
 
     pub fn download_and_install_update(&self, download_url: &str) -> Result<(), String> {
+        let temp_dir = std::env::temp_dir();
+        let installer_path = temp_dir.join("system-monitor-update.zip");
+
+        // Download the update using ureq
+        let response = ureq::get(download_url)
+            .set("User-Agent", "SystemMonitor/1.0")
+            .call()
+            .map_err(|e| format!("Failed to download update: {}", e))?;
+
+        let mut bytes = Vec::new();
+        response
+            .into_reader()
+            .read_to_end(&mut bytes)
+            .map_err(|e| format!("Failed to read update file: {}", e))?;
+
+        fs::write(&installer_path, &bytes)
+            .map_err(|e| format!("Failed to write update file: {}", e))?;
+
+        // Extract ZIP
+        let extract_dir = temp_dir.join("system-monitor-update");
+        if extract_dir.exists() {
+            fs::remove_dir_all(&extract_dir).ok();
+        }
+        fs::create_dir_all(&extract_dir)
+            .map_err(|e| format!("Failed to create extract dir: {}", e))?;
+
+        // Use zip crate or PowerShell as fallback for extraction
         #[cfg(target_os = "windows")]
         {
-            // Get temp directory
-            let temp_dir = std::env::temp_dir();
-            let installer_path = temp_dir.join("system-monitor-update.zip");
+            use std::process::Command;
+            use std::os::windows::process::CommandExt;
 
-            // Download the update
             let output = Command::new("powershell")
-                .arg("-Command")
-                .arg(format!(
-                    "Invoke-WebRequest -Uri '{}' -OutFile '{}'",
-                    download_url,
-                    installer_path.display()
-                ))
-                .output()
-                .map_err(|e| format!("Failed to download update: {}", e))?;
-
-            if !output.status.success() {
-                return Err("Failed to download update file".to_string());
-            }
-
-            // Extract and run installer
-            let extract_dir = temp_dir.join("system-monitor-update");
-            if extract_dir.exists() {
-                fs::remove_dir_all(&extract_dir).ok();
-            }
-            fs::create_dir_all(&extract_dir).map_err(|e| format!("Failed to create extract dir: {}", e))?;
-
-            // Extract ZIP
-            let output = Command::new("powershell")
+                .creation_flags(0x08000000)
                 .arg("-Command")
                 .arg(format!(
                     "Expand-Archive -Path '{}' -DestinationPath '{}' -Force",
@@ -172,29 +160,30 @@ impl Updater {
             if !output.status.success() {
                 return Err("Failed to extract update archive".to_string());
             }
+        }
 
-            // Run the installer
-            let installer_script = extract_dir.join("installer.ps1");
-            if installer_script.exists() {
+        // Run the installer
+        let installer_script = extract_dir.join("installer.ps1");
+        if installer_script.exists() {
+            #[cfg(target_os = "windows")]
+            {
+                use std::process::Command;
+                use std::os::windows::process::CommandExt;
+
                 Command::new("powershell")
+                    .creation_flags(0x08000000)
                     .arg("-ExecutionPolicy")
                     .arg("Bypass")
                     .arg("-File")
-                    .arg(installer_script)
+                    .arg(&installer_script)
                     .arg("-Silent")
                     .spawn()
                     .map_err(|e| format!("Failed to run installer: {}", e))?;
 
-                // Exit current application to allow update
                 std::process::exit(0);
-            } else {
-                return Err("Installer script not found in update package".to_string());
             }
-        }
-
-        #[cfg(not(target_os = "windows"))]
-        {
-            Err("Update installation not implemented for this platform".to_string())
+        } else {
+            Err("Installer script not found in update package".to_string())
         }
     }
 

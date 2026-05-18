@@ -397,18 +397,31 @@ pub fn get_boot_diagnostics() -> Option<BootDiagnostics> { None }
 // ─── Actions ─────────────────────────────────────────────────
 
 #[cfg(target_os = "windows")]
-#[allow(dead_code)]
 pub fn remove_startup_item(name: &str, source: &str) -> bool {
     if source.contains("HKCU") {
-        ps_run(&format!(
-            "Remove-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run' -Name '{}' -EA SilentlyContinue",
-            name.replace('\'', "''")
-        )).is_some()
+        use winreg::RegKey;
+        use winreg::enums::HKEY_CURRENT_USER;
+        
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        let path = r"Software\Microsoft\Windows\CurrentVersion\Run";
+        if let Ok(run_key) = hkcu.open_subkey_with_flags(path, winreg::enums::KEY_WRITE) {
+            run_key.delete_value(name).is_ok()
+        } else {
+            false
+        }
     } else if source.contains("Startup Folder") {
-        ps_run(&format!(
-            "Remove-Item \"$env:APPDATA\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\{}*\" -EA SilentlyContinue",
-            name.replace('"', "")
-        )).is_some()
+        if let Some(appdata) = std::env::var_os("APPDATA") {
+            let mut startup_path = std::path::PathBuf::from(appdata);
+            startup_path.push(r"Microsoft\Windows\Start Menu\Programs\Startup");
+            startup_path.push(name);
+            if startup_path.exists() {
+                std::fs::remove_file(&startup_path).is_ok()
+            } else {
+                false
+            }
+        } else {
+            false
+        }
     } else {
         false
     }
@@ -416,22 +429,55 @@ pub fn remove_startup_item(name: &str, source: &str) -> bool {
 
 /// Disable by renaming the registry value (reversible). Returns true on success.
 #[cfg(target_os = "windows")]
-pub fn disable_startup_item(name: &str, source: &str, command: &str) -> bool {
+pub fn disable_startup_item(name: &str, source: &str, _command: &str) -> bool {
     if source.contains("HKCU") {
-        let escaped_name = name.replace('\'', "''");
-        let escaped_cmd = command.replace('\'', "''");
-        let script = format!(
-            r#"$path = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'; Remove-ItemProperty -Path $path -Name '{}' -EA SilentlyContinue; $disabled = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run_Disabled'; if (!(Test-Path $disabled)) {{ New-Item -Path $disabled -Force | Out-Null }}; Set-ItemProperty -Path $disabled -Name '{}' -Value '{}'"#,
-            escaped_name, escaped_name, escaped_cmd
-        );
-        ps_run(&script).is_some()
+        use winreg::RegKey;
+        use winreg::enums::HKEY_CURRENT_USER;
+        
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        let run_path = r"Software\Microsoft\Windows\CurrentVersion\Run";
+        let disabled_path = r"Software\Microsoft\Windows\CurrentVersion\Run_Disabled";
+        
+        // Read the current value
+        if let Ok(run_key) = hkcu.open_subkey_with_flags(run_path, winreg::enums::KEY_READ) {
+            if let Ok(value) = run_key.get_value::<String, _>(name) {
+                // Store in disabled location
+                if let Ok(disabled_key) = hkcu.create_subkey(disabled_path) {
+                    if disabled_key.0.set_value(name, &value).is_ok() {
+                        // Remove from Run
+                        if let Ok(run_key_write) = hkcu.open_subkey_with_flags(run_path, winreg::enums::KEY_WRITE) {
+                            return run_key_write.delete_value(name).is_ok();
+                        }
+                    }
+                }
+            }
+        }
+        false
     } else if source.contains("Startup Folder") {
-        // Move the shortcut to a _disabled subfolder
-        let script = format!(
-            r#"$src = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup"; $dst = "$src\_disabled"; if (!(Test-Path $dst)) {{ New-Item -Path $dst -ItemType Directory -Force | Out-Null }}; Move-Item "$src\{}*" $dst -Force -EA SilentlyContinue"#,
-            name.replace('"', "")
-        );
-        ps_run(&script).is_some()
+        if let Some(appdata) = std::env::var_os("APPDATA") {
+            let mut src_path = std::path::PathBuf::from(appdata);
+            src_path.push(r"Microsoft\Windows\Start Menu\Programs\Startup");
+            let mut dst_path = src_path.clone();
+            dst_path.push("_disabled");
+            
+            if !dst_path.exists() {
+                std::fs::create_dir_all(&dst_path).ok();
+            }
+            
+            // Find and move files matching the name
+            if let Ok(entries) = std::fs::read_dir(&src_path) {
+                for entry in entries.flatten() {
+                    if let Some(file_name) = entry.file_name().to_str() {
+                        if file_name.starts_with(name) {
+                            let mut dest = dst_path.clone();
+                            dest.push(file_name);
+                            return std::fs::rename(entry.path(), &dest).is_ok();
+                        }
+                    }
+                }
+            }
+        }
+        false
     } else {
         false
     }
@@ -439,21 +485,51 @@ pub fn disable_startup_item(name: &str, source: &str, command: &str) -> bool {
 
 /// Re-enable a previously disabled item. Returns true on success.
 #[cfg(target_os = "windows")]
-#[allow(dead_code)]
 pub fn reenable_startup_item(name: &str, source: &str) -> bool {
     if source.contains("HKCU") {
-        let escaped = name.replace('\'', "''");
-        let script = format!(
-            r#"$disabled = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run_Disabled'; $val = (Get-ItemProperty -Path $disabled -Name '{}' -EA SilentlyContinue).'{0}'; if ($val) {{ Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name '{0}' -Value $val; Remove-ItemProperty -Path $disabled -Name '{0}' -EA SilentlyContinue; $true }} else {{ $false }}"#,
-            escaped
-        );
-        ps_run(&script).map(|s| s.trim().contains("True")).unwrap_or(false)
+        use winreg::RegKey;
+        use winreg::enums::HKEY_CURRENT_USER;
+        
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        let run_path = r"Software\Microsoft\Windows\CurrentVersion\Run";
+        let disabled_path = r"Software\Microsoft\Windows\CurrentVersion\Run_Disabled";
+        
+        // Read from disabled location
+        if let Ok(disabled_key) = hkcu.open_subkey_with_flags(disabled_path, winreg::enums::KEY_READ) {
+            if let Ok(value) = disabled_key.get_value::<String, _>(name) {
+                // Restore to Run
+                if let Ok(run_key) = hkcu.open_subkey_with_flags(run_path, winreg::enums::KEY_WRITE) {
+                    if run_key.set_value(name, &value).is_ok() {
+                        // Remove from disabled
+                        if let Ok(disabled_key_write) = hkcu.open_subkey_with_flags(disabled_path, winreg::enums::KEY_WRITE) {
+                            return disabled_key_write.delete_value(name).is_ok();
+                        }
+                    }
+                }
+            }
+        }
+        false
     } else if source.contains("Startup Folder") {
-        let script = format!(
-            r#"$dst = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\_disabled"; $src = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup"; if (Test-Path "$dst\{}*") {{ Move-Item "$dst\{}*" $src -Force -EA SilentlyContinue; $true }} else {{ $false }}"#,
-            name.replace('"', ""), name.replace('"', "")
-        );
-        ps_run(&script).map(|s| s.trim().contains("True")).unwrap_or(false)
+        if let Some(appdata) = std::env::var_os("APPDATA") {
+            let mut dst_path = std::path::PathBuf::from(appdata.clone());
+            dst_path.push(r"Microsoft\Windows\Start Menu\Programs\Startup\_disabled");
+            let mut src_path = std::path::PathBuf::from(appdata);
+            src_path.push(r"Microsoft\Windows\Start Menu\Programs\Startup");
+            
+            // Find and move files matching the name
+            if let Ok(entries) = std::fs::read_dir(&dst_path) {
+                for entry in entries.flatten() {
+                    if let Some(file_name) = entry.file_name().to_str() {
+                        if file_name.starts_with(name) {
+                            let mut dest = src_path.clone();
+                            dest.push(file_name);
+                            return std::fs::rename(entry.path(), &dest).is_ok();
+                        }
+                    }
+                }
+            }
+        }
+        false
     } else {
         false
     }
@@ -480,10 +556,8 @@ pub fn search_online(name: &str) {
 }
 
 fn urlenccode(s: &str) -> String {
-    s.chars().map(|c| {
-        if c.is_alphanumeric() || c == '-' || c == '_' || c == '.' { c.to_string() }
-        else { format!("%{:02X}", c as u8) }
-    }).collect()
+    use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
+    utf8_percent_encode(s, NON_ALPHANUMERIC).to_string()
 }
 
 #[cfg(not(target_os = "windows"))]

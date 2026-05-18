@@ -27,7 +27,6 @@ impl ThemePalette {
     const WIDGET_HOVERED: egui::Color32 = egui::Color32::from_rgb(37, 38, 38); // #252626
     const BORDER: egui::Color32 = egui::Color32::from_rgb(19, 19, 19); // Hidden in #131313
     const BORDER_LIGHT: egui::Color32 = egui::Color32::from_rgb(31, 32, 32); // Just slight edge
-    const ACCENT_LINE: egui::Color32 = egui::Color32::from_rgb(72, 72, 72); // #484848
 
     // Modern Status Colors -> Minimalist Status
     const STATUS_HEALTHY: egui::Color32 = egui::Color32::from_rgb(230, 255, 244); // #e6fff4
@@ -45,16 +44,15 @@ impl ThemePalette {
     const TEXT_TERTIARY: egui::Color32 = egui::Color32::from_rgb(86, 85, 85); // #565555
     const TEXT_DIMMED: egui::Color32 = egui::Color32::from_rgb(86, 85, 85);
 
-    // Sidebar colors
-    const TEXT_NAV: egui::Color32 = egui::Color32::from_rgb(172, 171, 170);
-    const TEXT_ICON_INACTIVE: egui::Color32 = egui::Color32::from_rgb(118, 117, 117);
     const GPU_UNAVAILABLE: egui::Color32 = egui::Color32::from_rgb(86, 85, 85);
     const ACCENT_PURPLE: egui::Color32 = egui::Color32::from_rgb(198, 198, 199); // Map purple to primary grey
+    const ACCENT_CYAN: egui::Color32 = egui::Color32::from_rgb(198, 198, 199); // Map cyan to primary grey
 }
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::fs;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use parking_lot::Mutex;
 use std::thread;
 use std::time::{Duration, Instant};
 use sysinfo::{Disks, Networks, Pid, System};
@@ -427,24 +425,53 @@ impl SystemMonitor {
 
     #[cfg(target_os = "windows")]
     fn suspend_process(&mut self, pid: u32) -> bool {
-        use std::process::Command;
-        use std::os::windows::process::CommandExt;
-        // Use pssuspend-like approach via powershell to suspend a process
-        let output = Command::new("powershell").creation_flags(0x08000000)
-            .arg("-Command")
-            .arg(format!(
-                "try {{ $proc = Get-Process -Id {} -ErrorAction Stop; $proc.Suspend(); $true }} catch {{ try {{ $code = @'\nAdd-Type -Name Suspender -Namespace Win32 -MemberDefinition @\"\n[DllImport(\"ntdll.dll\", SetLastError=true)] public static extern int NtSuspendProcess(IntPtr hProcess);\n[DllImport(\"kernel32.dll\", SetLastError=true)] public static extern IntPtr OpenProcess(int access, bool inherit, int pid);\n[DllImport(\"kernel32.dll\")] public static extern bool CloseHandle(IntPtr h);\n\"@\n'@; Invoke-Expression $code; $h = [Win32.Suspender]::OpenProcess(0x0800, $false, {}); if($h -ne [IntPtr]::Zero) {{ [Win32.Suspender]::NtSuspendProcess($h); [Win32.Suspender]::CloseHandle($h); $true }} else {{ $false }} }} catch {{ $false }} }}",
-                pid, pid
-            ))
-            .output();
-        match output {
-            Ok(o) => String::from_utf8_lossy(&o.stdout).trim().contains("True"),
-            Err(_) => false,
+        use windows::Win32::Foundation::CloseHandle;
+        use windows::Win32::System::Threading::{OpenProcess, PROCESS_SUSPEND_RESUME};
+        use ntapi::ntpsapi::NtSuspendProcess;
+
+        unsafe {
+            if let Ok(h) = OpenProcess(PROCESS_SUSPEND_RESUME, false, pid) {
+                if !h.is_invalid() {
+                    let result = NtSuspendProcess(h.0 as *mut _);
+                    let _ = CloseHandle(h);
+                    result == 0
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    fn resume_process(&mut self, pid: u32) -> bool {
+        use windows::Win32::Foundation::CloseHandle;
+        use windows::Win32::System::Threading::{OpenProcess, PROCESS_SUSPEND_RESUME};
+        use ntapi::ntpsapi::NtResumeProcess;
+
+        unsafe {
+            if let Ok(h) = OpenProcess(PROCESS_SUSPEND_RESUME, false, pid) {
+                if !h.is_invalid() {
+                    let result = NtResumeProcess(h.0 as *mut _);
+                    let _ = CloseHandle(h);
+                    result == 0
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
         }
     }
 
     #[cfg(not(target_os = "windows"))]
     fn suspend_process(&mut self, _pid: u32) -> bool {
+        false
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    fn resume_process(&mut self, _pid: u32) -> bool {
         false
     }
 
@@ -512,40 +539,25 @@ impl SystemMonitor {
 
     #[cfg(target_os = "windows")]
     fn clean_ram(&mut self) -> u64 {
-        use std::process::Command;
-        use std::os::windows::process::CommandExt;
-        info!("RAM clean operation initiated");
-        // Get memory before
+        use windows::Win32::Foundation::CloseHandle;
+        use windows::Win32::System::ProcessStatus::EmptyWorkingSet;
+        use windows::Win32::System::Threading::{OpenProcess, PROCESS_ALL_ACCESS};
+
+        info!("RAM clean operation initiated (native API)");
         let mem_before = self.sys.used_memory();
 
-        // Use PowerShell to clean working sets of all user-accessible processes
-        let _ = Command::new("powershell").creation_flags(0x08000000)
-            .arg("-Command")
-            .arg(
-                r#"
-Add-Type -TypeDefinition @"
-using System;
-using System.Runtime.InteropServices;
-public class MemCleaner {
-    [DllImport("psapi.dll")] public static extern bool EmptyWorkingSet(IntPtr hProcess);
-    [DllImport("kernel32.dll")] public static extern IntPtr OpenProcess(int access, bool inherit, int pid);
-    [DllImport("kernel32.dll")] public static extern bool CloseHandle(IntPtr h);
-}
-"@
-Get-Process | ForEach-Object {
-    try {
-        $h = [MemCleaner]::OpenProcess(0x1F0FFF, $false, $_.Id)
-        if ($h -ne [IntPtr]::Zero) {
-            [MemCleaner]::EmptyWorkingSet($h) | Out-Null
-            [MemCleaner]::CloseHandle($h) | Out-Null
+        unsafe {
+            for (pid, _) in self.sys.processes() {
+                let pid_u32 = pid.as_u32();
+                if let Ok(h) = OpenProcess(PROCESS_ALL_ACCESS, false, pid_u32) {
+                    if !h.is_invalid() {
+                        let _ = EmptyWorkingSet(h);
+                        let _ = CloseHandle(h);
+                    }
+                }
+            }
         }
-    } catch {}
-}
-"#,
-            )
-            .output();
 
-        // Refresh system info to get new memory reading
         self.sys.refresh_memory();
         let mem_after = self.sys.used_memory();
         let freed = mem_before.saturating_sub(mem_after);
@@ -562,26 +574,38 @@ Get-Process | ForEach-Object {
 
     #[cfg(target_os = "windows")]
     fn set_process_priority(pid: u32, priority: &str) -> bool {
-        use std::process::Command;
-        use std::os::windows::process::CommandExt;
-        let priority_class = match priority {
-            "Realtime" => "RealTime",
-            "High" => "High",
-            "AboveNormal" => "AboveNormal",
-            "Normal" => "Normal",
-            "BelowNormal" => "BelowNormal",
-            "Idle" => "Idle",
+        use windows::Win32::Foundation::CloseHandle;
+        use windows::Win32::System::Threading::{
+            OpenProcess, SetPriorityClass, PROCESS_CREATION_FLAGS,
+        };
+
+        let priority_class: PROCESS_CREATION_FLAGS = match priority {
+            "Realtime" => windows::Win32::System::Threading::REALTIME_PRIORITY_CLASS,
+            "High" => windows::Win32::System::Threading::HIGH_PRIORITY_CLASS,
+            "AboveNormal" => windows::Win32::System::Threading::ABOVE_NORMAL_PRIORITY_CLASS,
+            "Normal" => windows::Win32::System::Threading::NORMAL_PRIORITY_CLASS,
+            "BelowNormal" => windows::Win32::System::Threading::BELOW_NORMAL_PRIORITY_CLASS,
+            "Idle" => windows::Win32::System::Threading::IDLE_PRIORITY_CLASS,
             _ => return false,
         };
-        Command::new("powershell").creation_flags(0x08000000)
-            .arg("-Command")
-            .arg(format!(
-                "try {{ (Get-Process -Id {}).PriorityClass = '{}'; $true }} catch {{ $false }}",
-                pid, priority_class
-            ))
-            .output()
-            .map(|o| String::from_utf8_lossy(&o.stdout).trim().contains("True"))
-            .unwrap_or(false)
+
+        unsafe {
+            if let Ok(h) = OpenProcess(
+                windows::Win32::System::Threading::PROCESS_SET_INFORMATION,
+                false,
+                pid,
+            ) {
+                if !h.is_invalid() {
+                    let result = SetPriorityClass(h, priority_class);
+                    let _ = CloseHandle(h);
+                    result.is_ok()
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
+        }
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -591,6 +615,7 @@ Get-Process | ForEach-Object {
 
     #[cfg(target_os = "windows")]
     fn get_gpu_info(&self) -> Option<GpuInfo> {
+        // Try NVML for NVIDIA GPUs first
         if let Some(ref nvml) = self.nvml {
             if let Ok(device_count) = nvml.device_count() {
                 if device_count > 0 {
@@ -613,7 +638,49 @@ Get-Process | ForEach-Object {
                 }
             }
         }
-        None
+
+        // Fallback: Use WMI for AMD/Intel GPUs
+        Self::get_gpu_info_wmi()
+    }
+
+    #[cfg(target_os = "windows")]
+    fn get_gpu_info_wmi() -> Option<GpuInfo> {
+        use wmi::{COMLibrary, WMIConnection, Variant};
+        use std::rc::Rc;
+        
+        let com = Rc::new(COMLibrary::new().ok()?);
+        let wmi = WMIConnection::new(com).ok()?;
+        
+        // Query GPU controller info
+        let results: Vec<std::collections::HashMap<String, Variant>> = wmi
+            .raw_query("SELECT Name, DriverVersion, VideoProcessor FROM Win32_VideoController WHERE AdapterRAM > 0")
+            .ok()?;
+        
+        if results.is_empty() {
+            return None;
+        }
+        
+        let gpu = &results[0];
+        let name = gpu.get("Name")
+            .and_then(|v| match v { Variant::String(s) => Some(s.clone()), _ => None })
+            .unwrap_or_else(|| "Unknown GPU".to_string());
+        
+        // Get adapter RAM from VideoController
+        let adapter_ram: Option<u64> = gpu.get("AdapterRAM")
+            .and_then(|v| match v { Variant::UI4(n) => Some(*n as u64), Variant::UI8(n) => Some(*n), _ => None });
+        
+        // Filter out Microsoft Basic Display Adapter and similar generic drivers
+        if name.contains("Microsoft Basic Display Adapter") || name.contains("Standard VGA") {
+            return None;
+        }
+        
+        Some(GpuInfo {
+            name,
+            utilization: 0.0, // WMI doesn't provide real-time utilization
+            memory_used: None, // WMI doesn't provide current memory usage
+            memory_total: adapter_ram,
+            temperature: None, // WMI doesn't provide temperature
+        })
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -876,7 +943,6 @@ struct SystemMonitorApp {
     #[allow(dead_code)]
     show_cpu_cores: bool,
     selected_process_pid: Option<u32>,
-    always_on_top: bool,
     process_search: String,
     process_sort_column: ProcessSortColumn,
     process_sort_ascending: bool,
@@ -898,6 +964,8 @@ struct SystemMonitorApp {
     boot_diagnostics_loaded: bool,
     show_shortcuts: bool,
     suspend_process_pid: Option<u32>,
+    resume_process_pid: Option<u32>,
+    suspended_pids: std::collections::HashSet<u32>,
     priority_change: Option<(u32, String)>,
     #[allow(dead_code)]
     #[cfg(target_os = "windows")]
@@ -1039,7 +1107,7 @@ impl SystemMonitorApp {
 
                 // Read current settings from shared state
                 let (refresh_interval, process_count, settings_snapshot) = {
-                    let s = shared_settings_clone.lock().unwrap();
+                    let s = shared_settings_clone.lock();
                     (s.refresh_interval, s.process_count, s.clone())
                 };
 
@@ -1057,7 +1125,8 @@ impl SystemMonitorApp {
                 // Get battery info every 15 ticks (~7.5s) — retain previous value if unavailable
                 if battery_check_counter % 15 == 0 {
                     if let Some(bi) = monitor.get_battery_info() {
-                        if let Ok(mut data) = data_clone.lock() {
+                        {
+                            let mut data = data_clone.lock();
                             data.battery_info = Some(bi);
                         }
                     }
@@ -1068,7 +1137,8 @@ impl SystemMonitorApp {
                 let total_download_rate: f64 = network_info.iter().map(|n| n.received_rate).sum();
                 let total_upload_rate: f64 = network_info.iter().map(|n| n.transmitted_rate).sum();
 
-                if let Ok(mut data) = data_clone.lock() {
+                {
+                    let mut data = data_clone.lock();
                     let elapsed = data.start_time.elapsed().as_secs_f64();
 
                     // Update current values
@@ -1237,7 +1307,6 @@ impl SystemMonitorApp {
             show_process_manager: false,
             show_cpu_cores: false,
             selected_process_pid: None,
-            always_on_top: false,
             process_search: String::new(),
             process_sort_column: ProcessSortColumn::Memory,
             process_sort_ascending: false,
@@ -1268,6 +1337,8 @@ impl SystemMonitorApp {
             boot_diagnostics_loaded: false,
             show_shortcuts: false,
             suspend_process_pid: None,
+            resume_process_pid: None,
+            suspended_pids: std::collections::HashSet::new(),
             priority_change: None,
             #[cfg(target_os = "windows")]
             tray_icon,
@@ -1453,7 +1524,8 @@ impl eframe::App for SystemMonitorApp {
         ctx.input(|i| {
             if i.key_pressed(egui::Key::F5) {
                 // Refresh (reset statistics)
-                if let Ok(mut data) = self.data.lock() {
+                {
+                    let mut data = self.data.lock();
                     data.cpu_history.clear();
                     data.memory_history.clear();
                     data.gpu_history.clear();
@@ -1476,7 +1548,7 @@ impl eframe::App for SystemMonitorApp {
             }
         });
 
-        let data = self.data.lock().unwrap().clone();
+        let data = self.data.lock().clone();
 
         // Handle process kill actions
         if let Some(pid) = self.selected_process_pid.take() {
@@ -1491,7 +1563,18 @@ impl eframe::App for SystemMonitorApp {
         // Handle process suspend actions
         if let Some(pid) = self.suspend_process_pid.take() {
             let mut monitor = SystemMonitor::new();
-            monitor.suspend_process(pid);
+            if monitor.suspend_process(pid) {
+                self.suspended_pids.insert(pid);
+            }
+            if self.settings.enable_sounds { play_success_sound(); }
+        }
+
+        // Handle process resume actions
+        if let Some(pid) = self.resume_process_pid.take() {
+            let mut monitor = SystemMonitor::new();
+            if monitor.resume_process(pid) {
+                self.suspended_pids.remove(&pid);
+            }
             if self.settings.enable_sounds { play_success_sound(); }
         }
 
@@ -1521,20 +1604,23 @@ impl eframe::App for SystemMonitorApp {
                     let freed = monitor.clean_ram();
                     if enable_sounds { play_success_sound(); }
                     // Store freed bytes in SystemData for the UI to pick up
-                    if let Ok(mut d) = data_arc.lock() {
+                    {
+                        let mut d = data_arc.lock();
                         d.ram_clean_freed_bytes += freed;
                         d.ram_clean_is_cleaning = false;
                     }
                     ctx_clone.request_repaint();
                 });
                 // Mark cleaning in shared data too
-                if let Ok(mut d) = self.data.lock() {
+                {
+                    let mut d = self.data.lock();
                     d.ram_clean_is_cleaning = true;
                 }
             }
         }
         // Sync back from shared data
-        if let Ok(d) = self.data.lock() {
+        {
+            let d = self.data.lock();
             if !d.ram_clean_is_cleaning && self.ram_cleaner_state.is_cleaning {
                 self.ram_cleaner_state.is_cleaning = false;
             }
@@ -1662,247 +1748,90 @@ impl eframe::App for SystemMonitorApp {
         }
         self.show_alerts = show_alerts;
         if clear_alerts {
-            if let Ok(mut data) = self.data.lock() {
+            {
+                let mut data = self.data.lock();
                 data.alerts.clear();
             }
         }
 
         // Top menu bar
-        egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
-            egui::menu::bar(ui, |ui| {
-                ui.menu_button("View", |ui| {
-                    ui.checkbox(&mut self.settings.show_graphs, "Show Performance Graphs");
-                    ui.checkbox(&mut self.settings.show_gpu, "Show GPU Section");
-                    ui.checkbox(&mut self.settings.show_processes, "Show Process List");
-                    ui.separator();
-                    if ui.button("⚙️ Settings").clicked() {
-                        self.show_settings = true;
-                        ui.close_menu();
-                    }
-                });
-
-                ui.menu_button("Tools", |ui| {
-                    if ui.button("💾 Export Data to JSON").clicked() {
-                        self.show_export = true;
-                        ui.close_menu();
-                    }
-                    if ui.button("📊 Export to CSV").clicked() {
-                        self.show_export_csv = true;
-                        ui.close_menu();
-                    }
-                    if ui.button("💾 Save JSON to File").clicked() {
-                        // Save to file with file picker
-                        if let Ok(json) = self.export_data_to_json(&data) {
-                            if let Some(path) = rfd::FileDialog::new()
-                                .set_file_name("system-report.json")
-                                .add_filter("JSON", &["json"])
-                                .save_file()
-                            {
-                                let _ = std::fs::write(path, json);
-                            }
-                        }
-                        ui.close_menu();
-                    }
-                    if ui.button("📊 Save CSV to File").clicked() {
-                        // Save CSV to file
-                        if let Ok(csv) = self.export_to_csv(&data) {
-                            if let Some(path) = rfd::FileDialog::new()
-                                .set_file_name("system-report.csv")
-                                .add_filter("CSV", &["csv"])
-                                .save_file()
-                            {
-                                let _ = std::fs::write(path, csv);
-                            }
-                        }
-                        ui.close_menu();
-                    }
-                    ui.separator();
-                    if ui.button("🔄 Reset Statistics").clicked() {
-                        if let Ok(mut data) = self.data.lock() {
-                            data.cpu_history.clear();
-                            data.memory_history.clear();
-                            data.gpu_history.clear();
-                            data.network_download_history.clear();
-                            data.network_upload_history.clear();
-                            data.alerts.clear();
-                        }
-                        ui.close_menu();
-                    }
-                    ui.separator();
-                    if ui.button("🚨 View Alerts").clicked() {
-                        self.show_alerts = true;
-                        ui.close_menu();
-                    }
-                    if ui.button("⚙️ Process Manager").clicked() {
-                        self.show_process_manager = true;
-                        ui.close_menu();
-                    }
-                });
-
-                ui.menu_button("Window", |ui| {
-                    if ui.checkbox(&mut self.always_on_top, "Always on Top").clicked() {
-                        ui.ctx().send_viewport_cmd(egui::ViewportCommand::WindowLevel(if self.always_on_top {
-                            egui::viewport::WindowLevel::AlwaysOnTop
-                        } else {
-                            egui::viewport::WindowLevel::Normal
-                        }));
-                        ui.close_menu();
-                    }
-                    if ui.button("🔄 Restart Application").clicked() {
-                        std::process::Command::new(std::env::current_exe().unwrap())
-                            .spawn()
-                            .ok();
-                        std::process::exit(0);
-                    }
-                });
-
-                ui.menu_button("Help", |ui| {
-                    if ui.button("About").clicked() {
-                        self.selected_tab = Tab::About;
-                        ui.close_menu();
-                    }
-                    if ui.button("⌨️ Keyboard Shortcuts").clicked() {
-                        self.show_shortcuts = true;
-                        ui.close_menu();
-                    }
-                });
-
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label(format!("🕒 {}", data.last_update));
-                });
-            });
-        });
-
-        // Side panel — branded nav with custom tabs
-        egui::SidePanel::left("sidebar")
-            .min_width(190.0)
-            .max_width(210.0)
-            .show(ctx, |ui| {
-                // ── Brand header ──
-                ui.add_space(6.0);
-                ui.horizontal(|ui| {
-                    ui.add_space(8.0);
-                    // Painted diamond glyph
-                    let r = ui.label(egui::RichText::new(" ").size(17.0));
-                    let cy = r.rect.center().y;
-                    let cx = r.rect.left() + 2.0;
-                    let sz = 7.0;
-                    let pts = vec![
-                        egui::pos2(cx, cy - sz),
-                        egui::pos2(cx + sz * 0.65, cy),
-                        egui::pos2(cx, cy + sz),
-                        egui::pos2(cx - sz * 0.65, cy),
-                    ];
-                    ui.painter().add(egui::Shape::convex_polygon(
-                        pts,
-                        ThemePalette::ACCENT_PRIMARY,
-                        egui::Stroke::NONE,
-                    ));
-                    ui.label(
-                        egui::RichText::new("Sys")
-                            .size(17.0)
-                            .strong()
-                            .color(ThemePalette::ACCENT_PRIMARY),
-                    );
-                    ui.label(
-                        egui::RichText::new("Mon")
-                            .size(17.0)
-                            .strong()
-                            .color(ThemePalette::TEXT_PRIMARY),
-                    );
-                    ui.label(
-                        egui::RichText::new(format!("v{}", APP_VERSION))
-                            .size(9.5)
-                            .color(ThemePalette::TEXT_DIMMED),
-                    );
-                });
-                ui.add_space(6.0);
-                // Thin accent line under brand
-                {
-                    let r = ui.cursor();
-                    ui.painter().line_segment(
-                        [
-                            egui::pos2(r.left() + 12.0, r.top()),
-                            egui::pos2(r.right() - 12.0, r.top()),
-                        ],
-                        egui::Stroke::new(1.0, ThemePalette::ACCENT_LINE),
-                    );
-                }
-                ui.add_space(10.0);
-
-                // ── Navigation label ──
-                {
-                    let r = ui.cursor();
-                    ui.painter().text(
-                        egui::pos2(r.left() + 14.0, r.top()),
-                        egui::Align2::LEFT_TOP,
-                        "NAVIGATION",
-                        egui::FontId::proportional(9.5),
-                        ThemePalette::TEXT_NAV,
-                    );
-                }
-                ui.add_space(18.0);
-
-                // ── Tab items ──
-                draw_nav_tab(ui, &mut self.selected_tab, Tab::Overview, "Overview", None);
-                draw_nav_tab(ui, &mut self.selected_tab, Tab::Performance, "Performance", None);
-                draw_nav_tab(ui, &mut self.selected_tab, Tab::Processes, "Processes", None);
-                draw_nav_tab(ui, &mut self.selected_tab, Tab::CpuCores, "CPU Cores", None);
-                draw_nav_tab(ui, &mut self.selected_tab, Tab::Storage, "Storage", None);
-                draw_nav_tab(ui, &mut self.selected_tab, Tab::Network, "Network", None);
-                draw_nav_tab(ui, &mut self.selected_tab, Tab::SystemInfo, "System Info", None);
-
-                ui.add_space(6.0);
-                {
-                    let r = ui.cursor();
-                    ui.painter().line_segment(
-                        [
-                            egui::pos2(r.left() + 12.0, r.top()),
-                            egui::pos2(r.right() - 12.0, r.top()),
-                        ],
-                        egui::Stroke::new(1.0, ThemePalette::ACCENT_LINE),
-                    );
-                }
-                ui.add_space(6.0);
-
-                let alert_count = data.alerts.len();
-                draw_nav_tab(
-                    ui,
-                    &mut self.selected_tab,
-                    Tab::Alerts,
-                    "Alerts",
-                    if alert_count > 0 { Some(alert_count) } else { None },
+        // Sleek minimal top bar
+        egui::TopBottomPanel::top("top_bar").show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 16.0;
+                ui.add_space(8.0);
+                // Painted diamond glyph
+                let r = ui.label(egui::RichText::new(" ").size(14.0));
+                let cy = r.rect.center().y;
+                let cx = r.rect.left() + 2.0;
+                let sz = 6.0;
+                let pts = vec![
+                    egui::pos2(cx, cy - sz),
+                    egui::pos2(cx + sz * 0.65, cy),
+                    egui::pos2(cx, cy + sz),
+                    egui::pos2(cx - sz * 0.65, cy),
+                ];
+                ui.painter().add(egui::Shape::convex_polygon(
+                    pts,
+                    ThemePalette::ACCENT_PRIMARY,
+                    egui::Stroke::NONE,
+                ));
+                ui.label(
+                    egui::RichText::new("Sys")
+                        .size(15.0)
+                        .strong()
+                        .color(ThemePalette::ACCENT_PRIMARY),
                 );
-                draw_nav_tab(ui, &mut self.selected_tab, Tab::RamCleaner, "RAM Cleaner", None);
-                let startup_high = startup::high_impact_count(&self.startup_items);
-                draw_nav_tab(ui, &mut self.selected_tab, Tab::StartupManager, "Startup Apps",
-                    if startup_high > 0 { Some(startup_high) } else { None });
-                draw_nav_tab(ui, &mut self.selected_tab, Tab::About, "About", None);
-
-                // ── Quick stats ──
-                ui.add_space(14.0);
-                {
-                    let r = ui.cursor();
-                    ui.painter().text(
-                        egui::pos2(r.left() + 14.0, r.top()),
-                        egui::Align2::LEFT_TOP,
-                        "QUICK STATS",
-                        egui::FontId::proportional(9.5),
-                        ThemePalette::TEXT_NAV,
-                    );
+                ui.label(
+                    egui::RichText::new("Mon")
+                        .size(15.0)
+                        .strong()
+                        .color(ThemePalette::TEXT_PRIMARY),
+                );
+                
+                ui.separator();
+                
+                // Simple navigation tabs
+                let tabs = [
+                    (Tab::Overview, "Overview"),
+                    (Tab::Performance, "Performance"),
+                    (Tab::Processes, "Processes"),
+                    (Tab::Network, "Network"),
+                    (Tab::Alerts, "Alerts"),
+                ];
+                for (tab, label) in tabs {
+                    let selected = self.selected_tab == tab;
+                    if ui.selectable_label(selected, label).clicked() {
+                        self.selected_tab = tab;
+                    }
                 }
-                ui.add_space(18.0);
-
-                draw_mini_stat(ui, "CPU", data.cpu_usage);
-                draw_mini_stat(ui, "RAM", data.memory_percentage);
-                if let Some(ref gpu) = data.gpu_info {
-                    draw_mini_stat(ui, "GPU", gpu.utilization);
-                }
-                if data.swap_info.total > 0 {
-                    draw_mini_stat(ui, "SWAP", data.swap_info.percentage);
-                }
-                ui.add_space(12.0);
+                
+                ui.menu_button("More", |ui| {
+                    let more_tabs = [
+                        (Tab::CpuCores, "CPU Cores"),
+                        (Tab::Storage, "Storage"),
+                        (Tab::SystemInfo, "System Info"),
+                        (Tab::RamCleaner, "RAM Cleaner"),
+                        (Tab::StartupManager, "Startup Apps"),
+                        (Tab::About, "About"),
+                    ];
+                    for (tab, label) in more_tabs {
+                        if ui.button(label).clicked() {
+                            self.selected_tab = tab;
+                            ui.close_menu();
+                        }
+                    }
+                });
+                
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.spacing_mut().item_spacing.x = 12.0;
+                    if ui.small_button("⚙️").clicked() { self.show_settings = true; }
+                    if ui.small_button("💾").clicked() { self.show_export = true; }
+                    ui.label(egui::RichText::new(format!("🕒 {}", data.last_update)).size(11.0).color(ThemePalette::TEXT_SECONDARY));
+                });
             });
+            ui.separator();
+        });
 
         // Process Manager window
         if self.show_process_manager {
@@ -2007,106 +1936,6 @@ fn paint_progress_bar(ui: &mut egui::Ui, fraction: f32, fill: egui::Color32, h: 
     }
 }
 
-/// Sidebar navigation tab with left accent bar + hover highlight
-fn draw_nav_tab(ui: &mut egui::Ui, selected: &mut Tab, tab: Tab, label: &str, badge: Option<usize>) {
-    let is_sel = *selected == tab;
-    let size = egui::vec2(ui.available_width(), 38.0);
-    let (rect, resp) = ui.allocate_exact_size(size, egui::Sense::click());
-    let p = ui.painter();
-
-    // Pill selection hover/active states
-    if is_sel {
-        // Indigo 500 with low opacity
-        p.rect_filled(rect, 8.0, egui::Color32::from_rgba_premultiplied(99, 102, 241, 24));
-
-        // Left accent bar
-        p.rect_filled(
-            egui::Rect::from_min_size(
-                egui::pos2(rect.left(), rect.top() + 8.0),
-                egui::vec2(4.0, rect.height() - 16.0),
-            ),
-            2.0,
-            ThemePalette::ACCENT_PRIMARY,
-        );
-    } else if resp.hovered() {
-        p.rect_filled(rect, 8.0, egui::Color32::from_rgba_premultiplied(255, 255, 255, 8));
-    }
-
-    let mid = rect.center().y;
-    let ic = if is_sel {
-        ThemePalette::ACCENT_PRIMARY
-    } else {
-        ThemePalette::TEXT_ICON_INACTIVE
-    };
-    let tc = if is_sel {
-        ThemePalette::TEXT_SELECTED
-    } else {
-        ThemePalette::TEXT_SECONDARY
-    };
-
-    // Painted dot indicator
-    p.circle_filled(egui::pos2(rect.left() + 20.0, mid), 3.5, ic);
-
-    p.text(
-        egui::pos2(rect.left() + 38.0, mid),
-        egui::Align2::LEFT_CENTER,
-        label,
-        egui::FontId::proportional(15.0),
-        tc,
-    );
-
-    if let Some(c) = badge {
-        if c > 0 {
-            let bx = rect.right() - 24.0;
-            p.circle_filled(egui::pos2(bx, mid), 10.0, ThemePalette::STATUS_CRITICAL);
-            p.text(
-                egui::pos2(bx, mid),
-                egui::Align2::CENTER_CENTER,
-                &c.to_string(),
-                egui::FontId::proportional(11.0),
-                egui::Color32::WHITE,
-            );
-        }
-    }
-
-    if resp.clicked() {
-        *selected = tab;
-    }
-}
-
-/// Compact stat row for sidebar: label, value %, mini bar
-fn draw_mini_stat(ui: &mut egui::Ui, label: &str, value: f32) {
-    let w = ui.available_width();
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(w, 24.0), egui::Sense::hover());
-    let p = ui.painter();
-    let color = get_usage_color(value);
-
-    p.text(
-        egui::pos2(rect.left() + 16.0, rect.top() + 4.0),
-        egui::Align2::LEFT_TOP,
-        label,
-        egui::FontId::proportional(12.0),
-        ThemePalette::TEXT_LABEL,
-    );
-    p.text(
-        egui::pos2(rect.right() - 16.0, rect.top() + 4.0),
-        egui::Align2::RIGHT_TOP,
-        &format!("{:.0}%", value),
-        egui::FontId::proportional(12.0),
-        color,
-    );
-
-    let bar_y = rect.bottom() - 4.0;
-    let bar_w = w - 32.0;
-    let track = egui::Rect::from_min_size(egui::pos2(rect.left() + 16.0, bar_y), egui::vec2(bar_w, 3.0));
-    p.rect_filled(track, 1.5, ThemePalette::BG_DEEPEST);
-
-    let fw = bar_w * (value / 100.0).clamp(0.0, 1.0);
-    if fw > 0.5 {
-        p.rect_filled(egui::Rect::from_min_size(track.min, egui::vec2(fw, 3.0)), 1.5, color);
-    }
-}
-
 impl SystemMonitorApp {
     fn show_overview_tab(&mut self, ui: &mut egui::Ui, data: &SystemData) {
         paint_section_header(ui, "System Overview");
@@ -2150,11 +1979,22 @@ impl SystemMonitorApp {
             } else {
                 full_avail
             };
-            let card_w = ((visible_w - card_spacing * 3.0) / 4.0).max(80.0);
+            let card_w = ((visible_w - card_spacing * 4.0) / 5.0).max(80.0);
 
             // Prepare card data
             let cpu_c = get_usage_color(data.cpu_usage);
             let mem_c = get_usage_color(data.memory_percentage);
+
+            let net_total_rate = data.network_info.iter().map(|n| n.received_rate + n.transmitted_rate).sum::<f64>();
+            let net_download_rate = data.network_info.iter().map(|n| n.received_rate).sum::<f64>();
+            let net_upload_rate = data.network_info.iter().map(|n| n.transmitted_rate).sum::<f64>();
+            let net_c = if net_total_rate > 5_000_000.0 {
+                ThemePalette::STATUS_WARNING
+            } else if net_total_rate > 1_000_000.0 {
+                ThemePalette::STATUS_HEALTHY
+            } else {
+                ThemePalette::TEXT_LABEL_SUB
+            };
 
             let (gpu_val, gpu_sub, gpu_frac, gpu_c) = if let Some(ref gpu) = data.gpu_info {
                 let c = get_usage_color(gpu.utilization);
@@ -2202,6 +2042,14 @@ impl SystemMonitorApp {
                     format!("R: {}  W: {}", format_rate(data.disk_read_rate), format_rate(data.disk_write_rate)),
                     ((data.disk_read_rate + data.disk_write_rate) / 200.0).clamp(0.0, 1.0) as f32,
                     ThemePalette::TEXT_LABEL_SUB,
+                ),
+                (
+                    ThemePalette::ACCENT_CYAN,
+                    "NETWORK",
+                    format_rate(net_total_rate),
+                    format!("↓ {}  ↑ {}", format_rate(net_download_rate), format_rate(net_upload_rate)),
+                    (net_total_rate / 10_000_000.0).clamp(0.0, 1.0) as f32,
+                    net_c,
                 ),
             ];
 
@@ -2532,9 +2380,13 @@ impl SystemMonitorApp {
         let mut filtered_processes: Vec<_> = if self.process_search.is_empty() {
             data.top_processes.clone()
         } else {
+            let query = self.process_search.to_lowercase();
             data.top_processes
                 .iter()
-                .filter(|p| p.name.to_lowercase().contains(&self.process_search.to_lowercase()))
+                .filter(|p| {
+                    p.name.to_lowercase().contains(&query)
+                        || p.pid.to_string().contains(&query)
+                })
                 .cloned()
                 .collect()
         };
@@ -2991,7 +2843,8 @@ impl SystemMonitorApp {
 
             ui.horizontal(|ui| {
                 if ui.button("🗑️ Clear All Alerts").clicked() {
-                    if let Ok(mut data) = self.data.lock() {
+                    {
+                        let mut data = self.data.lock();
                         data.alerts.clear();
                     }
                 }
@@ -3355,8 +3208,15 @@ impl SystemMonitorApp {
                                     if ui.small_button("🗑️").on_hover_text("Kill Process").clicked() {
                                         self.selected_process_pid = Some(process.pid);
                                     }
-                                    if ui.small_button("⏸️").on_hover_text("Suspend Process").clicked() {
-                                        self.suspend_process_pid = Some(process.pid);
+                                    let is_suspended = self.suspended_pids.contains(&process.pid);
+                                    if is_suspended {
+                                        if ui.small_button("▶️").on_hover_text("Resume Process").clicked() {
+                                            self.resume_process_pid = Some(process.pid);
+                                        }
+                                    } else {
+                                        if ui.small_button("⏸️").on_hover_text("Suspend Process").clicked() {
+                                            self.suspend_process_pid = Some(process.pid);
+                                        }
                                     }
                                     // Priority menu
                                     ui.menu_button("⚡", |ui| {
@@ -3382,6 +3242,12 @@ impl SystemMonitorApp {
                     egui::Color32::YELLOW,
                     "⚠️ Warning: Killing/suspending processes may cause system instability!",
                 );
+                if !self.suspended_pids.is_empty() {
+                    ui.colored_label(
+                        egui::Color32::from_rgb(255, 165, 0),
+                        format!("🔶 {} process(s) suspended", self.suspended_pids.len()),
+                    );
+                }
             });
 
         self.show_process_manager = show;
@@ -3449,13 +3315,15 @@ impl SystemMonitorApp {
                             let mut monitor = SystemMonitor::new();
                             let freed = monitor.clean_ram();
                             if enable_sounds { play_success_sound(); }
-                            if let Ok(mut d) = data_arc.lock() {
+                            {
+                                let mut d = data_arc.lock();
                                 d.ram_clean_freed_bytes += freed;
                                 d.ram_clean_is_cleaning = false;
                             }
                             ctx_clone.request_repaint();
                         });
-                        if let Ok(mut d) = self.data.lock() {
+                        {
+                            let mut d = self.data.lock();
                             d.ram_clean_is_cleaning = true;
                         }
                     }
@@ -3869,6 +3737,13 @@ impl SystemMonitorApp {
                                     startup::search_online(&name_clone);
                                 }
 
+                                // Remove button (permanent delete for HKCU/Startup Folder items)
+                                if can_modify && !item.enabled {
+                                    if ui.button("🗑️ Remove").on_hover_text("Permanently remove this startup item").clicked() {
+                                        action = Some((idx, "remove"));
+                                    }
+                                }
+
                                 // Admin message for HKLM items
                                 if !can_modify {
                                     ui.colored_label(ThemePalette::TEXT_DIMMED,
@@ -3892,6 +3767,7 @@ impl SystemMonitorApp {
                     let success = match act {
                         "disable" => startup::disable_startup_item(&item_name, &item_source, &item_command),
                         "enable" => startup::reenable_startup_item(&item_name, &item_source),
+                        "remove" => startup::remove_startup_item(&item_name, &item_source),
                         _ => false,
                     };
 
@@ -4055,7 +3931,8 @@ impl SystemMonitorApp {
                 if changed {
                     let _ = self.settings.save();
                     // Sync settings to the background thread
-                    if let Ok(mut shared) = self.shared_settings.lock() {
+                    {
+                        let mut shared = self.shared_settings.lock();
                         *shared = self.settings.clone();
                     }
                 }
