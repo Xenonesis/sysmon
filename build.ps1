@@ -20,14 +20,14 @@ if ($Help) {
     Write-Host "This script builds the System Monitor application." -ForegroundColor White
     Write-Host ""
     Write-Host "Requirements:" -ForegroundColor Cyan
-    Write-Host "  • Rust toolchain (rustup)" -ForegroundColor White
-    Write-Host "  • Visual Studio Build Tools (MSVC toolchain)" -ForegroundColor White
-    Write-Host "  • MinGW conflicts automatically resolved" -ForegroundColor White
+    Write-Host "  - Rust toolchain (rustup)" -ForegroundColor White
+    Write-Host "  - Visual Studio Build Tools (MSVC toolchain)" -ForegroundColor White
+    Write-Host "  - MinGW conflicts automatically resolved" -ForegroundColor White
     Write-Host ""
     Write-Host "Important Notes:" -ForegroundColor Yellow
-    Write-Host "  • Build requires MSVC toolchain (not MinGW)" -ForegroundColor White
-    Write-Host "  • This script automatically handles MinGW conflicts" -ForegroundColor White
-    Write-Host "  • Application runs as a native Windows GUI" -ForegroundColor White
+    Write-Host "  - Build requires MSVC toolchain (not MinGW)" -ForegroundColor White
+    Write-Host "  - This script automatically handles MinGW conflicts" -ForegroundColor White
+    Write-Host "  - Application runs as a native Windows GUI" -ForegroundColor White
     Write-Host ""
     Write-Host "For setup help, run:" -ForegroundColor Cyan
     Write-Host "  .\setup-build-environment.ps1" -ForegroundColor White
@@ -39,7 +39,7 @@ if ($Help) {
 # Check if Rust is installed
 Write-Host "Checking Rust installation..." -ForegroundColor Cyan
 if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) {
-    Write-Host "✗ Rust/Cargo not found!" -ForegroundColor Red
+    Write-Host "[FAIL] Rust/Cargo not found!" -ForegroundColor Red
     Write-Host ""
     Write-Host "Rust is required to build this application." -ForegroundColor Yellow
     Write-Host ""
@@ -53,31 +53,57 @@ if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) {
 }
 
 $rustVersion = & rustc --version
-Write-Host "✓ Rust found: $rustVersion" -ForegroundColor Green
+Write-Host "[OK] Rust found: $rustVersion" -ForegroundColor Green
 Write-Host ""
+
+function Test-MSVC-Installed {
+    $vsPaths = @(
+        "${env:ProgramFiles(x86)}\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC",
+        "${env:ProgramFiles}\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC",
+        "${env:ProgramFiles(x86)}\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC",
+        "${env:ProgramFiles}\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC",
+        "${env:ProgramFiles(x86)}\Microsoft Visual Studio\2019\BuildTools\VC\Tools\MSVC",
+        "${env:ProgramFiles}\Microsoft Visual Studio\2019\BuildTools\VC\Tools\MSVC"
+    )
+    foreach ($path in $vsPaths) {
+        if (Test-Path $path) {
+            return $true
+        }
+    }
+    return $false
+}
+
+$hasMSVC = Test-MSVC-Installed
 
 # Check active toolchain
 $toolchain = & rustup show active-toolchain
 Write-Host "Active toolchain: $toolchain" -ForegroundColor Cyan
 
-# Check for MinGW in PATH (can cause conflicts with MSVC)
-$mingwInPath = $env:PATH -split ';' | Where-Object { $_ -like '*mingw*' -or $_ -like '*MinGW*' }
-if ($mingwInPath) {
-    Write-Host "⚠️  MinGW detected in PATH - this can cause build conflicts!" -ForegroundColor Yellow
-    Write-Host "   Temporarily removing MinGW from PATH for this build..." -ForegroundColor Gray
-    $originalPath = $env:PATH
-    $env:PATH = ($env:PATH -split ';' | Where-Object { $_ -notlike '*mingw*' -and $_ -notlike '*MinGW*' }) -join ';'
-    Write-Host "✓ PATH cleaned for MSVC build" -ForegroundColor Green
+# Verify toolchain
+if ($toolchain -notlike "*msvc*" -and $hasMSVC) {
+    Write-Host "[WARN] Non-MSVC toolchain detected, but MSVC Build Tools are installed." -ForegroundColor Yellow
+    Write-Host "   Switching to MSVC toolchain for optimal Windows builds..." -ForegroundColor Gray
+    rustup default stable-x86_64-pc-windows-msvc
+    $toolchain = & rustup show active-toolchain
+    Write-Host "[OK] Switched to MSVC toolchain" -ForegroundColor Green
+    Write-Host ""
+} elseif ($toolchain -notlike "*msvc*" -and -not $hasMSVC) {
+    Write-Host "[INFO] MSVC Build Tools not found. Using active GNU (MinGW) toolchain." -ForegroundColor Cyan
     Write-Host ""
 }
 
-# Verify MSVC toolchain is active
-if ($toolchain -notlike "*msvc*") {
-    Write-Host "⚠️  Non-MSVC toolchain detected!" -ForegroundColor Yellow
-    Write-Host "   Switching to MSVC toolchain for Windows builds..." -ForegroundColor Gray
-    rustup default stable-x86_64-pc-windows-msvc
-    Write-Host "✓ Switched to MSVC toolchain" -ForegroundColor Green
-    Write-Host ""
+# Check for MinGW in PATH (only if using MSVC, can cause conflicts with MSVC)
+$mingwInPath = $null
+if ($toolchain -like "*msvc*") {
+    $mingwInPath = $env:PATH -split ';' | Where-Object { $_ -like '*mingw*' -or $_ -like '*MinGW*' }
+    if ($mingwInPath) {
+        Write-Host "[WARN] MinGW detected in PATH - this can cause build conflicts!" -ForegroundColor Yellow
+        Write-Host "   Temporarily removing MinGW from PATH for this build..." -ForegroundColor Gray
+        $originalPath = $env:PATH
+        $env:PATH = ($env:PATH -split ';' | Where-Object { $_ -notlike '*mingw*' -and $_ -notlike '*MinGW*' }) -join ';'
+        Write-Host "[OK] PATH cleaned for MSVC build" -ForegroundColor Green
+        Write-Host ""
+    }
 }
 
 # Stop any running instances
@@ -110,10 +136,10 @@ if ($LASTEXITCODE -eq 0) {
     Write-Host "Size: $([math]::Round($exeSize, 2)) MB" -ForegroundColor Gray
     Write-Host ""
     
-    # ── Enterprise Metadata Verification ──
-    Write-Host "═══════════════════════════════════════════════" -ForegroundColor Magenta
+    # -- Enterprise Metadata Verification --
+    Write-Host "===============================================" -ForegroundColor Magenta
     Write-Host "   Enterprise EXE Metadata" -ForegroundColor Magenta
-    Write-Host "═══════════════════════════════════════════════" -ForegroundColor Magenta
+    Write-Host "===============================================" -ForegroundColor Magenta
     $versionInfo = (Get-Item "target\release\system-monitor.exe").VersionInfo
     Write-Host "  Company:     $($versionInfo.CompanyName)" -ForegroundColor White
     Write-Host "  Product:     $($versionInfo.ProductName)" -ForegroundColor White
@@ -122,10 +148,10 @@ if ($LASTEXITCODE -eq 0) {
     Write-Host "  Copyright:   $($versionInfo.LegalCopyright)" -ForegroundColor White
     Write-Host ""
     
-    # ── SHA256 Hash (Audit Trail) ──
+    # -- SHA256 Hash (Audit Trail) --
     $hash = (Get-FileHash "target\release\system-monitor.exe" -Algorithm SHA256).Hash
     Write-Host "  SHA256: $hash" -ForegroundColor DarkGray
-    Write-Host "═══════════════════════════════════════════════" -ForegroundColor Magenta
+    Write-Host "===============================================" -ForegroundColor Magenta
     Write-Host ""
     
     # Create downloads folder and copy build
@@ -155,12 +181,11 @@ if ($LASTEXITCODE -eq 0) {
 
     # ── Compile Installer (Inno Setup) ──
     $isccPath = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
-    $installerExists = $false
     if (Test-Path $isccPath) {
         Write-Host "Inno Setup found. Compiling installer..." -ForegroundColor Cyan
         & $isccPath "installer.iss" | Out-Null
         if ($LASTEXITCODE -eq 0) {
-            Write-Host "✅ Installer SystemMonitor-Setup.exe compiled to downloads folder." -ForegroundColor Green
+            Write-Host "[OK] Installer SystemMonitor-Setup.exe compiled to downloads folder." -ForegroundColor Green
             $installerExists = $true
             # Sign the installer
             if (Test-Path "sign-binary.ps1") {
@@ -172,10 +197,10 @@ if ($LASTEXITCODE -eq 0) {
             Copy-Item "downloads\SystemMonitor-Setup.exe" "docs\downloads\SystemMonitor-Setup-v$version.exe" -Force
             Copy-Item "downloads\SystemMonitor-Setup.exe" "docs\downloads\SystemMonitor-Setup.exe" -Force
         } else {
-            Write-Host "❌ Failed to compile installer." -ForegroundColor Red
+            Write-Host "[FAIL] Failed to compile installer." -ForegroundColor Red
         }
     } else {
-        Write-Host "ℹ️ Inno Setup (ISCC.exe) not found. Skipping installer compilation." -ForegroundColor Yellow
+        Write-Host "[INFO] Inno Setup (ISCC.exe) not found. Skipping installer compilation." -ForegroundColor Yellow
         Write-Host "   Install Inno Setup 6 if you want to build the setup wizard." -ForegroundColor DarkGray
     }
     
@@ -195,11 +220,11 @@ if ($LASTEXITCODE -eq 0) {
     Copy-Item "target\release\system-monitor.exe" "$docsDownloadsFolder\$versionedName" -Force
     Copy-Item "target\release\system-monitor.exe" "$docsDownloadsFolder\$latestName" -Force
     
-    Write-Host "✓ Build saved to downloads folders:" -ForegroundColor Green
-    Write-Host "  • $downloadsFolder\$versionedName" -ForegroundColor White
-    Write-Host "  • $downloadsFolder\$latestName (latest)" -ForegroundColor White
-    Write-Host "  • $docsDownloadsFolder\$versionedName (GitHub Pages)" -ForegroundColor White
-    Write-Host "  • $docsDownloadsFolder\$latestName (GitHub Pages)" -ForegroundColor White
+    Write-Host "[OK] Build saved to downloads folders:" -ForegroundColor Green
+    Write-Host "  - $downloadsFolder\$versionedName" -ForegroundColor White
+    Write-Host "  - $downloadsFolder\$latestName (latest)" -ForegroundColor White
+    Write-Host "  - $docsDownloadsFolder\$versionedName (GitHub Pages)" -ForegroundColor White
+    Write-Host "  - $docsDownloadsFolder\$latestName (GitHub Pages)" -ForegroundColor White
     Write-Host ""
     
     Write-Host "Next steps:" -ForegroundColor Cyan
@@ -223,13 +248,13 @@ if ($LASTEXITCODE -eq 0) {
     # Restore original PATH if it was modified
     if ($mingwInPath) {
         $env:PATH = $originalPath
-        Write-Host "✓ PATH restored" -ForegroundColor Gray
+        Write-Host "[OK] PATH restored" -ForegroundColor Gray
     }
 } else {
     # Restore original PATH if it was modified
     if ($mingwInPath) {
         $env:PATH = $originalPath
-        Write-Host "✓ PATH restored" -ForegroundColor Gray
+        Write-Host "[OK] PATH restored" -ForegroundColor Gray
     }
     
     Write-Host ""

@@ -15,24 +15,29 @@ $ErrorActionPreference = "Stop"
 
 # Configuration
 $AppName = "SystemMonitor"
-$Version = "1.0.0"
+$cargoToml = Get-Content "Cargo.toml" -Raw
+if ($cargoToml -match 'version\s*=\s*"([^"]+)"') {
+    $Version = $matches[1]
+} else {
+    $Version = "1.0.0"
+}
 $DistDir = "dist"
 $BuildDir = "$DistDir\$AppName-v$Version"
 $DownloadsDir = "downloads"
 
 function Write-Step {
     param([string]$Message)
-    Write-Host "→ $Message" -ForegroundColor White
+    Write-Host "-> $Message" -ForegroundColor White
 }
 
 function Write-Success {
     param([string]$Message)
-    Write-Host "✓ $Message" -ForegroundColor Green
+    Write-Host "[OK] $Message" -ForegroundColor Green
 }
 
 function Write-Error {
     param([string]$Message)
-    Write-Host "✗ $Message" -ForegroundColor Red
+    Write-Host "[FAIL] $Message" -ForegroundColor Red
 }
 
 # Clean previous builds
@@ -87,8 +92,7 @@ Write-Success "Copied installer files"
 
 # Create additional documentation
 Write-Step "Creating installation instructions..."
-$installInstructions = @"
-System Monitor Installation Instructions
+$installInstructions = 'System Monitor Installation Instructions
 =======================================
 
 Quick Installation:
@@ -101,7 +105,7 @@ Manual Installation:
 2. Or run: .\installer.ps1 from PowerShell
 
 Uninstallation:
-- Use Windows Settings → Apps → System Monitor → Uninstall
+- Use Windows Settings -> Apps -> System Monitor -> Uninstall
 - Or run: .\installer.ps1 -Uninstall
 
 For more information, see README.md and USER_GUIDE.md
@@ -110,19 +114,16 @@ System Requirements:
 - Windows 10 or later
 - No additional dependencies required
 
-Contact: https://github.com/Xenonesis/sysmon
-"@
+Contact: https://github.com/Xenonesis/sysmon'
 
 $installInstructions | Out-File "$BuildDir\INSTALL.txt" -Encoding UTF8
 Write-Success "Created installation instructions"
 
 # Create version info
 Write-Step "Creating version information..."
-$versionInfo = @"
-System Monitor v$Version
-Built on: $(Get-Date -Format "yyyy-MM-dd HH:mm:ss")
-Repository: https://github.com/Xenonesis/sysmon
-"@
+$versionInfo = "System Monitor v$Version
+Built on: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
+Repository: https://github.com/Xenonesis/sysmon"
 
 $versionInfo | Out-File "$BuildDir\VERSION.txt" -Encoding UTF8
 Write-Success "Created version information"
@@ -149,8 +150,8 @@ if (-not $NoZip) {
     Copy-Item $zipPath "$DownloadsDir\$AppName-latest.zip" -Force
     
     Write-Success "Installer saved to downloads folder"
-    Write-Host "  • $DownloadsDir\$AppName-v$Version.zip" -ForegroundColor White
-    Write-Host "  • $DownloadsDir\$AppName-latest.zip (latest)" -ForegroundColor White
+    Write-Host "  - $DownloadsDir\$AppName-v$Version.zip" -ForegroundColor White
+    Write-Host "  - $DownloadsDir\$AppName-latest.zip (latest)" -ForegroundColor White
 }
 
 # Show summary
@@ -161,7 +162,7 @@ Write-Host "=============================================" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "Distribution contents:" -ForegroundColor Cyan
 Get-ChildItem $BuildDir | ForEach-Object {
-    Write-Host "  • $($_.Name)" -ForegroundColor White
+    Write-Host "  - $($_.Name)" -ForegroundColor White
 }
 Write-Host ""
 Write-Host "Installation methods:" -ForegroundColor Cyan
@@ -173,8 +174,8 @@ Write-Host ""
 if (-not $NoZip) {
     $zipSize = (Get-Item "$DistDir\$AppName-v$Version.zip").Length / 1MB
     Write-Host "ZIP Archive:" -ForegroundColor Cyan
-    Write-Host "  • Location: $DistDir\$AppName-v$Version.zip" -ForegroundColor White
-    Write-Host "  • Size: $([math]::Round($zipSize, 2)) MB" -ForegroundColor White
+    Write-Host "  - Location: $DistDir\$AppName-v$Version.zip" -ForegroundColor White
+    Write-Host "  - Size: $([math]::Round($zipSize, 2)) MB" -ForegroundColor White
     Write-Host ""
 }
 

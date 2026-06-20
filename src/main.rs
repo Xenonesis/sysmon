@@ -7,6 +7,7 @@ use startup::{StartupItem, ImpactTier, Recommendation, StartupSortColumn, BootDi
 use eframe::egui;
 use egui_plot::{Line, Plot, PlotPoints};
 use tracing::{error, info, warn};
+use rfd::FileDialog;
 
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -682,7 +683,7 @@ impl SystemMonitor {
     }
 
     #[cfg(target_os = "windows")]
-    fn get_gpu_info(&self) -> Vec<GpuInfo> {
+    fn get_gpu_info(&self, include_wmi: bool) -> Vec<GpuInfo> {
         let mut gpus = Vec::new();
         let mut nvml_names: Vec<String> = Vec::new();
 
@@ -712,14 +713,16 @@ impl SystemMonitor {
         }
 
         // Also collect WMI GPUs (AMD/Intel) — skip any already covered by NVML
-        if let Some(wmi_gpus) = self.get_gpu_info_wmi() {
-            for wmi_gpu in wmi_gpus {
-                let dominated = nvml_names.iter().any(|n| {
-                    n.to_lowercase().contains(&wmi_gpu.name.to_lowercase())
-                        || wmi_gpu.name.to_lowercase().contains(&n.to_lowercase())
-                });
-                if !dominated {
-                    gpus.push(wmi_gpu);
+        if include_wmi {
+            if let Some(wmi_gpus) = self.get_gpu_info_wmi() {
+                for wmi_gpu in wmi_gpus {
+                    let dominated = nvml_names.iter().any(|n| {
+                        n.to_lowercase().contains(&wmi_gpu.name.to_lowercase())
+                            || wmi_gpu.name.to_lowercase().contains(&n.to_lowercase())
+                    });
+                    if !dominated {
+                        gpus.push(wmi_gpu);
+                    }
                 }
             }
         }
@@ -835,7 +838,7 @@ impl SystemMonitor {
     }
 
     #[cfg(not(target_os = "windows"))]
-    fn get_gpu_info(&self) -> Vec<GpuInfo> {
+    fn get_gpu_info(&self, _include_wmi: bool) -> Vec<GpuInfo> {
         Vec::new()
     }
 
@@ -1074,6 +1077,8 @@ struct SystemData {
     disk_write_rate: f64,
     disk_read_history: VecDeque<DataPoint>,
     disk_write_history: VecDeque<DataPoint>,
+    is_hidden: bool,
+    selected_tab: Tab,
 }
 
 impl Default for SystemData {
@@ -1119,6 +1124,8 @@ impl Default for SystemData {
             disk_write_rate: 0.0,
             disk_read_history: VecDeque::new(),
             disk_write_history: VecDeque::new(),
+            is_hidden: false,
+            selected_tab: Tab::Overview,
         }
     }
 }
@@ -1140,6 +1147,7 @@ struct SystemMonitorApp {
     process_sort_ascending: bool,
     show_export_csv: bool,
     updater: updater::Updater,
+    update_info_share: Arc<Mutex<Option<updater::UpdateInfo>>>,
     show_update_notification: bool,
     update_check_time: Option<Instant>,
     ram_cleaner_state: RamCleanerState,
@@ -1172,7 +1180,7 @@ struct SystemMonitorApp {
     is_hidden: bool,
 }
 
-#[derive(PartialEq)]
+#[derive(Clone, Copy, PartialEq)]
 enum Tab {
     Overview,
     Performance,
@@ -1363,10 +1371,16 @@ impl SystemMonitorApp {
             let system_info = monitor.get_system_info();
             let mut battery_check_counter: u32 = 0;
             let mut last_alert_time: std::collections::HashMap<AlertType, Instant> = std::collections::HashMap::new();
+            let mut last_hidden_tick = Instant::now();
 
             loop {
                 thread::sleep(Duration::from_millis(500));
-                monitor.refresh();
+
+                // Read hidden status and current tab
+                let (is_hidden, selected_tab) = {
+                    let data = data_clone.lock();
+                    (data.is_hidden, data.selected_tab)
+                };
 
                 // Read current settings from shared state
                 let (refresh_interval, process_count, settings_snapshot) = {
@@ -1374,16 +1388,80 @@ impl SystemMonitorApp {
                     (s.refresh_interval, s.process_count, s.clone())
                 };
 
+                let is_minimized_tick = is_hidden && last_hidden_tick.elapsed().as_secs() < 10;
+
+                if is_minimized_tick {
+                    continue;
+                }
+
+                if is_hidden {
+                    last_hidden_tick = Instant::now();
+                }
+
+                // If minimized refresh: only refresh CPU and RAM to check alerts & update tray tooltip
+                if is_hidden {
+                    monitor.sys.refresh_cpu();
+                    monitor.sys.refresh_memory();
+                } else {
+                    monitor.refresh();
+                }
+
                 let (total_mem, used_mem, mem_percentage) = monitor.get_memory_info();
                 let cpu_usage = monitor.get_cpu_usage();
-                let cpu_cores = monitor.get_cpu_cores_info();
-                let cpu_temperature = SystemMonitor::get_cpu_temperature_wmi();
-                let gpu_info = monitor.get_gpu_info();
-                let top_processes = monitor.get_top_processes(process_count);
-                let disk_info = monitor.get_disk_info();
-                let network_info = monitor.get_network_info();
+
+                // Optimized queries
+                let need_cpu_cores = !is_hidden && (selected_tab == Tab::Overview || selected_tab == Tab::CpuCores);
+                let need_cpu_temp = !is_hidden && selected_tab == Tab::Overview;
+                let need_gpu_wmi = !is_hidden && (selected_tab == Tab::Overview || selected_tab == Tab::Performance);
+                let need_gpu_info = need_gpu_wmi || settings_snapshot.show_notifications || settings_snapshot.show_graphs;
+                let need_processes = !is_hidden && selected_tab == Tab::Processes;
+                let need_disks = (!is_hidden && (selected_tab == Tab::Overview || selected_tab == Tab::Storage)) || settings_snapshot.show_notifications || settings_snapshot.show_graphs;
+                let need_network = !is_hidden && (selected_tab == Tab::Overview || selected_tab == Tab::Network || selected_tab == Tab::Performance);
+
+                let cpu_cores = if need_cpu_cores {
+                    monitor.get_cpu_cores_info()
+                } else {
+                    Vec::new()
+                };
+
+                let cpu_temperature = if need_cpu_temp {
+                    SystemMonitor::get_cpu_temperature_wmi()
+                } else {
+                    None
+                };
+
+                let gpu_info = if need_gpu_info {
+                    monitor.get_gpu_info(need_gpu_wmi)
+                } else {
+                    Vec::new()
+                };
+
+                let top_processes = if need_processes {
+                    monitor.get_top_processes(process_count)
+                } else {
+                    Vec::new()
+                };
+
+                let disk_info = if need_disks {
+                    monitor.get_disk_info()
+                } else {
+                    Vec::new()
+                };
+
+                let network_info = if need_network {
+                    monitor.get_network_info()
+                } else {
+                    Vec::new()
+                };
+
                 let swap_info = monitor.get_swap_info();
-                let (disk_read_rate, disk_write_rate) = monitor.get_disk_io();
+                
+                let (disk_read_rate, disk_write_rate) = if !is_hidden {
+                    monitor.get_disk_io()
+                } else {
+                    (0.0, 0.0)
+                };
+
                 let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
 
                 // Get battery info every 15 ticks (~7.5s) — retain previous value if unavailable
@@ -1410,17 +1488,31 @@ impl SystemMonitorApp {
                     data.memory_used = used_mem;
                     data.memory_percentage = mem_percentage;
                     data.cpu_usage = cpu_usage;
-                    data.cpu_cores = cpu_cores;
-                    data.cpu_temperature = cpu_temperature;
-                    data.gpu_info = gpu_info.clone();
-                    data.top_processes = top_processes;
-                    data.disk_info = disk_info;
-                    data.network_info = network_info;
+                    if need_cpu_cores {
+                        data.cpu_cores = cpu_cores;
+                    }
+                    if need_cpu_temp {
+                        data.cpu_temperature = cpu_temperature;
+                    }
+                    if need_gpu_info {
+                        data.gpu_info = gpu_info.clone();
+                    }
+                    if need_processes {
+                        data.top_processes = top_processes;
+                    }
+                    if need_disks {
+                        data.disk_info = disk_info;
+                    }
+                    if need_network {
+                        data.network_info = network_info;
+                    }
                     data.system_info = system_info.clone();
                     data.last_update = timestamp;
                     data.swap_info = swap_info;
-                    data.disk_read_rate = disk_read_rate;
-                    data.disk_write_rate = disk_write_rate;
+                    if !is_hidden {
+                        data.disk_read_rate = disk_read_rate;
+                        data.disk_write_rate = disk_write_rate;
+                    }
                     data.network_sample_count += 1;
 
                     // Check for alerts
@@ -1452,6 +1544,7 @@ impl SystemMonitorApp {
 
                     // Auto-clear resolved alerts
                     if settings_snapshot.auto_clear_alerts {
+                        let temp_gpu_info = data.gpu_info.clone();
                         data.alerts.retain(|alert| {
                             match alert.alert_type {
                                 AlertType::CpuHigh => cpu_usage > settings_snapshot.notification_cpu_threshold,
@@ -1459,7 +1552,7 @@ impl SystemMonitorApp {
                                     mem_percentage > settings_snapshot.notification_memory_threshold
                                 }
                                 AlertType::GpuTempHigh => {
-                                    gpu_info.first()
+                                    temp_gpu_info.first()
                                         .and_then(|g| g.temperature)
                                         .map_or(false, |t| t > settings_snapshot.notification_temp_threshold)
                                 }
@@ -1484,15 +1577,18 @@ impl SystemMonitorApp {
                         value: mem_percentage as f64,
                     });
 
-                    if let Some(gpu) = gpu_info.first() {
-                        data.gpu_history.push_back(DataPoint {
-                            time: elapsed,
-                            value: gpu.utilization as f64,
-                        });
+                    if need_gpu_info {
+                        let gpu_util = data.gpu_info.first().map(|gpu| gpu.utilization as f64);
+                        if let Some(val) = gpu_util {
+                            data.gpu_history.push_back(DataPoint {
+                                time: elapsed,
+                                value: val,
+                            });
+                        }
                     }
 
                     // Network history — skip first sample (inflated rates)
-                    if data.network_sample_count > 1 {
+                    if need_network && data.network_sample_count > 1 {
                         data.network_download_history.push_back(DataPoint {
                             time: elapsed,
                             value: total_download_rate,
@@ -1501,6 +1597,8 @@ impl SystemMonitorApp {
                             time: elapsed,
                             value: total_upload_rate,
                         });
+                    }
+                    if !is_hidden && data.network_sample_count > 1 {
                         data.disk_read_history.push_back(DataPoint {
                             time: elapsed,
                             value: disk_read_rate,
@@ -1535,8 +1633,13 @@ impl SystemMonitorApp {
                     }
                 }
 
-                let sleep_ms = (refresh_interval * 1000).saturating_sub(500);
-                thread::sleep(Duration::from_millis(sleep_ms));
+                if is_hidden {
+                    // Minimized: sleep 10s
+                    thread::sleep(Duration::from_millis(10000));
+                } else {
+                    let sleep_ms = (refresh_interval * 1000).saturating_sub(500);
+                    thread::sleep(Duration::from_millis(sleep_ms));
+                }
             }
         });
 
@@ -1581,6 +1684,7 @@ impl SystemMonitorApp {
             process_sort_ascending: false,
             show_export_csv: false,
             updater: updater::Updater::new(),
+            update_info_share: Arc::new(Mutex::new(None)),
             show_update_notification: true,
             update_check_time: None,
             ram_cleaner_state: RamCleanerState {
@@ -1731,6 +1835,12 @@ fn get_usage_color(percentage: f32) -> egui::Color32 {
 
 impl eframe::App for SystemMonitorApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        {
+            let mut data = self.data.lock();
+            data.is_hidden = self.is_hidden;
+            data.selected_tab = self.selected_tab;
+        }
+
         #[cfg(target_os = "windows")]
         if let Ok(event) = MenuEvent::receiver().try_recv() {
             if Some(&event.id) == self.tray_menu_quit_id.as_ref() {
@@ -1765,8 +1875,10 @@ impl eframe::App for SystemMonitorApp {
         if self.update_check_time.is_none() || self.update_check_time.unwrap().elapsed().as_secs() > 86400 {
             let mut updater = self.updater.clone();
             let ctx_clone = ctx.clone();
+            let update_info_share = self.update_info_share.clone();
             thread::spawn(move || {
                 if let Ok(update_info) = updater.check_for_updates() {
+                    *update_info_share.lock() = Some(update_info.clone());
                     if update_info.update_available {
                         ctx_clone.request_repaint();
                     }
@@ -1776,17 +1888,25 @@ impl eframe::App for SystemMonitorApp {
         }
 
         // Show update notification banner
-        if self.updater.get_update_info().update_available && self.show_update_notification {
+        let update_available = {
+            let info = self.update_info_share.lock();
+            info.as_ref().map_or(false, |i| i.update_available)
+        };
+        if update_available && self.show_update_notification {
+            let update_info = {
+                let info = self.update_info_share.lock();
+                info.as_ref().unwrap().clone()
+            };
             egui::TopBottomPanel::top("update_notification").show(ctx, |ui| {
                 ui.horizontal(|ui| {
                     ui.colored_label(ThemePalette::STATUS_HEALTHY, "🎉");
                     ui.label(format!(
                         "New version {} is available! Current: {}",
-                        self.updater.get_update_info().latest_version,
-                        self.updater.get_update_info().current_version
+                        update_info.latest_version,
+                        update_info.current_version
                     ));
                     if ui.button("⬇️ Download & Install").clicked() {
-                        let download_url = self.updater.get_update_info().download_url.clone();
+                        let download_url = update_info.download_url.clone();
                         thread::spawn(move || {
                             if let Err(e) = updater::Updater::new().download_and_install_update(&download_url) {
                                 eprintln!("Update failed: {}", e);
@@ -1822,8 +1942,13 @@ impl eframe::App for SystemMonitorApp {
             if i.modifiers.ctrl && i.key_pressed(egui::Key::U) {
                 // Ctrl+U = Check for updates manually
                 let mut updater = self.updater.clone();
+                let update_info_share = self.update_info_share.clone();
+                let ctx_clone = ctx.clone();
                 thread::spawn(move || {
-                    let _ = updater.check_for_updates();
+                    if let Ok(update_info) = updater.check_for_updates() {
+                        *update_info_share.lock() = Some(update_info);
+                        ctx_clone.request_repaint();
+                    }
                 });
             }
         });
@@ -1961,9 +2086,24 @@ impl eframe::App for SystemMonitorApp {
                             });
 
                             ui.add_space(5.0);
-                            if ui.button("Copy to Clipboard").clicked() {
-                                ui.output_mut(|o| o.copied_text = csv_data.clone());
-                            }
+                            ui.horizontal(|ui| {
+                                if ui.button("📋 Copy to Clipboard").clicked() {
+                                    ui.output_mut(|o| o.copied_text = csv_data.clone());
+                                }
+                                if ui.button("💾 Save to File...").clicked() {
+                                    let date_str = Local::now().format("%Y%m%d_%H%M%S").to_string();
+                                    if let Some(path) = FileDialog::new()
+                                        .set_file_name(&format!("sysmon_export_{}.csv", date_str))
+                                        .add_filter("CSV File", &["csv"])
+                                        .save_file()
+                                    {
+                                        if std::fs::write(&path, &csv_data).is_ok() {
+                                            #[cfg(target_os = "windows")]
+                                            play_success_sound();
+                                        }
+                                    }
+                                }
+                            });
 
                             ui.add_space(5.0);
                             ui.label("Tip: Open in Excel or any spreadsheet application");
@@ -1998,9 +2138,24 @@ impl eframe::App for SystemMonitorApp {
                             });
 
                             ui.add_space(5.0);
-                            if ui.button("Copy to Clipboard").clicked() {
-                                ui.output_mut(|o| o.copied_text = json_data.clone());
-                            }
+                            ui.horizontal(|ui| {
+                                if ui.button("📋 Copy to Clipboard").clicked() {
+                                    ui.output_mut(|o| o.copied_text = json_data.clone());
+                                }
+                                if ui.button("💾 Save to File...").clicked() {
+                                    let date_str = Local::now().format("%Y%m%d_%H%M%S").to_string();
+                                    if let Some(path) = FileDialog::new()
+                                        .set_file_name(&format!("sysmon_export_{}.json", date_str))
+                                        .add_filter("JSON File", &["json"])
+                                        .save_file()
+                                    {
+                                        if std::fs::write(&path, &json_data).is_ok() {
+                                            #[cfg(target_os = "windows")]
+                                            play_success_sound();
+                                        }
+                                    }
+                                }
+                            });
 
                             ui.add_space(5.0);
                             ui.label("Tip: You can paste this into a .json file");

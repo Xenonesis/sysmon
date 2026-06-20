@@ -230,6 +230,7 @@ impl Updater {
         }
     }
 
+    #[allow(dead_code)]
     pub fn get_update_info(&self) -> &UpdateInfo {
         &self.update_info
     }

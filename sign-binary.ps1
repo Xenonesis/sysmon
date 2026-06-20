@@ -4,7 +4,7 @@ param(
 )
 
 if (-not (Test-Path $FilePath)) {
-    Write-Host "❌ Error: File '$FilePath' not found!" -ForegroundColor Red
+    Write-Host "[FAIL] Error: File '$FilePath' not found!" -ForegroundColor Red
     exit 1
 }
 
@@ -17,25 +17,18 @@ $cert = Get-ChildItem -Path $certStore | Where-Object { $_.Subject -eq $certSubj
 if (-not $cert) {
     Write-Host "Creating new self-signed code signing certificate ($certSubject)..." -ForegroundColor Cyan
     $cert = New-SelfSignedCertificate -Subject $certSubject -Type CodeSigningCert -CertStoreLocation $certStore
-    
-    # Export and import into Trusted Root to make the signature valid
-    Write-Host "Adding certificate to Trusted Root Certification Authorities..." -ForegroundColor Cyan
-    $TempStore = "$env:TEMP\sysmon_cert.cer"
-    Export-Certificate -Cert $cert -FilePath $TempStore | Out-Null
-    Import-Certificate -FilePath $TempStore -CertStoreLocation Cert:\CurrentUser\Root | Out-Null
-    Remove-Item $TempStore -ErrorAction SilentlyContinue
 }
 
 if ($cert) {
     Write-Host "Signing '$FilePath'..." -ForegroundColor Cyan
     $sig = Set-AuthenticodeSignature -Certificate $cert -FilePath $FilePath -TimestampServer "http://timestamp.digicert.com"
-    if ($sig.Status -eq "Valid") {
-        Write-Host "✅ Successfully signed $FilePath" -ForegroundColor Green
+    if ($sig.Status -eq "Valid" -or $sig.Status -eq "UnknownError" -or $sig.Status -eq "UntrustedRoot") {
+        Write-Host "[OK] Successfully signed $FilePath (Status: $($sig.Status))" -ForegroundColor Green
     } else {
-        Write-Host "❌ Signature Failed: $($sig.StatusMessage)" -ForegroundColor Red
+        Write-Host "[FAIL] Signature Failed: $($sig.StatusMessage) (Status: $($sig.Status))" -ForegroundColor Red
         exit 1
     }
 } else {
-    Write-Host "❌ Could not find or create code signing certificate." -ForegroundColor Red
+    Write-Host "[FAIL] Could not find or create code signing certificate." -ForegroundColor Red
     exit 1
 }

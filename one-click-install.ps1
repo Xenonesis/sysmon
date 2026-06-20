@@ -32,7 +32,7 @@ if (Test-Path "target\release\system-monitor.exe") {
     $Shortcut.TargetPath = "$InstallPath\system-monitor.exe"
     $Shortcut.WorkingDirectory = $InstallPath
     $Shortcut.Description = "System Monitor - Real-time system monitoring"
-    $ Shortcut.Save()
+    $Shortcut.Save()
     
     # Create Start Menu shortcut
     Write-Host "✓ Creating Start Menu shortcut..." -ForegroundColor Green
