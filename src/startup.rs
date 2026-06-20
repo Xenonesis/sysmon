@@ -409,6 +409,17 @@ pub fn remove_startup_item(name: &str, source: &str) -> bool {
         } else {
             false
         }
+    } else if source.contains("HKLM") {
+        use winreg::RegKey;
+        use winreg::enums::HKEY_LOCAL_MACHINE;
+        
+        let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
+        let path = r"Software\Microsoft\Windows\CurrentVersion\Run";
+        if let Ok(run_key) = hklm.open_subkey_with_flags(path, winreg::enums::KEY_WRITE) {
+            run_key.delete_value(name).is_ok()
+        } else {
+            false
+        }
     } else if source.contains("Startup Folder") {
         if let Some(appdata) = std::env::var_os("APPDATA") {
             let mut startup_path = std::path::PathBuf::from(appdata);
@@ -419,6 +430,13 @@ pub fn remove_startup_item(name: &str, source: &str) -> bool {
             } else {
                 false
             }
+        } else {
+            false
+        }
+    } else if source.contains("Task Scheduler") {
+        let script = format!("Unregister-ScheduledTask -TaskName '{}' -Confirm:$false -EA SilentlyContinue; if ($?) {{ 'SUCCESS' }}", name);
+        if let Some(out) = ps_run(&script) {
+            out.contains("SUCCESS")
         } else {
             false
         }
@@ -453,6 +471,26 @@ pub fn disable_startup_item(name: &str, source: &str, _command: &str) -> bool {
             }
         }
         false
+    } else if source.contains("HKLM") {
+        use winreg::RegKey;
+        use winreg::enums::HKEY_LOCAL_MACHINE;
+        
+        let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
+        let run_path = r"Software\Microsoft\Windows\CurrentVersion\Run";
+        let disabled_path = r"Software\Microsoft\Windows\CurrentVersion\Run_Disabled";
+        
+        if let Ok(run_key) = hklm.open_subkey_with_flags(run_path, winreg::enums::KEY_READ) {
+            if let Ok(value) = run_key.get_value::<String, _>(name) {
+                if let Ok(disabled_key) = hklm.create_subkey(disabled_path) {
+                    if disabled_key.0.set_value(name, &value).is_ok() {
+                        if let Ok(run_key_write) = hklm.open_subkey_with_flags(run_path, winreg::enums::KEY_WRITE) {
+                            return run_key_write.delete_value(name).is_ok();
+                        }
+                    }
+                }
+            }
+        }
+        false
     } else if source.contains("Startup Folder") {
         if let Some(appdata) = std::env::var_os("APPDATA") {
             let mut src_path = std::path::PathBuf::from(appdata);
@@ -478,6 +516,13 @@ pub fn disable_startup_item(name: &str, source: &str, _command: &str) -> bool {
             }
         }
         false
+    } else if source.contains("Task Scheduler") {
+        let script = format!("Disable-ScheduledTask -TaskName '{}' -EA SilentlyContinue; if ($?) {{ 'SUCCESS' }}", name);
+        if let Some(out) = ps_run(&script) {
+            out.contains("SUCCESS")
+        } else {
+            false
+        }
     } else {
         false
     }
@@ -509,6 +554,26 @@ pub fn reenable_startup_item(name: &str, source: &str) -> bool {
             }
         }
         false
+    } else if source.contains("HKLM") {
+        use winreg::RegKey;
+        use winreg::enums::HKEY_LOCAL_MACHINE;
+        
+        let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
+        let run_path = r"Software\Microsoft\Windows\CurrentVersion\Run";
+        let disabled_path = r"Software\Microsoft\Windows\CurrentVersion\Run_Disabled";
+        
+        if let Ok(disabled_key) = hklm.open_subkey_with_flags(disabled_path, winreg::enums::KEY_READ) {
+            if let Ok(value) = disabled_key.get_value::<String, _>(name) {
+                if let Ok(run_key) = hklm.open_subkey_with_flags(run_path, winreg::enums::KEY_WRITE) {
+                    if run_key.set_value(name, &value).is_ok() {
+                        if let Ok(disabled_key_write) = hklm.open_subkey_with_flags(disabled_path, winreg::enums::KEY_WRITE) {
+                            return disabled_key_write.delete_value(name).is_ok();
+                        }
+                    }
+                }
+            }
+        }
+        false
     } else if source.contains("Startup Folder") {
         if let Some(appdata) = std::env::var_os("APPDATA") {
             let mut dst_path = std::path::PathBuf::from(appdata.clone());
@@ -530,6 +595,13 @@ pub fn reenable_startup_item(name: &str, source: &str) -> bool {
             }
         }
         false
+    } else if source.contains("Task Scheduler") {
+        let script = format!("Enable-ScheduledTask -TaskName '{}' -EA SilentlyContinue; if ($?) {{ 'SUCCESS' }}", name);
+        if let Some(out) = ps_run(&script) {
+            out.contains("SUCCESS")
+        } else {
+            false
+        }
     } else {
         false
     }

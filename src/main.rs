@@ -2,6 +2,7 @@
 use chrono::Local;
 mod updater;
 mod startup;
+mod privilege;
 use startup::{StartupItem, ImpactTier, Recommendation, StartupSortColumn, BootDiagnostics, StartupOptimizationEntry};
 use eframe::egui;
 use egui_plot::{Line, Plot, PlotPoints};
@@ -541,19 +542,31 @@ impl SystemMonitor {
     fn clean_ram(&mut self) -> u64 {
         use windows::Win32::Foundation::CloseHandle;
         use windows::Win32::System::ProcessStatus::EmptyWorkingSet;
-        use windows::Win32::System::Threading::{OpenProcess, PROCESS_ALL_ACCESS};
+        use windows::Win32::System::Threading::{
+            OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_ACCESS_RIGHTS,
+        };
 
         info!("RAM clean operation initiated (native API)");
         let mem_before = self.sys.used_memory();
+        let mut success_count = 0;
+        let mut fail_count = 0;
 
         unsafe {
             for (pid, _) in self.sys.processes() {
                 let pid_u32 = pid.as_u32();
-                if let Ok(h) = OpenProcess(PROCESS_ALL_ACCESS, false, pid_u32) {
+                if let Ok(h) = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_ACCESS_RIGHTS(0x0100), false, pid_u32) {
                     if !h.is_invalid() {
-                        let _ = EmptyWorkingSet(h);
+                        if EmptyWorkingSet(h).is_ok() {
+                            success_count += 1;
+                        } else {
+                            fail_count += 1;
+                        }
                         let _ = CloseHandle(h);
+                    } else {
+                        fail_count += 1;
                     }
+                } else {
+                    fail_count += 1;
                 }
             }
         }
@@ -561,7 +574,12 @@ impl SystemMonitor {
         self.sys.refresh_memory();
         let mem_after = self.sys.used_memory();
         let freed = mem_before.saturating_sub(mem_after);
-        info!(freed_mb = freed / 1024 / 1024, "RAM clean complete");
+        info!(
+            freed_mb = freed / 1024 / 1024,
+            success = success_count,
+            failed = fail_count,
+            "RAM clean complete"
+        );
         freed
     }
 
@@ -653,7 +671,7 @@ impl SystemMonitor {
         
         // Query GPU controller info
         let results: Vec<std::collections::HashMap<String, Variant>> = wmi
-            .raw_query("SELECT Name, DriverVersion, VideoProcessor FROM Win32_VideoController WHERE AdapterRAM > 0")
+            .raw_query("SELECT Name, DriverVersion, VideoProcessor FROM Win32_VideoController")
             .ok()?;
         
         if results.is_empty() {
@@ -665,21 +683,99 @@ impl SystemMonitor {
             .and_then(|v| match v { Variant::String(s) => Some(s.clone()), _ => None })
             .unwrap_or_else(|| "Unknown GPU".to_string());
         
-        // Get adapter RAM from VideoController
-        let adapter_ram: Option<u64> = gpu.get("AdapterRAM")
-            .and_then(|v| match v { Variant::UI4(n) => Some(*n as u64), Variant::UI8(n) => Some(*n), _ => None });
-        
         // Filter out Microsoft Basic Display Adapter and similar generic drivers
         if name.contains("Microsoft Basic Display Adapter") || name.contains("Standard VGA") {
             return None;
         }
+
+        // Get adapter RAM from VideoController (if query works/exists)
+        let mut adapter_ram: Option<u64> = None;
+        if let Ok(ram_results) = wmi.raw_query::<std::collections::HashMap<String, Variant>>(
+            "SELECT AdapterRAM FROM Win32_VideoController WHERE AdapterRAM > 0"
+        ) {
+            if !ram_results.is_empty() {
+                adapter_ram = ram_results[0].get("AdapterRAM").and_then(|v| match v {
+                    Variant::UI4(n) => Some(*n as u64),
+                    Variant::UI8(n) => Some(*n),
+                    _ => None
+                });
+            }
+        }
+        
+        // Query real-time GPU utilization from WMI performance counters
+        let mut utilization = 0.0;
+        let mut perf_results = wmi.raw_query::<std::collections::HashMap<String, Variant>>(
+            "SELECT Name, UtilizationPercentage FROM Win32_PerfFormattedData_GPUPerformanceMonitors_GPUEngine"
+        );
+        if perf_results.is_err() {
+            perf_results = wmi.raw_query::<std::collections::HashMap<String, Variant>>(
+                "SELECT Name, UtilizationPercentage FROM Win32_PerfFormattedData_GPUPerformanceCounters_GPUEngine"
+            );
+        }
+        if let Ok(results) = perf_results {
+            let mut max_util = 0u64;
+            for engine in results {
+                if let Some(val) = engine.get("UtilizationPercentage") {
+                    let u = match val {
+                        Variant::UI1(n) => *n as u64,
+                        Variant::UI2(n) => *n as u64,
+                        Variant::UI4(n) => *n as u64,
+                        Variant::UI8(n) => *n,
+                        Variant::I1(n) => *n as u64,
+                        Variant::I2(n) => *n as u64,
+                        Variant::I4(n) => *n as u64,
+                        Variant::I8(n) => *n as u64,
+                        Variant::String(s) => s.parse().unwrap_or(0),
+                        _ => 0,
+                    };
+                    if u > max_util {
+                        max_util = u;
+                    }
+                }
+            }
+            utilization = (max_util as f32).min(100.0);
+        }
+
+        // Query real-time VRAM usage from WMI performance counters
+        let mut memory_used = None;
+        let mut mem_results = wmi.raw_query::<std::collections::HashMap<String, Variant>>(
+            "SELECT LocalUsage FROM Win32_PerfFormattedData_GPUPerformanceMonitors_GPULocalAdapterMemory"
+        );
+        if mem_results.is_err() {
+            mem_results = wmi.raw_query::<std::collections::HashMap<String, Variant>>(
+                "SELECT LocalUsage FROM Win32_PerfFormattedData_GPUPerformanceCounters_GPULocalAdapterMemory"
+            );
+        }
+        if let Ok(results) = mem_results {
+            let mut total_used = 0u64;
+            for instance in results {
+                if let Some(val) = instance.get("LocalUsage") {
+                    let u = match val {
+                        Variant::UI1(n) => *n as u64,
+                        Variant::UI2(n) => *n as u64,
+                        Variant::UI4(n) => *n as u64,
+                        Variant::UI8(n) => *n,
+                        Variant::I1(n) => *n as u64,
+                        Variant::I2(n) => *n as u64,
+                        Variant::I4(n) => *n as u64,
+                        Variant::I8(n) => *n as u64,
+                        Variant::String(s) => s.parse().unwrap_or(0),
+                        _ => 0,
+                    };
+                    total_used = total_used.saturating_add(u);
+                }
+            }
+            if total_used > 0 {
+                memory_used = Some(total_used);
+            }
+        }
         
         Some(GpuInfo {
             name,
-            utilization: 0.0, // WMI doesn't provide real-time utilization
-            memory_used: None, // WMI doesn't provide current memory usage
+            utilization,
+            memory_used,
             memory_total: adapter_ram,
-            temperature: None, // WMI doesn't provide temperature
+            temperature: None, // WMI doesn't expose GPU temperature
         })
     }
 
@@ -1555,8 +1651,17 @@ impl eframe::App for SystemMonitorApp {
             let mut temp_sys = System::new();
             temp_sys.refresh_processes();
             if let Some(process) = temp_sys.process(Pid::from_u32(pid)) {
-                let _ = process.kill();
-                if self.settings.enable_sounds { play_success_sound(); }
+                let success = process.kill();
+                if success {
+                    if self.settings.enable_sounds { play_success_sound(); }
+                } else {
+                    if self.settings.enable_sounds { play_alert_sound(); }
+                    let _ = notify_rust::Notification::new()
+                        .summary("Action Failed")
+                        .body("Failed to kill process. Access Denied (requires Administrator privileges).")
+                        .timeout(notify_rust::Timeout::Milliseconds(5000))
+                        .show();
+                }
             }
         }
 
@@ -1565,8 +1670,15 @@ impl eframe::App for SystemMonitorApp {
             let mut monitor = SystemMonitor::new();
             if monitor.suspend_process(pid) {
                 self.suspended_pids.insert(pid);
+                if self.settings.enable_sounds { play_success_sound(); }
+            } else {
+                if self.settings.enable_sounds { play_alert_sound(); }
+                let _ = notify_rust::Notification::new()
+                    .summary("Action Failed")
+                    .body("Failed to suspend process. Access Denied (requires Administrator privileges).")
+                    .timeout(notify_rust::Timeout::Milliseconds(5000))
+                    .show();
             }
-            if self.settings.enable_sounds { play_success_sound(); }
         }
 
         // Handle process resume actions
@@ -1574,13 +1686,29 @@ impl eframe::App for SystemMonitorApp {
             let mut monitor = SystemMonitor::new();
             if monitor.resume_process(pid) {
                 self.suspended_pids.remove(&pid);
+                if self.settings.enable_sounds { play_success_sound(); }
+            } else {
+                if self.settings.enable_sounds { play_alert_sound(); }
+                let _ = notify_rust::Notification::new()
+                    .summary("Action Failed")
+                    .body("Failed to resume process. Access Denied (requires Administrator privileges).")
+                    .timeout(notify_rust::Timeout::Milliseconds(5000))
+                    .show();
             }
-            if self.settings.enable_sounds { play_success_sound(); }
         }
 
         // Handle process priority changes
         if let Some((pid, priority)) = self.priority_change.take() {
-            SystemMonitor::set_process_priority(pid, &priority);
+            if SystemMonitor::set_process_priority(pid, &priority) {
+                if self.settings.enable_sounds { play_success_sound(); }
+            } else {
+                if self.settings.enable_sounds { play_alert_sound(); }
+                let _ = notify_rust::Notification::new()
+                    .summary("Action Failed")
+                    .body("Failed to set process priority. Access Denied (requires Administrator privileges).")
+                    .timeout(notify_rust::Timeout::Milliseconds(5000))
+                    .show();
+            }
         }
 
         // Auto RAM cleaning
@@ -3298,6 +3426,13 @@ impl SystemMonitorApp {
                 ui.label("This is safe and Windows will reload memory as needed.");
                 ui.add_space(5.0);
 
+                if privilege::is_app_elevated() {
+                    ui.colored_label(ThemePalette::STATUS_HEALTHY, "🛡️ Running as Administrator: Full memory cleaning enabled.");
+                } else {
+                    ui.colored_label(ThemePalette::STATUS_WARNING, "⚠️ Standard Privileges: User processes only. Run as Admin to clean system memory.");
+                }
+                ui.add_space(5.0);
+
                 let is_cleaning = self.ram_cleaner_state.is_cleaning;
                 ui.add_enabled_ui(!is_cleaning, |ui| {
                     if ui
@@ -3427,6 +3562,7 @@ impl SystemMonitorApp {
                     let total = self.startup_items.len();
                     let high = startup::high_impact_count(&self.startup_items);
 
+                    let mut boot_shown = false;
                     if let Some(ref bd) = self.boot_diagnostics {
                         if let Some(ms) = bd.boot_duration_ms {
                             let secs = ms as f64 / 1000.0;
@@ -3434,6 +3570,17 @@ impl SystemMonitorApp {
                                     else if secs < 60.0 { ThemePalette::STATUS_WARNING }
                                     else { ThemePalette::STATUS_CRITICAL };
                             ui.colored_label(c, format!("Boot: {:.1}s", secs));
+                            ui.separator();
+                            boot_shown = true;
+                        }
+                    }
+                    if !boot_shown {
+                        if privilege::is_app_elevated() {
+                            ui.colored_label(ThemePalette::STATUS_WARNING, "Boot: Unknown");
+                            ui.separator();
+                        } else {
+                            ui.colored_label(ThemePalette::STATUS_WARNING, "Boot: (Requires Admin)")
+                                .on_hover_text("Reading boot diagnostics event logs requires Administrator privileges");
                             ui.separator();
                         }
                     }
@@ -3691,7 +3838,10 @@ impl SystemMonitorApp {
                             });
                         } else {
                             ui.horizontal(|ui| {
-                                let can_modify = item.source.contains("HKCU") || item.source.contains("Startup Folder");
+                                let is_elevated = privilege::is_app_elevated();
+                                let can_modify = item.source.contains("HKCU")
+                                    || item.source.contains("Startup Folder")
+                                    || (is_elevated && (item.source.contains("HKLM") || item.source.contains("Task Scheduler")));
                                 let is_keep = item.recommendation == Recommendation::Keep;
 
                                 // Disable/Enable button
@@ -3737,14 +3887,14 @@ impl SystemMonitorApp {
                                     startup::search_online(&name_clone);
                                 }
 
-                                // Remove button (permanent delete for HKCU/Startup Folder items)
+                                // Remove button (permanent delete for HKCU/Startup Folder/HKLM/Task Scheduler items)
                                 if can_modify && !item.enabled {
                                     if ui.button("🗑️ Remove").on_hover_text("Permanently remove this startup item").clicked() {
                                         action = Some((idx, "remove"));
                                     }
                                 }
 
-                                // Admin message for HKLM items
+                                // Admin message for HKLM/Task Scheduler items when not elevated
                                 if !can_modify {
                                     ui.colored_label(ThemePalette::TEXT_DIMMED,
                                         egui::RichText::new("(Requires Admin)").small());

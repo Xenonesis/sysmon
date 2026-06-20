@@ -115,7 +115,14 @@ impl Updater {
 
     pub fn download_and_install_update(&self, download_url: &str) -> Result<(), String> {
         let temp_dir = std::env::temp_dir();
-        let installer_path = temp_dir.join("system-monitor-update.zip");
+        let is_exe = download_url.to_lowercase().ends_with(".exe") 
+            || download_url.to_lowercase().contains(".exe?");
+        
+        let installer_path = if is_exe {
+            temp_dir.join("system-monitor-new.exe")
+        } else {
+            temp_dir.join("system-monitor-update.zip")
+        };
 
         // Download the update using ureq
         let response = ureq::get(download_url)
@@ -131,6 +138,42 @@ impl Updater {
 
         fs::write(&installer_path, &bytes)
             .map_err(|e| format!("Failed to write update file: {}", e))?;
+
+        if is_exe {
+            #[cfg(target_os = "windows")]
+            {
+                use std::process::Command;
+                use std::os::windows::process::CommandExt;
+
+                let current_exe = std::env::current_exe()
+                    .map_err(|e| format!("Failed to get current exe path: {}", e))?;
+
+                // Spawn a detached powershell script to wait, rename the running exe,
+                // copy the new exe to its place, launch it, and clean up the old file.
+                let script = format!(
+                    "Start-Sleep -Seconds 1; \
+                     Move-Item -Path '{current_exe}' -Destination '{current_exe}.old' -Force; \
+                     Copy-Item -Path '{installer_path}' -Destination '{current_exe}' -Force; \
+                     Start-Process '{current_exe}'; \
+                     Remove-Item -Path '{current_exe}.old' -Force",
+                    current_exe = current_exe.display(),
+                    installer_path = installer_path.display()
+                );
+
+                Command::new("powershell")
+                    .creation_flags(0x08000000)
+                    .arg("-Command")
+                    .arg(&script)
+                    .spawn()
+                    .map_err(|e| format!("Failed to spawn updater process: {}", e))?;
+
+                std::process::exit(0);
+            }
+            #[cfg(not(target_os = "windows"))]
+            {
+                return Err("Executable auto-update is only supported on Windows".to_string());
+            }
+        }
 
         // Extract ZIP
         let extract_dir = temp_dir.join("system-monitor-update");
