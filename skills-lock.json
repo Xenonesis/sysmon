@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "tauri-window": {
+      "source": "full-statck-skills/tauri-skills",
+      "sourceType": "github",
+      "skillPath": "skills/tauri-window/SKILL.md",
+      "computedHash": "923b975ffad599aff0bfb354282bd8040bb4fb02b82486b55a9e6a56e3c35471"
+    }
+  }
+}

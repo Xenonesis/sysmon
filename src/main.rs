@@ -147,7 +147,7 @@ struct AlertInfo {
     value: f32,
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 enum AlertType {
     CpuHigh,
     MemoryHigh,
@@ -256,6 +256,10 @@ struct SystemMonitor {
     networks: Networks,
     #[cfg(target_os = "windows")]
     nvml: Option<Nvml>,
+    #[cfg(target_os = "windows")]
+    wmi_gpu_engine_class: Option<String>,
+    #[cfg(target_os = "windows")]
+    wmi_gpu_memory_class: Option<String>,
     last_network_update: Instant,
     last_disk_update: Instant,
 }
@@ -314,7 +318,7 @@ impl AppSettings {
 
 impl AppSettings {
     fn load() -> Self {
-        if let Some(config_dir) = directories::ProjectDirs::from("com", "SystemMonitor", "SystemMonitor") {
+        if let Some(config_dir) = directories::ProjectDirs::from("com", "Xenonesis", "SystemMonitor") {
             let config_path = config_dir.config_dir().join("settings.json");
             if let Ok(contents) = fs::read_to_string(config_path) {
                 if let Ok(settings) = serde_json::from_str(&contents) {
@@ -326,7 +330,7 @@ impl AppSettings {
     }
 
     fn save(&self) -> Result<(), Box<dyn std::error::Error>> {
-        if let Some(config_dir) = directories::ProjectDirs::from("com", "SystemMonitor", "SystemMonitor") {
+        if let Some(config_dir) = directories::ProjectDirs::from("com", "Xenonesis", "SystemMonitor") {
             let config_path = config_dir.config_dir();
             fs::create_dir_all(config_path)?;
             let config_file = config_path.join("settings.json");
@@ -348,12 +352,46 @@ impl SystemMonitor {
         #[cfg(target_os = "windows")]
         let nvml = Nvml::init().ok();
 
+        // Probe which WMI GPU performance counter class name is available on this system.
+        // Windows versions differ: some use "GPUPerformanceMonitors", others use "GPUPerformanceCounters".
+        #[cfg(target_os = "windows")]
+        let (wmi_gpu_engine_class, wmi_gpu_memory_class) = {
+            use wmi::{COMLibrary, WMIConnection, Variant};
+            use std::rc::Rc;
+            let mut engine_class = None;
+            let mut memory_class = None;
+            if let Some(com) = COMLibrary::new().ok() {
+                if let Ok(wmi) = WMIConnection::new(Rc::new(com)) {
+                    // Try GPUPerformanceCounters first (more common on modern Windows)
+                    for prefix in &["GPUPerformanceCounters", "GPUPerformanceMonitors"] {
+                        if engine_class.is_none() {
+                            let q = format!("SELECT UtilizationPercentage FROM Win32_PerfFormattedData_{}_GPUEngine", prefix);
+                            if wmi.raw_query::<std::collections::HashMap<String, Variant>>(&q).is_ok() {
+                                engine_class = Some(format!("Win32_PerfFormattedData_{}_GPUEngine", prefix));
+                            }
+                        }
+                        if memory_class.is_none() {
+                            let q = format!("SELECT LocalUsage FROM Win32_PerfFormattedData_{}_GPULocalAdapterMemory", prefix);
+                            if wmi.raw_query::<std::collections::HashMap<String, Variant>>(&q).is_ok() {
+                                memory_class = Some(format!("Win32_PerfFormattedData_{}_GPULocalAdapterMemory", prefix));
+                            }
+                        }
+                    }
+                }
+            }
+            (engine_class, memory_class)
+        };
+
         SystemMonitor {
             sys,
             disks,
             networks,
             #[cfg(target_os = "windows")]
             nvml,
+            #[cfg(target_os = "windows")]
+            wmi_gpu_engine_class,
+            #[cfg(target_os = "windows")]
+            wmi_gpu_memory_class,
             last_network_update: Instant::now(),
             last_disk_update: Instant::now(),
         }
@@ -381,12 +419,24 @@ impl SystemMonitor {
             .sys
             .processes()
             .iter()
-            .map(|(pid, process)| ProcessInfo {
-                pid: pid.as_u32(),
-                name: process.name().to_string(),
-                cpu_usage: process.cpu_usage(),
-                memory: process.memory(),
-                status: format!("{:?}", process.status()),
+            .map(|(pid, process)| {
+                // Try to use the exe path's file name if `name()` is empty or not helpful
+                let mut name_str = process.name().to_string();
+                if name_str.is_empty() {
+                    if let Some(exe_path) = process.exe() {
+                        if let Some(file_name) = exe_path.file_name() {
+                            name_str = file_name.to_string_lossy().into_owned();
+                        }
+                    }
+                }
+                
+                ProcessInfo {
+                    pid: pid.as_u32(),
+                    name: name_str,
+                    cpu_usage: process.cpu_usage(),
+                    memory: process.memory(),
+                    status: format!("{:?}", process.status()),
+                }
             })
             .collect();
 
@@ -632,12 +682,15 @@ impl SystemMonitor {
     }
 
     #[cfg(target_os = "windows")]
-    fn get_gpu_info(&self) -> Option<GpuInfo> {
-        // Try NVML for NVIDIA GPUs first
+    fn get_gpu_info(&self) -> Vec<GpuInfo> {
+        let mut gpus = Vec::new();
+        let mut nvml_names: Vec<String> = Vec::new();
+
+        // Collect all NVML (NVIDIA) GPUs
         if let Some(ref nvml) = self.nvml {
             if let Ok(device_count) = nvml.device_count() {
-                if device_count > 0 {
-                    if let Ok(device) = nvml.device_by_index(0) {
+                for i in 0..device_count {
+                    if let Ok(device) = nvml.device_by_index(i) {
                         let name = device.name().unwrap_or_else(|_| "Unknown GPU".to_string());
                         let utilization = device.utilization_rates().map(|u| u.gpu).unwrap_or(0);
                         let memory = device.memory_info().ok();
@@ -645,7 +698,8 @@ impl SystemMonitor {
                             .temperature(nvml_wrapper::enum_wrappers::device::TemperatureSensor::Gpu)
                             .ok();
 
-                        return Some(GpuInfo {
+                        nvml_names.push(name.clone());
+                        gpus.push(GpuInfo {
                             name,
                             utilization: utilization as f32,
                             memory_used: memory.as_ref().map(|m| m.used),
@@ -657,130 +711,170 @@ impl SystemMonitor {
             }
         }
 
-        // Fallback: Use WMI for AMD/Intel GPUs
-        Self::get_gpu_info_wmi()
+        // Also collect WMI GPUs (AMD/Intel) — skip any already covered by NVML
+        if let Some(wmi_gpus) = self.get_gpu_info_wmi() {
+            for wmi_gpu in wmi_gpus {
+                let dominated = nvml_names.iter().any(|n| {
+                    n.to_lowercase().contains(&wmi_gpu.name.to_lowercase())
+                        || wmi_gpu.name.to_lowercase().contains(&n.to_lowercase())
+                });
+                if !dominated {
+                    gpus.push(wmi_gpu);
+                }
+            }
+        }
+
+        gpus
     }
 
     #[cfg(target_os = "windows")]
-    fn get_gpu_info_wmi() -> Option<GpuInfo> {
+    fn get_gpu_info_wmi(&self) -> Option<Vec<GpuInfo>> {
         use wmi::{COMLibrary, WMIConnection, Variant};
         use std::rc::Rc;
         
         let com = Rc::new(COMLibrary::new().ok()?);
         let wmi = WMIConnection::new(com).ok()?;
         
-        // Query GPU controller info
+        // Query all GPU controllers
         let results: Vec<std::collections::HashMap<String, Variant>> = wmi
-            .raw_query("SELECT Name, DriverVersion, VideoProcessor FROM Win32_VideoController")
+            .raw_query("SELECT Name, DriverVersion, VideoProcessor, AdapterRAM FROM Win32_VideoController")
             .ok()?;
         
         if results.is_empty() {
             return None;
         }
         
-        let gpu = &results[0];
-        let name = gpu.get("Name")
-            .and_then(|v| match v { Variant::String(s) => Some(s.clone()), _ => None })
-            .unwrap_or_else(|| "Unknown GPU".to_string());
-        
-        // Filter out Microsoft Basic Display Adapter and similar generic drivers
-        if name.contains("Microsoft Basic Display Adapter") || name.contains("Standard VGA") {
-            return None;
-        }
+        let mut gpus = Vec::new();
 
-        // Get adapter RAM from VideoController (if query works/exists)
-        let mut adapter_ram: Option<u64> = None;
-        if let Ok(ram_results) = wmi.raw_query::<std::collections::HashMap<String, Variant>>(
-            "SELECT AdapterRAM FROM Win32_VideoController WHERE AdapterRAM > 0"
-        ) {
-            if !ram_results.is_empty() {
-                adapter_ram = ram_results[0].get("AdapterRAM").and_then(|v| match v {
-                    Variant::UI4(n) => Some(*n as u64),
-                    Variant::UI8(n) => Some(*n),
-                    _ => None
-                });
+        for gpu_entry in &results {
+            let name = gpu_entry.get("Name")
+                .and_then(|v| match v { Variant::String(s) => Some(s.clone()), _ => None })
+                .unwrap_or_else(|| "Unknown GPU".to_string());
+            
+            // Filter out generic/virtual adapters
+            if name.contains("Microsoft Basic Display Adapter") || name.contains("Standard VGA") {
+                continue;
             }
-        }
-        
-        // Query real-time GPU utilization from WMI performance counters
-        let mut utilization = 0.0;
-        let mut perf_results = wmi.raw_query::<std::collections::HashMap<String, Variant>>(
-            "SELECT Name, UtilizationPercentage FROM Win32_PerfFormattedData_GPUPerformanceMonitors_GPUEngine"
-        );
-        if perf_results.is_err() {
-            perf_results = wmi.raw_query::<std::collections::HashMap<String, Variant>>(
-                "SELECT Name, UtilizationPercentage FROM Win32_PerfFormattedData_GPUPerformanceCounters_GPUEngine"
-            );
-        }
-        if let Ok(results) = perf_results {
-            let mut max_util = 0u64;
-            for engine in results {
-                if let Some(val) = engine.get("UtilizationPercentage") {
-                    let u = match val {
-                        Variant::UI1(n) => *n as u64,
-                        Variant::UI2(n) => *n as u64,
-                        Variant::UI4(n) => *n as u64,
-                        Variant::UI8(n) => *n,
-                        Variant::I1(n) => *n as u64,
-                        Variant::I2(n) => *n as u64,
-                        Variant::I4(n) => *n as u64,
-                        Variant::I8(n) => *n as u64,
-                        Variant::String(s) => s.parse().unwrap_or(0),
-                        _ => 0,
-                    };
-                    if u > max_util {
-                        max_util = u;
+
+            // Get adapter RAM for this entry
+            let adapter_ram = gpu_entry.get("AdapterRAM").and_then(|v| match v {
+                Variant::UI4(n) => Some(*n as u64),
+                Variant::UI8(n) => Some(*n),
+                Variant::I4(n) => Some(*n as u64),
+                _ => None,
+            });
+            
+            // Query real-time GPU utilization using cached class name
+            let mut utilization = 0.0;
+            if let Some(ref engine_class) = self.wmi_gpu_engine_class {
+                let q = format!("SELECT Name, UtilizationPercentage FROM {}", engine_class);
+                if let Ok(perf_results) = wmi.raw_query::<std::collections::HashMap<String, Variant>>(&q) {
+                    let mut max_util = 0u64;
+                    for engine in perf_results {
+                        if let Some(val) = engine.get("UtilizationPercentage") {
+                            let u = match val {
+                                Variant::UI1(n) => *n as u64,
+                                Variant::UI2(n) => *n as u64,
+                                Variant::UI4(n) => *n as u64,
+                                Variant::UI8(n) => *n,
+                                Variant::I1(n) => *n as u64,
+                                Variant::I2(n) => *n as u64,
+                                Variant::I4(n) => *n as u64,
+                                Variant::I8(n) => *n as u64,
+                                Variant::String(s) => s.parse().unwrap_or(0),
+                                _ => 0,
+                            };
+                            if u > max_util {
+                                max_util = u;
+                            }
+                        }
+                    }
+                    utilization = (max_util as f32).min(100.0);
+                }
+            }
+
+            // Query real-time VRAM usage using cached class name
+            let mut memory_used = None;
+            if let Some(ref mem_class) = self.wmi_gpu_memory_class {
+                let q = format!("SELECT LocalUsage FROM {}", mem_class);
+                if let Ok(mem_results) = wmi.raw_query::<std::collections::HashMap<String, Variant>>(&q) {
+                    let mut total_used = 0u64;
+                    for instance in mem_results {
+                        if let Some(val) = instance.get("LocalUsage") {
+                            let u = match val {
+                                Variant::UI1(n) => *n as u64,
+                                Variant::UI2(n) => *n as u64,
+                                Variant::UI4(n) => *n as u64,
+                                Variant::UI8(n) => *n,
+                                Variant::I1(n) => *n as u64,
+                                Variant::I2(n) => *n as u64,
+                                Variant::I4(n) => *n as u64,
+                                Variant::I8(n) => *n as u64,
+                                Variant::String(s) => s.parse().unwrap_or(0),
+                                _ => 0,
+                            };
+                            total_used = total_used.saturating_add(u);
+                        }
+                    }
+                    if total_used > 0 {
+                        memory_used = Some(total_used);
                     }
                 }
             }
-            utilization = (max_util as f32).min(100.0);
-        }
-
-        // Query real-time VRAM usage from WMI performance counters
-        let mut memory_used = None;
-        let mut mem_results = wmi.raw_query::<std::collections::HashMap<String, Variant>>(
-            "SELECT LocalUsage FROM Win32_PerfFormattedData_GPUPerformanceMonitors_GPULocalAdapterMemory"
-        );
-        if mem_results.is_err() {
-            mem_results = wmi.raw_query::<std::collections::HashMap<String, Variant>>(
-                "SELECT LocalUsage FROM Win32_PerfFormattedData_GPUPerformanceCounters_GPULocalAdapterMemory"
-            );
-        }
-        if let Ok(results) = mem_results {
-            let mut total_used = 0u64;
-            for instance in results {
-                if let Some(val) = instance.get("LocalUsage") {
-                    let u = match val {
-                        Variant::UI1(n) => *n as u64,
-                        Variant::UI2(n) => *n as u64,
-                        Variant::UI4(n) => *n as u64,
-                        Variant::UI8(n) => *n,
-                        Variant::I1(n) => *n as u64,
-                        Variant::I2(n) => *n as u64,
-                        Variant::I4(n) => *n as u64,
-                        Variant::I8(n) => *n as u64,
-                        Variant::String(s) => s.parse().unwrap_or(0),
-                        _ => 0,
-                    };
-                    total_used = total_used.saturating_add(u);
-                }
-            }
-            if total_used > 0 {
-                memory_used = Some(total_used);
-            }
+            
+            gpus.push(GpuInfo {
+                name,
+                utilization,
+                memory_used,
+                memory_total: adapter_ram,
+                temperature: None,
+            });
         }
         
-        Some(GpuInfo {
-            name,
-            utilization,
-            memory_used,
-            memory_total: adapter_ram,
-            temperature: None, // WMI doesn't expose GPU temperature
-        })
+        if gpus.is_empty() { None } else { Some(gpus) }
     }
 
     #[cfg(not(target_os = "windows"))]
-    fn get_gpu_info(&self) -> Option<GpuInfo> {
+    fn get_gpu_info(&self) -> Vec<GpuInfo> {
+        Vec::new()
+    }
+
+    #[cfg(target_os = "windows")]
+    fn get_cpu_temperature_wmi() -> Option<f32> {
+        use wmi::{COMLibrary, WMIConnection, Variant};
+        use std::rc::Rc;
+        
+        let com = Rc::new(COMLibrary::new().ok()?);
+        // The MSAcpi_ThermalZoneTemperature class is in the \root\wmi namespace
+        let wmi = WMIConnection::with_namespace_path("ROOT\\WMI", com).ok()?;
+        
+        let results = wmi.raw_query::<std::collections::HashMap<String, Variant>>(
+            "SELECT CurrentTemperature FROM MSAcpi_ThermalZoneTemperature"
+        ).ok()?;
+
+        if results.is_empty() {
+            return None;
+        }
+
+        // Temperature is in tenths of degrees Kelvin
+        if let Some(val) = results[0].get("CurrentTemperature") {
+            let temp_k_tenths = match val {
+                Variant::UI4(n) => *n as f32,
+                Variant::I4(n) => *n as f32,
+                Variant::UI8(n) => *n as f32,
+                _ => return None,
+            };
+            
+            // Convert to Celsius: (K / 10) - 273.15
+            let temp_c = (temp_k_tenths / 10.0) - 273.15;
+            return Some(temp_c.round());
+        }
+        
+        None
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    fn get_cpu_temperature_wmi() -> Option<f32> {
         None
     }
 
@@ -863,13 +957,13 @@ impl SystemMonitor {
 
         // GPU temperature alert
         if settings.show_notifications {
-            if let Some(ref gpu) = data.gpu_info {
+            for gpu in &data.gpu_info {
                 if let Some(temp) = gpu.temperature {
                     if temp > settings.notification_temp_threshold {
                         alerts.push(AlertInfo {
                             timestamp: timestamp.clone(),
                             alert_type: AlertType::GpuTempHigh,
-                            message: format!("GPU temperature is high: {}°C", temp),
+                            message: format!("GPU temperature is high: {}°C ({})", temp, gpu.name),
                             value: temp as f32,
                         });
                     }
@@ -957,11 +1051,12 @@ struct SystemData {
     memory_percentage: f32,
     cpu_usage: f32,
     cpu_cores: Vec<CpuCoreInfo>,
-    gpu_info: Option<GpuInfo>,
+    gpu_info: Vec<GpuInfo>,
     top_processes: Vec<ProcessInfo>,
     disk_info: Vec<DiskInfo>,
     network_info: Vec<NetworkInfo>,
     system_info: SystemInfo,
+    cpu_temperature: Option<f32>,
     last_update: String,
     cpu_history: VecDeque<DataPoint>,
     memory_history: VecDeque<DataPoint>,
@@ -989,7 +1084,7 @@ impl Default for SystemData {
             memory_percentage: 0.0,
             cpu_usage: 0.0,
             cpu_cores: Vec::new(),
-            gpu_info: None,
+            gpu_info: Vec::new(),
             top_processes: Vec::new(),
             disk_info: Vec::new(),
             network_info: Vec::new(),
@@ -1002,6 +1097,7 @@ impl Default for SystemData {
                 cpu_count: 0,
                 cpu_brand: String::new(),
             },
+            cpu_temperature: None,
             last_update: String::new(),
             cpu_history: VecDeque::new(),
             memory_history: VecDeque::new(),
@@ -1196,6 +1292,7 @@ impl SystemMonitorApp {
             // Get system info once (doesn't change)
             let system_info = monitor.get_system_info();
             let mut battery_check_counter: u32 = 0;
+            let mut last_alert_time: std::collections::HashMap<AlertType, Instant> = std::collections::HashMap::new();
 
             loop {
                 thread::sleep(Duration::from_millis(500));
@@ -1210,6 +1307,7 @@ impl SystemMonitorApp {
                 let (total_mem, used_mem, mem_percentage) = monitor.get_memory_info();
                 let cpu_usage = monitor.get_cpu_usage();
                 let cpu_cores = monitor.get_cpu_cores_info();
+                let cpu_temperature = SystemMonitor::get_cpu_temperature_wmi();
                 let gpu_info = monitor.get_gpu_info();
                 let top_processes = monitor.get_top_processes(process_count);
                 let disk_info = monitor.get_disk_info();
@@ -1243,6 +1341,7 @@ impl SystemMonitorApp {
                     data.memory_percentage = mem_percentage;
                     data.cpu_usage = cpu_usage;
                     data.cpu_cores = cpu_cores;
+                    data.cpu_temperature = cpu_temperature;
                     data.gpu_info = gpu_info.clone();
                     data.top_processes = top_processes;
                     data.disk_info = disk_info;
@@ -1261,14 +1360,21 @@ impl SystemMonitorApp {
                         play_alert_sound();
                     }
 
-                    // Send desktop notifications for new alerts
+                    // Send desktop notifications for new alerts with a 5-minute cooldown
                     if settings_snapshot.show_notifications {
                         for alert in &new_alerts {
-                            let _ = notify_rust::Notification::new()
-                                .summary("System Monitor Alert")
-                                .body(&alert.message)
-                                .timeout(notify_rust::Timeout::Milliseconds(5000))
-                                .show();
+                            let now = Instant::now();
+                            let should_notify = last_alert_time.get(&alert.alert_type)
+                                .map_or(true, |&last| now.duration_since(last).as_secs() > 300);
+                            
+                            if should_notify {
+                                let _ = notify_rust::Notification::new()
+                                    .summary("System Monitor Alert")
+                                    .body(&alert.message)
+                                    .timeout(notify_rust::Timeout::Milliseconds(5000))
+                                    .show();
+                                last_alert_time.insert(alert.alert_type.clone(), now);
+                            }
                         }
                     }
 
@@ -1283,12 +1389,9 @@ impl SystemMonitorApp {
                                     mem_percentage > settings_snapshot.notification_memory_threshold
                                 }
                                 AlertType::GpuTempHigh => {
-                                    if let Some(ref g) = gpu_info {
-                                        g.temperature
-                                            .map_or(false, |t| t > settings_snapshot.notification_temp_threshold)
-                                    } else {
-                                        false
-                                    }
+                                    gpu_info.first()
+                                        .and_then(|g| g.temperature)
+                                        .map_or(false, |t| t > settings_snapshot.notification_temp_threshold)
                                 }
                                 AlertType::DiskSpaceLow => true, // disk alerts don't auto-clear
                                 AlertType::StartupHighImpact => true,
@@ -1311,7 +1414,7 @@ impl SystemMonitorApp {
                         value: mem_percentage as f64,
                     });
 
-                    if let Some(ref gpu) = gpu_info {
+                    if let Some(gpu) = gpu_info.first() {
                         data.gpu_history.push_back(DataPoint {
                             time: elapsed,
                             value: gpu.utilization as f64,
@@ -1460,7 +1563,7 @@ impl SystemMonitorApp {
         wtr.write_record(["Memory", "Usage %", &format!("{:.2}", data.memory_percentage)])?;
 
         // GPU
-        if let Some(ref gpu) = data.gpu_info {
+        for gpu in &data.gpu_info {
             wtr.write_record(["GPU", "Name", &gpu.name])?;
             wtr.write_record(["GPU", "Usage %", &format!("{:.2}", gpu.utilization)])?;
             if let Some(temp) = gpu.temperature {
@@ -1508,7 +1611,7 @@ impl SystemMonitorApp {
             memory_used: data.memory_used,
             memory_total: data.memory_total,
             memory_percentage: data.memory_percentage,
-            gpu_info: data.gpu_info.clone(),
+            gpu_info: data.gpu_info.first().cloned(),
             top_processes: data.top_processes.clone(),
             disk_info: data.disk_info.clone(),
             network_info: data.network_info.clone(),
@@ -1572,6 +1675,14 @@ impl eframe::App for SystemMonitorApp {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
                 self.is_hidden = true;
             }
+        }
+
+        // Update tray tooltip with CPU/RAM usage
+        #[cfg(target_os = "windows")]
+        if let Some(tray) = &mut self.tray_icon {
+            let data = self.data.lock();
+            let tooltip = format!("SysMon: CPU {:.0}% | RAM {:.0}%", data.cpu_usage, data.memory_percentage);
+            let _ = tray.set_tooltip(Some(tooltip));
         }
 
         // Ensure repaint for continuous updates but without CPU lock
@@ -1882,84 +1993,92 @@ impl eframe::App for SystemMonitorApp {
             }
         }
 
-        // Top menu bar
-        // Sleek minimal top bar
-        egui::TopBottomPanel::top("top_bar").show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = 16.0;
-                ui.add_space(8.0);
-                // Painted diamond glyph
-                let r = ui.label(egui::RichText::new(" ").size(14.0));
-                let cy = r.rect.center().y;
-                let cx = r.rect.left() + 2.0;
-                let sz = 6.0;
-                let pts = vec![
-                    egui::pos2(cx, cy - sz),
-                    egui::pos2(cx + sz * 0.65, cy),
-                    egui::pos2(cx, cy + sz),
-                    egui::pos2(cx - sz * 0.65, cy),
-                ];
-                ui.painter().add(egui::Shape::convex_polygon(
-                    pts,
-                    ThemePalette::ACCENT_PRIMARY,
-                    egui::Stroke::NONE,
-                ));
-                ui.label(
-                    egui::RichText::new("Sys")
-                        .size(15.0)
-                        .strong()
-                        .color(ThemePalette::ACCENT_PRIMARY),
-                );
-                ui.label(
-                    egui::RichText::new("Mon")
-                        .size(15.0)
-                        .strong()
-                        .color(ThemePalette::TEXT_PRIMARY),
-                );
+        // Modern sleek SidePanel for navigation
+        egui::SidePanel::left("sidebar_panel")
+            .resizable(false)
+            .exact_width(180.0)
+            .show(ctx, |ui| {
+                ui.add_space(16.0);
                 
+                // Brand Header
+                ui.horizontal(|ui| {
+                    ui.add_space(8.0);
+                    // Painted diamond glyph
+                    let r = ui.label(egui::RichText::new(" ").size(18.0));
+                    let cy = r.rect.center().y;
+                    let cx = r.rect.left() + 2.0;
+                    let sz = 8.0;
+                    let pts = vec![
+                        egui::pos2(cx, cy - sz),
+                        egui::pos2(cx + sz * 0.65, cy),
+                        egui::pos2(cx, cy + sz),
+                        egui::pos2(cx - sz * 0.65, cy),
+                    ];
+                    ui.painter().add(egui::Shape::convex_polygon(
+                        pts,
+                        ThemePalette::ACCENT_PRIMARY,
+                        egui::Stroke::NONE,
+                    ));
+                    ui.label(
+                        egui::RichText::new("Sys")
+                            .size(18.0)
+                            .strong()
+                            .color(ThemePalette::ACCENT_PRIMARY),
+                    );
+                    ui.label(
+                        egui::RichText::new("Mon")
+                            .size(18.0)
+                            .strong()
+                            .color(ThemePalette::TEXT_PRIMARY),
+                    );
+                });
+
+                ui.add_space(16.0);
                 ui.separator();
+                ui.add_space(8.0);
                 
-                // Simple navigation tabs
+                // Navigation Menu
                 let tabs = [
-                    (Tab::Overview, "Overview"),
-                    (Tab::Performance, "Performance"),
-                    (Tab::Processes, "Processes"),
-                    (Tab::Network, "Network"),
-                    (Tab::Alerts, "Alerts"),
+                    (Tab::Overview, "📊  Overview"),
+                    (Tab::Performance, "📈  Performance"),
+                    (Tab::Processes, "⚙️  Processes"),
+                    (Tab::CpuCores, "💻  CPU Cores"),
+                    (Tab::Storage, "💾  Storage"),
+                    (Tab::Network, "🌐  Network"),
+                    (Tab::Alerts, "🔔  Alerts"),
+                    (Tab::SystemInfo, "ℹ️  System Info"),
+                    (Tab::RamCleaner, "🧹  RAM Cleaner"),
+                    (Tab::StartupManager, "🚀  Startup Apps"),
                 ];
+
+                ui.spacing_mut().item_spacing.y = 4.0;
                 for (tab, label) in tabs {
-                    let selected = self.selected_tab == tab;
-                    if ui.selectable_label(selected, label).clicked() {
+                    let is_selected = self.selected_tab == tab;
+                    let text = if is_selected {
+                        egui::RichText::new(label).strong().color(ThemePalette::TEXT_PRIMARY)
+                    } else {
+                        egui::RichText::new(label).color(ThemePalette::TEXT_SECONDARY)
+                    };
+                    
+                    let btn = egui::Button::new(text)
+                        .fill(if is_selected { ThemePalette::ACCENT_ACTIVE } else { egui::Color32::TRANSPARENT })
+                        .frame(is_selected);
+                        
+                    if ui.add_sized([ui.available_width(), 32.0], btn).clicked() {
                         self.selected_tab = tab;
                     }
                 }
-                
-                ui.menu_button("More", |ui| {
-                    let more_tabs = [
-                        (Tab::CpuCores, "CPU Cores"),
-                        (Tab::Storage, "Storage"),
-                        (Tab::SystemInfo, "System Info"),
-                        (Tab::RamCleaner, "RAM Cleaner"),
-                        (Tab::StartupManager, "Startup Apps"),
-                        (Tab::About, "About"),
-                    ];
-                    for (tab, label) in more_tabs {
-                        if ui.button(label).clicked() {
-                            self.selected_tab = tab;
-                            ui.close_menu();
-                        }
-                    }
-                });
-                
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.spacing_mut().item_spacing.x = 12.0;
-                    if ui.small_button("⚙️").clicked() { self.show_settings = true; }
-                    if ui.small_button("💾").clicked() { self.show_export = true; }
-                    ui.label(egui::RichText::new(format!("🕒 {}", data.last_update)).size(11.0).color(ThemePalette::TEXT_SECONDARY));
+
+                ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
+                    ui.add_space(16.0);
+                    ui.label(egui::RichText::new(format!("🕒 {}", data.last_update)).size(11.0).color(ThemePalette::TEXT_DIMMED));
+                    ui.add_space(8.0);
+                    ui.horizontal(|ui| {
+                        if ui.button("⚙️ Settings").clicked() { self.show_settings = true; }
+                        if ui.button("ℹ️ About").clicked() { self.selected_tab = Tab::About; }
+                    });
                 });
             });
-            ui.separator();
-        });
 
         // Process Manager window
         if self.show_process_manager {
@@ -2007,6 +2126,51 @@ impl eframe::App for SystemMonitorApp {
             self.show_settings = show_settings;
         }
 
+        // Global always-visible status bar header
+        egui::TopBottomPanel::top("global_status_bar")
+            .exact_height(48.0)
+            .show(ctx, |ui| {
+                ui.horizontal_centered(|ui| {
+                    ui.add_space(8.0);
+                    
+                    // Quick stats
+                    let cpu_c = get_usage_color(data.cpu_usage);
+                    ui.label("CPU: ");
+                    ui.colored_label(cpu_c, egui::RichText::new(format!("{:.1}%", data.cpu_usage)).strong());
+                    
+                    ui.add_space(16.0);
+                    ui.separator();
+                    ui.add_space(16.0);
+                    
+                    let mem_c = get_usage_color(data.memory_percentage);
+                    ui.label("RAM: ");
+                    ui.colored_label(mem_c, egui::RichText::new(format!("{:.1}%", data.memory_percentage)).strong());
+                    
+                    if let Some(gpu) = data.gpu_info.first() {
+                        ui.add_space(16.0);
+                        ui.separator();
+                        ui.add_space(16.0);
+                        let gpu_c = get_usage_color(gpu.utilization);
+                        ui.label("GPU: ");
+                        ui.colored_label(gpu_c, egui::RichText::new(format!("{:.1}%", gpu.utilization)).strong());
+                    }
+
+                    // Alerts indicator
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.add_space(8.0);
+                        if !data.alerts.is_empty() {
+                            let recent_alerts = data.alerts.len();
+                            let btn = ui.button(egui::RichText::new(format!("🔔 {} Alerts", recent_alerts)).color(ThemePalette::STATUS_WARNING));
+                            if btn.clicked() {
+                                self.selected_tab = Tab::Alerts;
+                            }
+                        } else {
+                            ui.label(egui::RichText::new("✓ All Good").color(ThemePalette::STATUS_HEALTHY));
+                        }
+                    });
+                });
+            });
+
         // Main content area
         egui::CentralPanel::default().show(ctx, |ui| match self.selected_tab {
             Tab::Overview => self.show_overview_tab(ui, &data),
@@ -2019,7 +2183,7 @@ impl eframe::App for SystemMonitorApp {
             Tab::Alerts => self.show_alerts_tab(ui, &data),
             Tab::RamCleaner => self.show_ram_cleaner_tab(ui, &data),
             Tab::StartupManager => self.show_startup_manager_tab(ui),
-            Tab::About => self.show_about_tab(ui),
+            Tab::About => self.show_about_tab(ui, &data),
         });
     }
 }
@@ -2064,6 +2228,52 @@ fn paint_progress_bar(ui: &mut egui::Ui, fraction: f32, fill: egui::Color32, h: 
     }
 }
 
+/// Circular animated gauge for premium UI
+fn paint_circular_gauge(ui: &mut egui::Ui, center: egui::Pos2, radius: f32, fraction: f32, color: egui::Color32, label: &str) {
+    let p = ui.painter();
+    let track_color = ThemePalette::BG_TRACK;
+    
+    // Track
+    p.circle_stroke(center, radius, egui::Stroke::new(6.0, track_color));
+    
+    // Animate fraction if we had time context, but for now we draw the arc
+    let frac = fraction.clamp(0.0, 1.0);
+    if frac > 0.005 {
+        use std::f32::consts::PI;
+        // Start from top (-PI/2), sweep clockwise
+        let start_angle = -PI / 2.0;
+        let end_angle = start_angle + (frac * 2.0 * PI);
+        
+        let path: Vec<egui::Pos2> = (0..=30).map(|i| {
+            let t = i as f32 / 30.0;
+            let angle = start_angle + (end_angle - start_angle) * t;
+            center + egui::vec2(angle.cos() * radius, angle.sin() * radius)
+        }).collect();
+
+        // Outer glow
+        p.add(egui::Shape::line(
+            path.clone(),
+            egui::Stroke::new(12.0, color.linear_multiply(0.15)),
+        ));
+
+        // Main arc
+        p.add(egui::Shape::line(
+            path,
+            egui::Stroke::new(6.0, color),
+        ));
+    }
+    
+    // Label in center
+    let text_color = ThemePalette::TEXT_PRIMARY;
+    p.text(
+        center,
+        egui::Align2::CENTER_CENTER,
+        label,
+        egui::FontId::proportional(16.0),
+        text_color,
+    );
+}
+
 impl SystemMonitorApp {
     fn show_overview_tab(&mut self, ui: &mut egui::Ui, data: &SystemData) {
         paint_section_header(ui, "System Overview");
@@ -2097,7 +2307,6 @@ impl SystemMonitorApp {
             let card_spacing = 16.0;
             let card_h = 120.0;
             let (row_rect, _) = ui.allocate_exact_size(egui::vec2(full_avail, card_h), egui::Sense::hover());
-            let p = ui.painter();
 
             // Account for HiDPI: at ppp>1, available_width can exceed visible area
             let ppp = ui.ctx().pixels_per_point();
@@ -2124,7 +2333,7 @@ impl SystemMonitorApp {
                 ThemePalette::TEXT_LABEL_SUB
             };
 
-            let (gpu_val, gpu_sub, gpu_frac, gpu_c) = if let Some(ref gpu) = data.gpu_info {
+            let (gpu_val, gpu_sub, gpu_frac, gpu_c) = if let Some(gpu) = data.gpu_info.first() {
                 let c = get_usage_color(gpu.utilization);
                 let sub = if let (Some(u), Some(t)) = (gpu.memory_used, gpu.memory_total) {
                     format!("{:.0}/{:.0} MB", bytes_to_mb(u), bytes_to_mb(t))
@@ -2146,7 +2355,11 @@ impl SystemMonitorApp {
                     ThemePalette::ACCENT_PRIMARY,
                     "CPU",
                     format!("{:.1}%", data.cpu_usage),
-                    format!("{} cores", data.cpu_cores.len()),
+                    if let Some(temp) = data.cpu_temperature {
+                        format!("{} cores • {}°C", data.cpu_cores.len(), temp)
+                    } else {
+                        format!("{} cores", data.cpu_cores.len())
+                    },
                     data.cpu_usage / 100.0,
                     cpu_c,
                 ),
@@ -2186,54 +2399,48 @@ impl SystemMonitorApp {
                 let cr = egui::Rect::from_min_size(egui::pos2(x, row_rect.min.y), egui::vec2(card_w, card_h));
 
                 // Deep card background with subtle inner border
-                p.rect_filled(cr, card_rnd, ThemePalette::BG_DEEPEST);
-                p.rect_filled(cr.shrink(1.0), card_rnd, card_bg);
-                p.rect_stroke(cr, card_rnd, card_border);
+                ui.painter().rect_filled(cr, card_rnd, ThemePalette::BG_DEEPEST);
+                ui.painter().rect_filled(cr.shrink(1.0), card_rnd, card_bg);
+                ui.painter().rect_stroke(cr, card_rnd, card_border);
 
-                let m = 16.0;
-
-                // Card header section
-                p.circle_filled(egui::pos2(cr.left() + m + 4.0, cr.top() + m + 6.0), 3.5, *accent);
-                p.text(
-                    egui::pos2(cr.left() + m + 14.0, cr.top() + m),
-                    egui::Align2::LEFT_TOP,
-                    *label,
-                    egui::FontId::proportional(12.0),
-                    ThemePalette::TEXT_LABEL,
+                // Accent dot
+                ui.painter().circle_filled(
+                    cr.min + egui::vec2(16.0, 18.0),
+                    3.0,
+                    *accent,
                 );
 
-                // Value text
-                p.text(
-                    egui::pos2(cr.left() + m, cr.top() + m + 22.0),
+                // Title
+                ui.painter().text(
+                    cr.min + egui::vec2(26.0, 12.0),
                     egui::Align2::LEFT_TOP,
+                    label,
+                    egui::FontId::proportional(12.0),
+                    ThemePalette::TEXT_LABEL_SUB,
+                );
+
+                // Circular Gauge
+                let radius = 28.0;
+                let center = cr.min + egui::vec2(card_w / 2.0, card_h / 2.0 - 4.0);
+                paint_circular_gauge(ui, center, radius, *frac, *color, "");
+
+                // Value Text inside gauge
+                ui.painter().text(
+                    center,
+                    egui::Align2::CENTER_CENTER,
                     value,
-                    egui::FontId::proportional(32.0),
-                    *color,
+                    egui::FontId::new(14.0, egui::FontFamily::Monospace),
+                    ThemePalette::TEXT_PRIMARY,
                 );
 
                 // Subtitle
-                p.text(
-                    egui::pos2(cr.left() + m, cr.top() + m + 60.0),
-                    egui::Align2::LEFT_TOP,
+                ui.painter().text(
+                    cr.min + egui::vec2(card_w / 2.0, card_h - 18.0),
+                    egui::Align2::CENTER_BOTTOM,
                     sub,
-                    egui::FontId::proportional(12.0),
-                    ThemePalette::TEXT_TERTIARY,
+                    egui::FontId::proportional(11.0),
+                    ThemePalette::TEXT_DIMMED,
                 );
-
-                // Progress bar track
-                let bar_y = cr.top() + m + 80.0;
-                let bar_w = card_w - m * 2.0;
-                let bar_rect = egui::Rect::from_min_size(egui::pos2(cr.left() + m, bar_y), egui::vec2(bar_w, 6.0));
-
-                p.rect_filled(bar_rect, 3.0, ThemePalette::BG_DEEPEST);
-                let f = frac.clamp(0.0, 1.0);
-                if f > 0.005 {
-                    p.rect_filled(
-                        egui::Rect::from_min_size(bar_rect.min, egui::vec2(bar_w * f, 6.0)),
-                        3.0,
-                        *color,
-                    );
-                }
             }
 
             ui.add_space(16.0);
@@ -2241,7 +2448,7 @@ impl SystemMonitorApp {
             // ── Detail strip ──
             ui.group(|ui| {
                 ui.horizontal(|ui| {
-                    if let Some(ref gpu) = data.gpu_info {
+                    if let Some(gpu) = data.gpu_info.first() {
                         if let Some(temp) = gpu.temperature {
                             let tc = if temp < 70 {
                                 ThemePalette::STATUS_HEALTHY
@@ -3074,49 +3281,57 @@ impl SystemMonitorApp {
 
             ui.add_space(10.0);
 
-            if let Some(ref gpu_info) = data.gpu_info {
-                ui.group(|ui| {
-                    ui.heading("Graphics Card");
-                    ui.separator();
+            if data.gpu_info.is_empty() {
+                ui.label(
+                    egui::RichText::new("No supported GPU detected.")
+                        .italics()
+                        .color(ThemePalette::TEXT_DIMMED),
+                );
+            } else {
+                for gpu_info in &data.gpu_info {
+                    ui.group(|ui| {
+                        ui.heading("Graphics Card");
+                        ui.separator();
 
-                    ui.horizontal(|ui| {
-                        ui.label("GPU:");
-                        ui.strong(&gpu_info.name);
-                    });
-
-                    ui.horizontal(|ui| {
-                        ui.label("Utilization:");
-                        let color = get_usage_color(gpu_info.utilization);
-                        ui.colored_label(color, format!("{:.1}%", gpu_info.utilization));
-                    });
-
-                    if let (Some(used), Some(total)) = (gpu_info.memory_used, gpu_info.memory_total) {
                         ui.horizontal(|ui| {
-                            ui.label("VRAM:");
-                            let used_mb = bytes_to_mb(used);
-                            let total_mb = bytes_to_mb(total);
-                            if total_mb >= 1024.0 {
-                                ui.strong(format!("{:.1} / {:.1} GB", used_mb / 1024.0, total_mb / 1024.0));
-                            } else {
-                                ui.strong(format!("{:.0} / {:.0} MB", used_mb, total_mb));
-                            }
+                            ui.label("GPU:");
+                            ui.strong(&gpu_info.name);
                         });
-                    }
 
-                    if let Some(temp) = gpu_info.temperature {
                         ui.horizontal(|ui| {
-                            ui.label("Temperature:");
-                            let temp_color = if temp < 70 {
-                                ThemePalette::STATUS_HEALTHY
-                            } else if temp < 85 {
-                                ThemePalette::STATUS_WARNING
-                            } else {
-                                ThemePalette::STATUS_CRITICAL
-                            };
-                            ui.colored_label(temp_color, format!("🌡️ {}°C", temp));
+                            ui.label("Utilization:");
+                            let color = get_usage_color(gpu_info.utilization);
+                            ui.colored_label(color, format!("{:.1}%", gpu_info.utilization));
                         });
-                    }
-                });
+
+                        if let (Some(used), Some(total)) = (gpu_info.memory_used, gpu_info.memory_total) {
+                            ui.horizontal(|ui| {
+                                ui.label("VRAM:");
+                                let used_mb = bytes_to_mb(used);
+                                let total_mb = bytes_to_mb(total);
+                                if total_mb >= 1024.0 {
+                                    ui.strong(format!("{:.1} / {:.1} GB", used_mb / 1024.0, total_mb / 1024.0));
+                                } else {
+                                    ui.strong(format!("{:.0} / {:.0} MB", used_mb, total_mb));
+                                }
+                            });
+                        }
+
+                        if let Some(temp) = gpu_info.temperature {
+                            ui.horizontal(|ui| {
+                                ui.label("Temperature:");
+                                let temp_color = if temp < 70 {
+                                    ThemePalette::STATUS_HEALTHY
+                                } else if temp < 85 {
+                                    ThemePalette::STATUS_WARNING
+                                } else {
+                                    ThemePalette::STATUS_CRITICAL
+                                };
+                                ui.colored_label(temp_color, format!("🌡️ {}°C", temp));
+                            });
+                        }
+                    });
+                }
             }
 
             ui.add_space(10.0);
@@ -4136,7 +4351,7 @@ impl SystemMonitorApp {
             });
         });
     }
-    fn show_about_tab(&self, ui: &mut egui::Ui) {
+    fn show_about_tab(&self, ui: &mut egui::Ui, _data: &SystemData) {
         paint_section_header(ui, "About");
 
         egui::ScrollArea::vertical().show(ui, |ui| {
