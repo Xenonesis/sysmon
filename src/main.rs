@@ -1145,6 +1145,8 @@ struct SystemMonitorApp {
     ram_cleaner_state: RamCleanerState,
     startup_items: Vec<StartupItem>,
     startup_items_loaded: bool,
+    startup_items_loading: bool,
+    startup_items_share: Arc<Mutex<Option<Vec<StartupItem>>>>,
     startup_search: String,
     startup_sort: StartupSortColumn,
     startup_sort_ascending: bool,
@@ -1154,6 +1156,7 @@ struct SystemMonitorApp {
     startup_show_confirm: Option<usize>,
     boot_diagnostics: Option<BootDiagnostics>,
     boot_diagnostics_loaded: bool,
+    boot_diagnostics_share: Arc<Mutex<Option<BootDiagnostics>>>,
     show_shortcuts: bool,
     suspend_process_pid: Option<u32>,
     resume_process_pid: Option<u32>,
@@ -1191,6 +1194,56 @@ impl SystemMonitorApp {
 
         // Load settings
         let settings = AppSettings::load();
+
+        // Load Windows system fonts at runtime to support all standard symbols and checkmarks
+        #[cfg(target_os = "windows")]
+        {
+            let mut fonts = egui::FontDefinitions::default();
+            let mut proportional_loaded = false;
+            let mut monospace_loaded = false;
+
+            // Load Segoe UI for standard proportional text
+            let font_paths = [
+                "C:\\Windows\\Fonts\\segoeui.ttf",
+                "C:\\Windows\\Fonts\\SegoeUI.ttf",
+            ];
+            for path in &font_paths {
+                if let Ok(font_bytes) = std::fs::read(path) {
+                    fonts.font_data.insert(
+                        "segoe_ui".to_owned(),
+                        egui::FontData::from_owned(font_bytes),
+                    );
+                    fonts.families.entry(egui::FontFamily::Proportional)
+                        .or_default()
+                        .insert(0, "segoe_ui".to_owned());
+                    proportional_loaded = true;
+                    break;
+                }
+            }
+
+            // Load Consolas for monospace text
+            let mono_paths = [
+                "C:\\Windows\\Fonts\\consola.ttf",
+                "C:\\Windows\\Fonts\\Consola.ttf",
+            ];
+            for path in &mono_paths {
+                if let Ok(font_bytes) = std::fs::read(path) {
+                    fonts.font_data.insert(
+                        "consolas".to_owned(),
+                        egui::FontData::from_owned(font_bytes),
+                    );
+                    fonts.families.entry(egui::FontFamily::Monospace)
+                        .or_default()
+                        .insert(0, "consolas".to_owned());
+                    monospace_loaded = true;
+                    break;
+                }
+            }
+
+            if proportional_loaded || monospace_loaded {
+                cc.egui_ctx.set_fonts(fonts);
+            }
+        }
 
         // Configure fonts and style
         let mut style = (*cc.egui_ctx.style()).clone();
@@ -1542,6 +1595,8 @@ impl SystemMonitorApp {
             },
             startup_items: Vec::new(),
             startup_items_loaded: false,
+            startup_items_loading: false,
+            startup_items_share: Arc::new(Mutex::new(None)),
             startup_search: String::new(),
             startup_sort: StartupSortColumn::Impact,
             startup_sort_ascending: true,
@@ -1551,6 +1606,7 @@ impl SystemMonitorApp {
             startup_show_confirm: None,
             boot_diagnostics: None,
             boot_diagnostics_loaded: false,
+            boot_diagnostics_share: Arc::new(Mutex::new(None)),
             show_shortcuts: false,
             suspend_process_pid: None,
             resume_process_pid: None,
@@ -1887,7 +1943,7 @@ impl eframe::App for SystemMonitorApp {
         let mut show_export_csv = self.show_export_csv;
         if show_export_csv {
             let csv_result = self.export_to_csv(&data);
-            egui::Window::new("📊 Export to CSV")
+            egui::Window::new("Export to CSV")
                 .open(&mut show_export_csv)
                 .resizable(true)
                 .default_width(500.0)
@@ -1905,12 +1961,12 @@ impl eframe::App for SystemMonitorApp {
                             });
 
                             ui.add_space(5.0);
-                            if ui.button("📋 Copy to Clipboard").clicked() {
+                            if ui.button("Copy to Clipboard").clicked() {
                                 ui.output_mut(|o| o.copied_text = csv_data.clone());
                             }
 
                             ui.add_space(5.0);
-                            ui.label("💡 Tip: Open in Excel or any spreadsheet application");
+                            ui.label("Tip: Open in Excel or any spreadsheet application");
                         }
                         Err(e) => {
                             ui.colored_label(egui::Color32::RED, format!("Error: {}", e));
@@ -1924,7 +1980,7 @@ impl eframe::App for SystemMonitorApp {
         let mut show_export = self.show_export;
         if show_export {
             let json_result = self.export_data_to_json(&data);
-            egui::Window::new("💾 Export Data")
+            egui::Window::new("Export Data")
                 .open(&mut show_export)
                 .resizable(true)
                 .default_width(500.0)
@@ -1942,12 +1998,12 @@ impl eframe::App for SystemMonitorApp {
                             });
 
                             ui.add_space(5.0);
-                            if ui.button("📋 Copy to Clipboard").clicked() {
+                            if ui.button("Copy to Clipboard").clicked() {
                                 ui.output_mut(|o| o.copied_text = json_data.clone());
                             }
 
                             ui.add_space(5.0);
-                            ui.label("💡 Tip: You can paste this into a .json file");
+                            ui.label("Tip: You can paste this into a .json file");
                         }
                         Err(e) => {
                             ui.colored_label(egui::Color32::RED, format!("Error: {}", e));
@@ -1961,7 +2017,7 @@ impl eframe::App for SystemMonitorApp {
         let mut show_alerts = self.show_alerts;
         let mut clear_alerts = false;
         if show_alerts {
-            egui::Window::new("🚨 System Alerts")
+            egui::Window::new("System Alerts")
                 .open(&mut show_alerts)
                 .resizable(true)
                 .default_width(600.0)
@@ -1976,11 +2032,11 @@ impl eframe::App for SystemMonitorApp {
                             for alert in &data.alerts {
                                 ui.group(|ui| {
                                     let (icon, color) = match alert.alert_type {
-                                        AlertType::CpuHigh => ("⚡", egui::Color32::YELLOW),
-                                        AlertType::MemoryHigh => ("💾", egui::Color32::YELLOW),
-                                        AlertType::GpuTempHigh => ("🔥", egui::Color32::RED),
-                                        AlertType::DiskSpaceLow => ("💽", egui::Color32::RED),
-                                        AlertType::StartupHighImpact => ("🚀", egui::Color32::YELLOW),
+                                        AlertType::CpuHigh => ("CPU", egui::Color32::YELLOW),
+                                        AlertType::MemoryHigh => ("RAM", egui::Color32::YELLOW),
+                                        AlertType::GpuTempHigh => ("GPU", egui::Color32::RED),
+                                        AlertType::DiskSpaceLow => ("DISK", egui::Color32::RED),
+                                        AlertType::StartupHighImpact => ("STARTUP", egui::Color32::YELLOW),
                                     };
 
                                     ui.horizontal(|ui| {
@@ -1996,7 +2052,7 @@ impl eframe::App for SystemMonitorApp {
                         });
 
                         ui.separator();
-                        if ui.button("🗑️ Clear All Alerts").clicked() {
+                        if ui.button("Clear All Alerts").clicked() {
                             clear_alerts = true;
                         }
                     }
@@ -2061,16 +2117,16 @@ impl eframe::App for SystemMonitorApp {
                 
                 // Navigation Menu
                 let tabs = [
-                    (Tab::Overview, "📊  Overview"),
-                    (Tab::Performance, "📈  Performance"),
-                    (Tab::Processes, "⚙  Processes"),
-                    (Tab::CpuCores, "💻  CPU Cores"),
-                    (Tab::Storage, "💾  Storage"),
-                    (Tab::Network, "🌐  Network"),
-                    (Tab::Alerts, "🔔  Alerts"),
-                    (Tab::SystemInfo, "ℹ  System Info"),
-                    (Tab::RamCleaner, "♻  RAM Cleaner"),
-                    (Tab::StartupManager, "🚀  Startup Apps"),
+                    (Tab::Overview, "Overview"),
+                    (Tab::Performance, "Performance"),
+                    (Tab::Processes, "Processes"),
+                    (Tab::CpuCores, "CPU Cores"),
+                    (Tab::Storage, "Storage"),
+                    (Tab::Network, "Network"),
+                    (Tab::Alerts, "Alerts"),
+                    (Tab::SystemInfo, "System Info"),
+                    (Tab::RamCleaner, "RAM Cleaner"),
+                    (Tab::StartupManager, "Startup Apps"),
                 ];
 
                 ui.spacing_mut().item_spacing.y = 4.0;
@@ -2093,11 +2149,11 @@ impl eframe::App for SystemMonitorApp {
 
                 ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
                     ui.add_space(16.0);
-                    ui.label(egui::RichText::new(format!("🕒 {}", data.last_update)).size(11.0).color(ThemePalette::TEXT_DIMMED));
+                    ui.label(egui::RichText::new(format!("Updated: {}", data.last_update)).size(11.0).color(ThemePalette::TEXT_DIMMED));
                     ui.add_space(8.0);
-                    if ui.add_sized([ui.available_width(), 28.0], egui::Button::new("⚙  Settings")).clicked() { self.show_settings = true; }
+                    if ui.add_sized([ui.available_width(), 28.0], egui::Button::new("Settings")).clicked() { self.show_settings = true; }
                     ui.add_space(4.0);
-                    if ui.add_sized([ui.available_width(), 28.0], egui::Button::new("ℹ  About")).clicked() { self.selected_tab = Tab::About; }
+                    if ui.add_sized([ui.available_width(), 28.0], egui::Button::new("About")).clicked() { self.selected_tab = Tab::About; }
                 });
             });
 
@@ -2109,7 +2165,7 @@ impl eframe::App for SystemMonitorApp {
         // Keyboard Shortcuts dialog
         let mut show_shortcuts = self.show_shortcuts;
         if show_shortcuts {
-            egui::Window::new("⌨ Keyboard Shortcuts")
+            egui::Window::new("Keyboard Shortcuts")
                 .open(&mut show_shortcuts)
                 .resizable(false)
                 .default_width(400.0)
@@ -2136,7 +2192,7 @@ impl eframe::App for SystemMonitorApp {
         // Settings window
         if self.show_settings {
             let mut show_settings = self.show_settings;
-            egui::Window::new("⚙ Settings")
+            egui::Window::new("Settings")
                 .open(&mut show_settings)
                 .resizable(true)
                 .default_width(600.0)
@@ -2187,12 +2243,12 @@ impl eframe::App for SystemMonitorApp {
                         ui.add_space(8.0);
                         if !data.alerts.is_empty() {
                             let recent_alerts = data.alerts.len();
-                            let btn = ui.button(egui::RichText::new(format!("🔔 {} Alerts", recent_alerts)).color(ThemePalette::STATUS_WARNING));
+                            let btn = ui.button(egui::RichText::new(format!("{} Alerts", recent_alerts)).color(ThemePalette::STATUS_WARNING));
                             if btn.clicked() {
                                 self.selected_tab = Tab::Alerts;
                             }
                         } else {
-                            ui.label(egui::RichText::new("✓ All Good").color(ThemePalette::STATUS_HEALTHY));
+                            ui.label(egui::RichText::new("All Good").color(ThemePalette::STATUS_HEALTHY));
                         }
                     });
                 });
@@ -2220,11 +2276,14 @@ impl eframe::App for SystemMonitorApp {
 /// Section header with sleek gradient-like accent underline
 fn paint_section_header(ui: &mut egui::Ui, text: &str) {
     ui.add_space(4.0);
-    let r = ui.label(
-        egui::RichText::new(text)
-            .size(24.0)
-            .strong()
-            .color(ThemePalette::TEXT_PRIMARY),
+    let r = ui.add(
+        egui::Label::new(
+            egui::RichText::new(text)
+                .text_style(egui::TextStyle::Heading)
+                .strong()
+                .color(ThemePalette::TEXT_PRIMARY),
+        )
+        .wrap(false),
     );
     let y = r.rect.bottom() + 4.0;
 
@@ -2310,7 +2369,7 @@ impl SystemMonitorApp {
             ui.add_space(40.0);
             ui.vertical_centered(|ui| {
                 ui.label(
-                    egui::RichText::new("⏳ Collecting system data...")
+                    egui::RichText::new("Collecting system data...")
                         .size(18.0)
                         .color(ThemePalette::TEXT_SUBTITLE),
                 );
@@ -2415,7 +2474,7 @@ impl SystemMonitorApp {
                     ThemePalette::ACCENT_CYAN,
                     "NETWORK",
                     format_rate(net_total_rate),
-                    format!("↓ {}  ↑ {}", format_rate(net_download_rate), format_rate(net_upload_rate)),
+                    format!("D: {}  U: {}", format_rate(net_download_rate), format_rate(net_upload_rate)),
                     (net_total_rate / 10_000_000.0).clamp(0.0, 1.0) as f32,
                     net_c,
                 ),
@@ -2528,7 +2587,7 @@ impl SystemMonitorApp {
                             .size(10.0).color(ThemePalette::TEXT_DIMMED));
 
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.small_button("View All →").clicked() {
+                            if ui.small_button("View All >").clicked() {
                                 self.selected_tab = Tab::StartupManager;
                             }
                         });
@@ -2547,7 +2606,7 @@ impl SystemMonitorApp {
                             ui.colored_label(ThemePalette::STATUS_CRITICAL,
                                 format!("{} high-impact", high));
                         } else {
-                            ui.colored_label(ThemePalette::STATUS_HEALTHY, "✓ Healthy");
+                            ui.colored_label(ThemePalette::STATUS_HEALTHY, "Healthy");
                         }
                         ui.separator();
                         ui.label(egui::RichText::new(format!("{} startup items", total))
@@ -2729,9 +2788,9 @@ impl SystemMonitorApp {
 
         // Search box
         ui.horizontal(|ui| {
-            ui.label("🔍");
+            ui.label("Search:");
             ui.add(egui::TextEdit::singleline(&mut self.process_search).hint_text("Filter processes...").desired_width(200.0));
-            if ui.button("✖").clicked() {
+            if ui.button("x").clicked() {
                 self.process_search.clear();
             }
         });
@@ -2826,9 +2885,9 @@ impl SystemMonitorApp {
                     let sort_arrow = |col: ProcessSortColumn, current: ProcessSortColumn, asc: bool| -> &'static str {
                         if col == current {
                             if asc {
-                                " ▲"
+                                " ^"
                             } else {
-                                " ▼"
+                                " v"
                             }
                         } else {
                             ""
@@ -2920,10 +2979,10 @@ impl SystemMonitorApp {
 
                         // Action buttons
                         ui.horizontal(|ui| {
-                            if ui.small_button("📋").on_hover_text("Copy PID").clicked() {
+                            if ui.small_button("PID").on_hover_text("Copy PID").clicked() {
                                 ui.output_mut(|o| o.copied_text = process.pid.to_string());
                             }
-                            if ui.small_button("📄").on_hover_text("Copy Name").clicked() {
+                            if ui.small_button("Name").on_hover_text("Copy Name").clicked() {
                                 ui.output_mut(|o| o.copied_text = process.name.clone());
                             }
                         });
@@ -2948,7 +3007,7 @@ impl SystemMonitorApp {
 
                             // Warning icon for high usage
                             if disk.usage_percentage > 90.0 {
-                                ui.colored_label(egui::Color32::RED, "⚠️");
+                                ui.colored_label(egui::Color32::RED, "[!]");
                             }
                         });
                     });
@@ -2990,7 +3049,7 @@ impl SystemMonitorApp {
                         ui.colored_label(
                             egui::Color32::RED,
                             format!(
-                                "⚠️ Warning: Only {:.2} GB remaining!",
+                                "Warning: Only {:.2} GB remaining!",
                                 bytes_to_gb(disk.available_space)
                             ),
                         );
@@ -3022,7 +3081,7 @@ impl SystemMonitorApp {
 
                     // Download graph
                     ui.label(
-                        egui::RichText::new("▼ Download Rate (MB/s)")
+                        egui::RichText::new("Download Rate (MB/s)")
                             .size(12.0)
                             .color(ThemePalette::STATUS_HEALTHY),
                     );
@@ -3048,7 +3107,7 @@ impl SystemMonitorApp {
 
                     // Upload graph
                     ui.label(
-                        egui::RichText::new("▲ Upload Rate (MB/s)")
+                        egui::RichText::new("Upload Rate (MB/s)")
                             .size(12.0)
                             .color(ThemePalette::ACCENT_PRIMARY),
                     );
@@ -3090,7 +3149,7 @@ impl SystemMonitorApp {
                     ui.separator();
 
                     ui.horizontal(|ui| {
-                        ui.label("📥 Download Rate:");
+                        ui.label("Download Rate:");
                         let color = if network.received_rate > 10.0 {
                             ThemePalette::STATUS_CRITICAL
                         } else if network.received_rate > 1.0 {
@@ -3102,7 +3161,7 @@ impl SystemMonitorApp {
                     });
 
                     ui.horizontal(|ui| {
-                        ui.label("📤 Upload Rate:");
+                        ui.label("Upload Rate:");
                         let color = if network.transmitted_rate > 10.0 {
                             ThemePalette::STATUS_CRITICAL
                         } else if network.transmitted_rate > 1.0 {
@@ -3131,7 +3190,7 @@ impl SystemMonitorApp {
                 ui.add_space(20.0);
                 ui.horizontal(|ui| {
                     ui.add_space(20.0);
-                    ui.colored_label(egui::Color32::GREEN, "✅");
+                    ui.colored_label(egui::Color32::GREEN, "OK");
                     ui.heading("All Systems Normal");
                 });
                 ui.add_space(10.0);
@@ -3159,23 +3218,23 @@ impl SystemMonitorApp {
                 ));
                 ui.label("  • Disk usage > 90%");
                 ui.add_space(5.0);
-                if ui.button("⚙️ Configure Alert Thresholds").clicked() {
+                if ui.button("Configure Alert Thresholds").clicked() {
                     self.show_settings = true;
                 }
             });
         } else {
-            ui.label(format!("⚠️ {} active alert(s)", data.alerts.len()));
+            ui.label(format!("{} active alert(s)", data.alerts.len()));
             ui.add_space(10.0);
 
             egui::ScrollArea::vertical().show(ui, |ui| {
                 for (i, alert) in data.alerts.iter().enumerate() {
                     ui.group(|ui| {
                         let (icon, color, severity) = match alert.alert_type {
-                            AlertType::CpuHigh => ("⚡", egui::Color32::YELLOW, "WARNING"),
-                            AlertType::MemoryHigh => ("💾", egui::Color32::YELLOW, "WARNING"),
-                            AlertType::GpuTempHigh => ("🔥", egui::Color32::RED, "CRITICAL"),
-                            AlertType::DiskSpaceLow => ("💽", egui::Color32::RED, "CRITICAL"),
-                            AlertType::StartupHighImpact => ("🚀", egui::Color32::YELLOW, "INFO"),
+                            AlertType::CpuHigh => ("CPU", egui::Color32::YELLOW, "WARNING"),
+                            AlertType::MemoryHigh => ("RAM", egui::Color32::YELLOW, "WARNING"),
+                            AlertType::GpuTempHigh => ("GPU", egui::Color32::RED, "CRITICAL"),
+                            AlertType::DiskSpaceLow => ("DISK", egui::Color32::RED, "CRITICAL"),
+                            AlertType::StartupHighImpact => ("STARTUP", egui::Color32::YELLOW, "INFO"),
                         };
 
                         ui.horizontal(|ui| {
@@ -3204,7 +3263,7 @@ impl SystemMonitorApp {
             ui.separator();
 
             ui.horizontal(|ui| {
-                if ui.button("🗑️ Clear All Alerts").clicked() {
+                if ui.button("Clear All Alerts").clicked() {
                     {
                         let mut data = self.data.lock();
                         data.alerts.clear();
@@ -3212,7 +3271,7 @@ impl SystemMonitorApp {
                 }
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label("💡 Tip: Configure alert thresholds in Settings");
+                    ui.label("Tip: Configure alert thresholds in Settings");
                 });
             });
         }
@@ -3407,7 +3466,7 @@ impl SystemMonitorApp {
                         } else {
                             ThemePalette::STATUS_CRITICAL
                         };
-                        let icon = if battery.is_charging { "🔌" } else { "🔋" };
+                        let icon = if battery.is_charging { "AC" } else { "BAT" };
                         ui.colored_label(color, format!("{} {:.0}%", icon, battery.percentage));
                     });
 
@@ -3477,7 +3536,7 @@ impl SystemMonitorApp {
 
             // Summary statistics
             ui.group(|ui| {
-                ui.heading("📊 Core Statistics");
+                ui.heading("Core Statistics");
                 ui.separator();
 
                 let avg_usage: f32 = data.cpu_cores.iter().map(|c| c.usage).sum::<f32>() / data.cpu_cores.len() as f32;
@@ -3513,7 +3572,7 @@ impl SystemMonitorApp {
     fn show_process_manager_window(&mut self, ctx: &egui::Context, data: &SystemData) {
         let mut show = self.show_process_manager;
 
-        egui::Window::new("⚙️ Process Manager")
+        egui::Window::new("Process Manager")
             .open(&mut show)
             .resizable(true)
             .default_width(800.0)
@@ -3525,7 +3584,7 @@ impl SystemMonitorApp {
                 ui.horizontal(|ui| {
                     ui.label(format!("Total processes: {}", data.top_processes.len()));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button("🔄 Refresh").clicked() {
+                        if ui.button("Refresh").clicked() {
                             // Refresh happens automatically
                         }
                     });
@@ -3575,21 +3634,21 @@ impl SystemMonitorApp {
                                 ui.label(&process.status);
 
                                 ui.horizontal(|ui| {
-                                    if ui.small_button("🗑️").on_hover_text("Kill Process").clicked() {
+                                    if ui.small_button("Kill").on_hover_text("Kill Process").clicked() {
                                         self.selected_process_pid = Some(process.pid);
                                     }
                                     let is_suspended = self.suspended_pids.contains(&process.pid);
                                     if is_suspended {
-                                        if ui.small_button("▶️").on_hover_text("Resume Process").clicked() {
+                                        if ui.small_button("Resume").on_hover_text("Resume Process").clicked() {
                                             self.resume_process_pid = Some(process.pid);
                                         }
                                     } else {
-                                        if ui.small_button("⏸️").on_hover_text("Suspend Process").clicked() {
+                                        if ui.small_button("Suspend").on_hover_text("Suspend Process").clicked() {
                                             self.suspend_process_pid = Some(process.pid);
                                         }
                                     }
                                     // Priority menu
-                                    ui.menu_button("⚡", |ui| {
+                                    ui.menu_button("Priority", |ui| {
                                         ui.label("Set Priority:");
                                         for priority in &["High", "AboveNormal", "Normal", "BelowNormal", "Idle"] {
                                             if ui.button(*priority).clicked() {
@@ -3610,12 +3669,12 @@ impl SystemMonitorApp {
                 ui.separator();
                 ui.colored_label(
                     egui::Color32::YELLOW,
-                    "⚠️ Warning: Killing/suspending processes may cause system instability!",
+                    "Warning: Killing/suspending processes may cause system instability!",
                 );
                 if !self.suspended_pids.is_empty() {
                     ui.colored_label(
                         egui::Color32::from_rgb(255, 165, 0),
-                        format!("🔶 {} process(s) suspended", self.suspended_pids.len()),
+                        format!("{} process(s) suspended", self.suspended_pids.len()),
                     );
                 }
             });
@@ -3669,9 +3728,9 @@ impl SystemMonitorApp {
                 ui.add_space(5.0);
 
                 if privilege::is_app_elevated() {
-                    ui.colored_label(ThemePalette::STATUS_HEALTHY, "🛡️ Running as Administrator: Full memory cleaning enabled.");
+                    ui.colored_label(ThemePalette::STATUS_HEALTHY, "Running as Administrator: Full memory cleaning enabled.");
                 } else {
-                    ui.colored_label(ThemePalette::STATUS_WARNING, "⚠️ Standard Privileges: User processes only. Run as Admin to clean system memory.");
+                    ui.colored_label(ThemePalette::STATUS_WARNING, "Standard Privileges: User processes only. Run as Admin to clean system memory.");
                 }
                 ui.add_space(5.0);
 
@@ -3707,7 +3766,7 @@ impl SystemMonitorApp {
                 });
 
                 if is_cleaning {
-                    ui.colored_label(ThemePalette::ACCENT_PRIMARY, "⏳ Cleaning in progress...");
+                    ui.colored_label(ThemePalette::ACCENT_PRIMARY, "Cleaning in progress...");
                 }
             });
 
@@ -3775,14 +3834,53 @@ impl SystemMonitorApp {
         paint_section_header(ui, "Startup Programs");
 
         egui::ScrollArea::vertical().show(ui, |ui| {
-            // ── Load data lazily ──
-            if !self.startup_items_loaded {
-                self.startup_items = startup::get_startup_items();
-                self.startup_items_loaded = true;
+            // ── Load data lazily in a background thread ──
+            if !self.startup_items_loaded && !self.startup_items_loading {
+                self.startup_items_loading = true;
+                let ctx = ui.ctx().clone();
+                let startup_items_share = Arc::clone(&self.startup_items_share);
+                let boot_diagnostics_share = Arc::clone(&self.boot_diagnostics_share);
+                thread::spawn(move || {
+                    let items = startup::get_startup_items();
+                    let diag = startup::get_boot_diagnostics();
+                    {
+                        let mut share = startup_items_share.lock();
+                        *share = Some(items);
+                    }
+                    {
+                        let mut share = boot_diagnostics_share.lock();
+                        *share = diag;
+                    }
+                    ctx.request_repaint();
+                });
             }
-            if !self.boot_diagnostics_loaded {
-                self.boot_diagnostics = startup::get_boot_diagnostics();
+
+            // Sync loaded data to app state
+            let is_loading = {
+                let share = self.startup_items_share.lock();
+                if let Some(ref items) = *share {
+                    self.startup_items = items.clone();
+                    self.startup_items_loaded = true;
+                    self.startup_items_loading = false;
+                    false
+                } else {
+                    true
+                }
+            };
+
+            if let Some(ref diag) = *self.boot_diagnostics_share.lock() {
+                self.boot_diagnostics = Some(diag.clone());
                 self.boot_diagnostics_loaded = true;
+            }
+
+            if is_loading {
+                ui.add_space(20.0);
+                ui.horizontal(|ui| {
+                    ui.spinner();
+                    ui.add_space(8.0);
+                    ui.label(egui::RichText::new("Analyzing startup configuration...").strong().color(ThemePalette::TEXT_SECONDARY));
+                });
+                return;
             }
 
             // ── Header card with boot info ──
@@ -3793,6 +3891,8 @@ impl SystemMonitorApp {
                         if ui.button("🔄 Refresh").clicked() {
                             self.startup_items_loaded = false;
                             self.boot_diagnostics_loaded = false;
+                            *self.startup_items_share.lock() = None;
+                            *self.boot_diagnostics_share.lock() = None;
                             self.startup_show_confirm = None;
                         }
                     });
@@ -3841,7 +3941,7 @@ impl SystemMonitorApp {
             // ── Search & Filter toolbar ──
             ui.group(|ui| {
                 ui.horizontal(|ui| {
-                    ui.label("🔍");
+                    ui.label("Search:");
                     ui.add(egui::TextEdit::singleline(&mut self.startup_search)
                         .hint_text("Search by name, command, publisher...")
                         .desired_width(250.0));
@@ -3851,22 +3951,22 @@ impl SystemMonitorApp {
                     // Impact filter
                     egui::ComboBox::from_id_source("impact_filter")
                         .selected_text(match &self.startup_filter_impact {
-                            Some(ImpactTier::High) => "🔴 High",
-                            Some(ImpactTier::Medium) => "🟡 Medium",
-                            Some(ImpactTier::Low) => "🟢 Low",
+                            Some(ImpactTier::High) => "High",
+                            Some(ImpactTier::Medium) => "Medium",
+                            Some(ImpactTier::Low) => "Low",
                             _ => "Impact: All",
                         })
                         .show_ui(ui, |ui: &mut egui::Ui| {
                             if ui.selectable_label(self.startup_filter_impact.is_none(), "All").clicked() {
                                 self.startup_filter_impact = None;
                             }
-                            if ui.selectable_label(self.startup_filter_impact == Some(ImpactTier::High), "🔴 High").clicked() {
+                            if ui.selectable_label(self.startup_filter_impact == Some(ImpactTier::High), "High").clicked() {
                                 self.startup_filter_impact = Some(ImpactTier::High);
                             }
-                            if ui.selectable_label(self.startup_filter_impact == Some(ImpactTier::Medium), "🟡 Medium").clicked() {
+                            if ui.selectable_label(self.startup_filter_impact == Some(ImpactTier::Medium), "Medium").clicked() {
                                 self.startup_filter_impact = Some(ImpactTier::Medium);
                             }
-                            if ui.selectable_label(self.startup_filter_impact == Some(ImpactTier::Low), "🟢 Low").clicked() {
+                            if ui.selectable_label(self.startup_filter_impact == Some(ImpactTier::Low), "Low").clicked() {
                                 self.startup_filter_impact = Some(ImpactTier::Low);
                             }
                         });
@@ -3874,18 +3974,18 @@ impl SystemMonitorApp {
                     // Signed filter
                     egui::ComboBox::from_id_source("signed_filter")
                         .selected_text(match self.startup_filter_signed {
-                            Some(true) => "✅ Signed",
-                            Some(false) => "⚠️ Unsigned",
+                            Some(true) => "Signed",
+                            Some(false) => "Unsigned",
                             None => "Signed: All",
                         })
                         .show_ui(ui, |ui: &mut egui::Ui| {
                             if ui.selectable_label(self.startup_filter_signed.is_none(), "All").clicked() {
                                 self.startup_filter_signed = None;
                             }
-                            if ui.selectable_label(self.startup_filter_signed == Some(true), "✅ Signed").clicked() {
+                            if ui.selectable_label(self.startup_filter_signed == Some(true), "Signed").clicked() {
                                 self.startup_filter_signed = Some(true);
                             }
-                            if ui.selectable_label(self.startup_filter_signed == Some(false), "⚠️ Unsigned").clicked() {
+                            if ui.selectable_label(self.startup_filter_signed == Some(false), "Unsigned").clicked() {
                                 self.startup_filter_signed = Some(false);
                             }
                         });
@@ -3906,7 +4006,7 @@ impl SystemMonitorApp {
                     for (col, label) in &sorts {
                         let is_active = self.startup_sort == *col;
                         let text = if is_active {
-                            let arrow = if self.startup_sort_ascending { "▲" } else { "▼" };
+                            let arrow = if self.startup_sort_ascending { "^" } else { "v" };
                             format!("{} {}", label, arrow)
                         } else {
                             label.to_string()
@@ -4001,10 +4101,10 @@ impl SystemMonitorApp {
                         ui.horizontal(|ui| {
                             // Impact badge
                             let (badge_text, badge_color) = match item.impact_tier {
-                                ImpactTier::High => ("🔴 HIGH", ThemePalette::STATUS_CRITICAL),
-                                ImpactTier::Medium => ("🟡 MED", ThemePalette::STATUS_WARNING),
-                                ImpactTier::Low => ("🟢 LOW", ThemePalette::STATUS_HEALTHY),
-                                ImpactTier::Unknown => ("⚪ ?", ThemePalette::TEXT_DIMMED),
+                                ImpactTier::High => ("HIGH", ThemePalette::STATUS_CRITICAL),
+                                ImpactTier::Medium => ("MED", ThemePalette::STATUS_WARNING),
+                                ImpactTier::Low => ("LOW", ThemePalette::STATUS_HEALTHY),
+                                ImpactTier::Unknown => ("?", ThemePalette::TEXT_DIMMED),
                             };
                             ui.colored_label(badge_color,
                                 egui::RichText::new(badge_text).size(11.0).strong());
@@ -4038,14 +4138,14 @@ impl SystemMonitorApp {
                             }
                             match item.is_signed {
                                 Some(true) => { ui.colored_label(ThemePalette::STATUS_HEALTHY,
-                                    egui::RichText::new("✅ Signed").small()); }
+                                    egui::RichText::new("Signed").small()); }
                                 Some(false) => { ui.colored_label(ThemePalette::STATUS_CRITICAL,
-                                    egui::RichText::new("⚠️ Unsigned").small()); }
+                                    egui::RichText::new("Unsigned").small()); }
                                 None => {}
                             }
                             if !item.exe_exists && item.exe_path.is_some() {
                                 ui.colored_label(ThemePalette::STATUS_CRITICAL,
-                                    egui::RichText::new("❌ File missing").small());
+                                    egui::RichText::new("File missing").small());
                             }
                         });
 
@@ -4058,7 +4158,7 @@ impl SystemMonitorApp {
                                 Recommendation::Cleanup => ThemePalette::STATUS_CRITICAL,
                             };
                             ui.colored_label(rec_color,
-                                egui::RichText::new(format!("→ {}", item.recommendation.label()))
+                                egui::RichText::new(format!("> {}", item.recommendation.label()))
                                     .small().strong());
                             ui.label(egui::RichText::new(format!("— {}", item.reason))
                                 .small().color(ThemePalette::TEXT_LABEL_SUB));
@@ -4069,12 +4169,12 @@ impl SystemMonitorApp {
                             // Confirmation dialog
                             ui.horizontal(|ui| {
                                 ui.colored_label(ThemePalette::STATUS_WARNING,
-                                    egui::RichText::new(format!("⚠️ Disable \"{}\" from startup?", item.name)).strong());
-                                if ui.button("✅ Yes, disable").clicked() {
+                                    egui::RichText::new(format!("Disable \"{}\" from startup?", item.name)).strong());
+                                if ui.button("Yes, disable").clicked() {
                                     action = Some((idx, "disable"));
                                     self.startup_show_confirm = None;
                                 }
-                                if ui.button("❌ Cancel").clicked() {
+                                if ui.button("Cancel").clicked() {
                                     self.startup_show_confirm = None;
                                 }
                             });
@@ -4089,7 +4189,7 @@ impl SystemMonitorApp {
                                 // Disable/Enable button
                                 if item.enabled {
                                     ui.add_enabled_ui(can_modify && !is_keep, |ui| {
-                                        if ui.button("🚫 Disable").on_hover_text(
+                                        if ui.button("Disable").on_hover_text(
                                             if is_keep { "System component — disabling not recommended" }
                                             else if !can_modify { "Requires Administrator privileges" }
                                             else { "Disable this startup item (reversible)" }
@@ -4099,7 +4199,7 @@ impl SystemMonitorApp {
                                     });
                                 } else {
                                     ui.add_enabled_ui(can_modify, |ui| {
-                                        if ui.button("✅ Enable").on_hover_text(
+                                        if ui.button("Enable").on_hover_text(
                                             if !can_modify { "Requires Administrator privileges" }
                                             else { "Re-enable this startup item" }
                                         ).clicked() {
@@ -4112,26 +4212,26 @@ impl SystemMonitorApp {
                                 if let Some(ref path) = item.exe_path {
                                     if item.exe_exists {
                                         let path_clone = path.clone();
-                                        if ui.button("📂 Open").on_hover_text("Open file location in Explorer").clicked() {
+                                        if ui.button("Open").on_hover_text("Open file location in Explorer").clicked() {
                                             startup::open_file_location(&path_clone);
                                         }
                                     }
                                 }
 
                                 // Copy command
-                                if ui.button("📋 Copy").on_hover_text("Copy full command to clipboard").clicked() {
+                                if ui.button("Copy").on_hover_text("Copy full command to clipboard").clicked() {
                                     ui.output_mut(|o| o.copied_text = item.command.clone());
                                 }
 
                                 // Search online
                                 let name_clone = item.name.clone();
-                                if ui.button("🔍 Search").on_hover_text("Search online for info about this item").clicked() {
+                                if ui.button("Search").on_hover_text("Search online for info about this item").clicked() {
                                     startup::search_online(&name_clone);
                                 }
 
                                 // Remove button (permanent delete for HKCU/Startup Folder/HKLM/Task Scheduler items)
                                 if can_modify && !item.enabled {
-                                    if ui.button("🗑️ Remove").on_hover_text("Permanently remove this startup item").clicked() {
+                                    if ui.button("Remove").on_hover_text("Permanently remove this startup item").clicked() {
                                         action = Some((idx, "remove"));
                                     }
                                 }
@@ -4181,6 +4281,8 @@ impl SystemMonitorApp {
                         });
                         let _ = self.settings.save();
                         self.startup_items_loaded = false;
+                        *self.startup_items_share.lock() = None;
+                        *self.boot_diagnostics_share.lock() = None;
                     }
                 }
             }
@@ -4223,7 +4325,6 @@ impl SystemMonitorApp {
             ui.group(|ui| {
                 ui.set_width(ui.available_width());
                 ui.horizontal(|ui| {
-                    ui.colored_label(ThemePalette::ACCENT_PRIMARY, egui::RichText::new("⚙").strong().size(16.0));
                     ui.heading("General");
                 });
                 ui.add_space(8.0);
@@ -4267,7 +4368,6 @@ impl SystemMonitorApp {
             ui.group(|ui| {
                 ui.set_width(ui.available_width());
                 ui.horizontal(|ui| {
-                    ui.colored_label(ThemePalette::ACCENT_PRIMARY, egui::RichText::new("📊").strong().size(16.0));
                     ui.heading("Monitoring");
                 });
                 ui.add_space(8.0);
@@ -4296,7 +4396,6 @@ impl SystemMonitorApp {
             ui.group(|ui| {
                 ui.set_width(ui.available_width());
                 ui.horizontal(|ui| {
-                    ui.colored_label(ThemePalette::ACCENT_PRIMARY, egui::RichText::new("🔔").strong().size(16.0));
                     ui.heading("Alert Thresholds");
                 });
                 ui.add_space(8.0);
@@ -4333,7 +4432,6 @@ impl SystemMonitorApp {
                 ui.group(|ui| {
                     ui.set_width(ui.available_width());
                     ui.horizontal(|ui| {
-                        ui.colored_label(ThemePalette::ACCENT_PRIMARY, egui::RichText::new("⚙").strong().size(16.0));
                         ui.heading("Windows Integration");
                     });
                     ui.add_space(8.0);
