@@ -344,14 +344,24 @@ impl AppSettings {
 
 impl SystemMonitor {
     fn new() -> Self {
+        println!("DBG: SystemMonitor::new starting");
         let mut sys = System::new_all();
+        println!("DBG: sysinfo::System::new_all completed");
         sys.refresh_all();
+        println!("DBG: sysinfo::System::refresh_all completed");
 
         let disks = Disks::new_with_refreshed_list();
+        println!("DBG: sysinfo::Disks::new_with_refreshed_list completed");
         let networks = Networks::new_with_refreshed_list();
+        println!("DBG: sysinfo::Networks::new_with_refreshed_list completed");
 
         #[cfg(target_os = "windows")]
-        let nvml = Nvml::init().ok();
+        let nvml = {
+            println!("DBG: Initializing NVML");
+            let res = Nvml::init().ok();
+            println!("DBG: NVML init done: {}", res.is_some());
+            res
+        };
 
         // Probe which WMI GPU performance counter class name is available on this system.
         // Windows versions differ: some use "GPUPerformanceMonitors", others use "GPUPerformanceCounters".
@@ -1197,11 +1207,13 @@ enum Tab {
 
 impl SystemMonitorApp {
     fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        println!("DBG: SystemMonitorApp::new started");
         // Install image loaders for showing the logo
         egui_extras::install_image_loaders(&cc.egui_ctx);
 
         // Load settings
         let settings = AppSettings::load();
+        println!("DBG: Settings loaded successfully");
 
         // Load Windows system fonts at runtime to support all standard symbols and checkmarks
         #[cfg(target_os = "windows")]
@@ -1358,14 +1370,18 @@ impl SystemMonitorApp {
 
         cc.egui_ctx.set_style(style);
 
+        println!("DBG: Creating SystemData::default()");
         let data = Arc::new(Mutex::new(SystemData::default()));
         let data_clone = Arc::clone(&data);
         let shared_settings = Arc::new(Mutex::new(settings.clone()));
         let shared_settings_clone = Arc::clone(&shared_settings);
 
         // Background thread for monitoring
+        println!("DBG: Spawning background monitoring thread");
         thread::spawn(move || {
+            println!("DBG: Background monitoring thread started running");
             let mut monitor = SystemMonitor::new();
+            println!("DBG: SystemMonitor::new finished in background thread");
 
             // Get system info once (doesn't change)
             let system_info = monitor.get_system_info();
@@ -4943,11 +4959,17 @@ fn main() {
     };
 
     info!("Launching GUI window");
+    println!("DBG: Launching GUI window via eframe::run_native");
 
     let result = eframe::run_native(
         "System Monitor",
         options,
-        Box::new(|cc| Ok(Box::new(SystemMonitorApp::new(cc)))),
+        Box::new(|cc| {
+            println!("DBG: eframe application creator closure running");
+            let app = SystemMonitorApp::new(cc);
+            println!("DBG: SystemMonitorApp::new completed successfully");
+            Ok(Box::new(app))
+        }),
     );
 
     match result {
