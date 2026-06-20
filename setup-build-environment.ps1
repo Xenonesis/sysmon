@@ -23,12 +23,12 @@ function Test-Rust {
     try {
         $rustVersion = & rustc --version 2>$null
         if ($LASTEXITCODE -eq 0) {
-            Write-Host "✓ Rust is installed: $rustVersion" -ForegroundColor Green
+            Write-Host "[OK] Rust is installed: $rustVersion" -ForegroundColor Green
             return $true
         }
     }
     catch {}
-    Write-Host "✗ Rust is not installed" -ForegroundColor Red
+    Write-Host "[FAIL] Rust is not installed" -ForegroundColor Red
     return $false
 }
 
@@ -44,14 +44,14 @@ function Test-MinGW64 {
         if (Test-Path "$path\gcc.exe") {
             $gccVersion = & "$path\gcc.exe" --version 2>$null | Select-Object -First 1
             if ($gccVersion -match "x86_64") {
-                Write-Host "✓ MinGW64 found: $path" -ForegroundColor Green
+                Write-Host "[OK] MinGW64 found: $path" -ForegroundColor Green
                 Write-Host "  $gccVersion" -ForegroundColor Gray
                 return $path
             }
         }
     }
     
-    Write-Host "✗ MinGW64 (64-bit) not found" -ForegroundColor Yellow
+    Write-Host "[FAIL] MinGW64 (64-bit) not found" -ForegroundColor Yellow
     return $null
 }
 
@@ -68,12 +68,12 @@ function Test-MSVC {
     
     foreach ($path in $vsPaths) {
         if (Test-Path $path) {
-            Write-Host "✓ Visual Studio Build Tools found" -ForegroundColor Green
+            Write-Host "[OK] Visual Studio Build Tools found" -ForegroundColor Green
             return $true
         }
     }
     
-    Write-Host "✗ Visual Studio Build Tools not found" -ForegroundColor Yellow
+    Write-Host "[FAIL] Visual Studio Build Tools not found" -ForegroundColor Yellow
     return $false
 }
 
@@ -92,10 +92,10 @@ if ($CheckOnly) {
     Write-Host "Environment check complete." -ForegroundColor Cyan
     
     if ($hasRust -and ($mingw64Path -or $hasMSVC)) {
-        Write-Host "✓ Your system is ready to build!" -ForegroundColor Green
+        Write-Host "[OK] Your system is ready to build!" -ForegroundColor Green
         exit 0
     } else {
-        Write-Host "✗ Additional setup required" -ForegroundColor Yellow
+        Write-Host "[FAIL] Additional setup required" -ForegroundColor Yellow
         exit 1
     }
 }
@@ -161,7 +161,7 @@ Write-Host "Determining best build option..." -ForegroundColor Cyan
 Write-Host ""
 
 if ($hasMSVC) {
-    Write-Host "✓ MSVC Build Tools detected!" -ForegroundColor Green
+    Write-Host "[OK] MSVC Build Tools detected!" -ForegroundColor Green
     Write-Host "Configuring Rust to use MSVC toolchain..." -ForegroundColor Cyan
     
     rustup default stable-x86_64-pc-windows-msvc
@@ -172,7 +172,7 @@ if ($hasMSVC) {
     
     if ($LASTEXITCODE -eq 0) {
         Write-Host ""
-        Write-Host "✓ Build successful!" -ForegroundColor Green
+        Write-Host "[OK] Build successful!" -ForegroundColor Green
         Write-Host "Executable: target\release\system-monitor.exe" -ForegroundColor White
         Write-Host ""
         Write-Host "You can now run:" -ForegroundColor Cyan
@@ -181,13 +181,13 @@ if ($hasMSVC) {
     }
     else {
         Write-Host ""
-        Write-Host "✗ Build failed!" -ForegroundColor Red
+        Write-Host "[FAIL] Build failed!" -ForegroundColor Red
         Write-Host "Please check the errors above." -ForegroundColor Yellow
         exit 1
     }
 }
 elseif ($mingw64Path) {
-    Write-Host "✓ MinGW64 detected!" -ForegroundColor Green
+    Write-Host "[OK] MinGW64 detected!" -ForegroundColor Green
     Write-Host "Adding MinGW64 to PATH for this session..." -ForegroundColor Cyan
     
     $env:PATH = "$mingw64Path;$env:PATH"
@@ -199,7 +199,7 @@ elseif ($mingw64Path) {
     
     if ($LASTEXITCODE -eq 0) {
         Write-Host ""
-        Write-Host "✓ Build successful!" -ForegroundColor Green
+        Write-Host "[OK] Build successful!" -ForegroundColor Green
         Write-Host "Executable: target\release\system-monitor.exe" -ForegroundColor White
         Write-Host ""
         Write-Host "You can now run:" -ForegroundColor Cyan
@@ -208,7 +208,7 @@ elseif ($mingw64Path) {
     }
     else {
         Write-Host ""
-        Write-Host "✗ Build failed!" -ForegroundColor Red
+        Write-Host "[FAIL] Build failed!" -ForegroundColor Red
         Write-Host "Please check the errors above." -ForegroundColor Yellow
         exit 1
     }

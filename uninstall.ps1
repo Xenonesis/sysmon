@@ -23,9 +23,9 @@ Write-Host "Removing System Monitor..." -ForegroundColor Yellow
 if (Test-Path $InstallPath) {
     Write-Host "Removing installation directory..." -ForegroundColor Yellow
     Remove-Item -Path $InstallPath -Recurse -Force
-    Write-Host "  ✓ Installation directory removed" -ForegroundColor Green
+    Write-Host "  [OK] Installation directory removed" -ForegroundColor Green
 } else {
-    Write-Host "  ℹ Installation directory not found" -ForegroundColor Gray
+    Write-Host "  [INFO] Installation directory not found" -ForegroundColor Gray
 }
 
 # Remove desktop shortcut
@@ -33,9 +33,9 @@ $desktopShortcut = "$env:USERPROFILE\Desktop\System Monitor.lnk"
 if (Test-Path $desktopShortcut) {
     Write-Host "Removing desktop shortcut..." -ForegroundColor Yellow
     Remove-Item -Path $desktopShortcut -Force
-    Write-Host "  ✓ Desktop shortcut removed" -ForegroundColor Green
+    Write-Host "  [OK] Desktop shortcut removed" -ForegroundColor Green
 } else {
-    Write-Host "  ℹ Desktop shortcut not found" -ForegroundColor Gray
+    Write-Host "  [INFO] Desktop shortcut not found" -ForegroundColor Gray
 }
 
 # Remove Start Menu shortcut
@@ -43,9 +43,9 @@ $startMenuShortcut = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\System 
 if (Test-Path $startMenuShortcut) {
     Write-Host "Removing Start Menu shortcut..." -ForegroundColor Yellow
     Remove-Item -Path $startMenuShortcut -Force
-    Write-Host "  ✓ Start Menu shortcut removed" -ForegroundColor Green
+    Write-Host "  [OK] Start Menu shortcut removed" -ForegroundColor Green
 } else {
-    Write-Host "  ℹ Start Menu shortcut not found" -ForegroundColor Gray
+    Write-Host "  [INFO] Start Menu shortcut not found" -ForegroundColor Gray
 }
 
 Write-Host ""
