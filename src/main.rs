@@ -2077,7 +2077,7 @@ impl eframe::App for SystemMonitorApp {
                 for (tab, label) in tabs {
                     let is_selected = self.selected_tab == tab;
                     let text = if is_selected {
-                        egui::RichText::new(label).strong().color(ThemePalette::TEXT_PRIMARY)
+                        egui::RichText::new(label).strong().color(ThemePalette::BG_DEEPEST)
                     } else {
                         egui::RichText::new(label).color(ThemePalette::TEXT_SECONDARY)
                     };
