@@ -107,13 +107,13 @@ pub fn parse_exe_from_command(cmd: &str) -> Option<String> {
     // "C:\path\app.exe" --args
     if t.starts_with('"') {
         if let Some(end) = t[1..].find('"') {
-            let p = &t[1..=end];
+            let p = &t[1..end + 1];
             if !p.is_empty() { return Some(p.to_string()); }
         }
     }
 
     // rundll32 handling
-    let lower = t.to_lowercase();
+    let lower = t.to_ascii_lowercase();
     if lower.starts_with("rundll32") {
         let skip = if lower.starts_with("rundll32.exe") { 12 } else { 8 };
         let after = t[skip..].trim().trim_start_matches('"');
