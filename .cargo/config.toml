@@ -1,2 +1,0 @@
-# The windows subsystem is set via #![windows_subsystem = "windows"] in main.rs
-# Do NOT set /SUBSYSTEM:WINDOWS here as it breaks build scripts and proc-macros

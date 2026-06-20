@@ -75,6 +75,15 @@ fn main() {
 </assembly>
 "#);
 
+        // ── Fix: Auto-inject mingw64 into PATH for windres ──
+        let path = env::var("PATH").unwrap_or_default();
+        if !path.to_lowercase().contains("mingw64") {
+            env::set_var("PATH", format!("C:\\mingw64\\mingw64\\bin;{}", path));
+        }
+
+        // ── Fix: Point Rust compiler to the MinGW libraries for shlwapi ──
+        println!("cargo:rustc-link-search=native=C:\\mingw64\\mingw64\\x86_64-w64-mingw32\\lib");
+
         res.compile().expect("Failed to compile Windows resources");
     }
 }

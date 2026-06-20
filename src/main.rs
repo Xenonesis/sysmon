@@ -1275,7 +1275,24 @@ impl SystemMonitorApp {
 
             cc.egui_ctx.set_visuals(visuals);
         } else {
-            cc.egui_ctx.set_visuals(egui::Visuals::light());
+            let mut visuals = egui::Visuals::light();
+            // Clean, Apple-like light theme backgrounds
+            visuals.panel_fill = egui::Color32::from_rgb(245, 245, 247);
+            visuals.window_fill = egui::Color32::from_rgb(255, 255, 255);
+            visuals.extreme_bg_color = egui::Color32::from_rgb(235, 235, 240);
+            
+            // Accent overrides
+            visuals.selection.bg_fill = ThemePalette::ACCENT_PRIMARY;
+            visuals.selection.stroke = egui::Stroke::NONE;
+            
+            visuals.widgets.noninteractive.bg_fill = egui::Color32::from_rgb(250, 250, 250);
+            visuals.widgets.noninteractive.bg_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(220, 220, 225));
+            visuals.widgets.noninteractive.fg_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(40, 40, 45));
+            
+            visuals.window_rounding = egui::Rounding::same(8.0);
+            visuals.menu_rounding = egui::Rounding::same(8.0);
+
+            cc.egui_ctx.set_visuals(visuals);
         }
 
         cc.egui_ctx.set_style(style);
@@ -1993,10 +2010,15 @@ impl eframe::App for SystemMonitorApp {
             }
         }
 
+        let sidebar_frame = egui::Frame::none()
+            .fill(ThemePalette::BG_SURFACE)
+            .stroke(egui::Stroke::new(1.0, ThemePalette::BORDER_LIGHT));
+
         // Modern sleek SidePanel for navigation
         egui::SidePanel::left("sidebar_panel")
             .resizable(false)
             .exact_width(180.0)
+            .frame(sidebar_frame)
             .show(ctx, |ui| {
                 ui.add_space(16.0);
                 
@@ -2041,13 +2063,13 @@ impl eframe::App for SystemMonitorApp {
                 let tabs = [
                     (Tab::Overview, "📊  Overview"),
                     (Tab::Performance, "📈  Performance"),
-                    (Tab::Processes, "⚙️  Processes"),
+                    (Tab::Processes, "⚙  Processes"),
                     (Tab::CpuCores, "💻  CPU Cores"),
                     (Tab::Storage, "💾  Storage"),
                     (Tab::Network, "🌐  Network"),
                     (Tab::Alerts, "🔔  Alerts"),
-                    (Tab::SystemInfo, "ℹ️  System Info"),
-                    (Tab::RamCleaner, "🧹  RAM Cleaner"),
+                    (Tab::SystemInfo, "ℹ  System Info"),
+                    (Tab::RamCleaner, "♻  RAM Cleaner"),
                     (Tab::StartupManager, "🚀  Startup Apps"),
                 ];
 
@@ -2073,10 +2095,9 @@ impl eframe::App for SystemMonitorApp {
                     ui.add_space(16.0);
                     ui.label(egui::RichText::new(format!("🕒 {}", data.last_update)).size(11.0).color(ThemePalette::TEXT_DIMMED));
                     ui.add_space(8.0);
-                    ui.horizontal(|ui| {
-                        if ui.button("⚙️ Settings").clicked() { self.show_settings = true; }
-                        if ui.button("ℹ️ About").clicked() { self.selected_tab = Tab::About; }
-                    });
+                    if ui.add_sized([ui.available_width(), 28.0], egui::Button::new("⚙  Settings")).clicked() { self.show_settings = true; }
+                    ui.add_space(4.0);
+                    if ui.add_sized([ui.available_width(), 28.0], egui::Button::new("ℹ  About")).clicked() { self.selected_tab = Tab::About; }
                 });
             });
 
@@ -2127,8 +2148,14 @@ impl eframe::App for SystemMonitorApp {
         }
 
         // Global always-visible status bar header
+        let status_bar_frame = egui::Frame::none()
+            .fill(ctx.style().visuals.extreme_bg_color)
+            .inner_margin(egui::Margin::symmetric(16.0, 0.0))
+            .stroke(egui::Stroke::new(1.0, ctx.style().visuals.widgets.noninteractive.bg_stroke.color));
+
         egui::TopBottomPanel::top("global_status_bar")
             .exact_height(48.0)
+            .frame(status_bar_frame)
             .show(ctx, |ui| {
                 ui.horizontal_centered(|ui| {
                     ui.add_space(8.0);
@@ -2582,114 +2609,114 @@ impl SystemMonitorApp {
 
         egui::ScrollArea::vertical().show(ui, |ui| {
             if self.settings.show_graphs {
-                // CPU Graph
-                ui.group(|ui| {
-                    ui.label(
-                        egui::RichText::new("CPU Usage History")
-                            .size(15.0)
-                            .strong()
-                            .color(ThemePalette::ACCENT_PRIMARY),
-                    );
-                    let cpu_points: PlotPoints = data.cpu_history.iter().map(|p| [p.time, p.value]).collect();
-
-                    let line = Line::new(cpu_points).color(ThemePalette::ACCENT_PRIMARY);
-
-                    Plot::new("cpu_plot")
-                        .height(200.0)
-                        .allow_zoom(false)
-                        .allow_drag(false)
-                        .allow_scroll(false)
-                        .include_y(0.0)
-                        .include_y(100.0)
-                        .y_axis_label("CPU %")
-                        .show(ui, |plot_ui| {
-                            plot_ui.line(line);
-                        });
-                });
-
-                ui.add_space(10.0);
-
-                // Memory Graph
-                ui.group(|ui| {
-                    ui.label(
-                        egui::RichText::new("Memory Usage History")
-                            .size(15.0)
-                            .strong()
-                            .color(ThemePalette::STATUS_HEALTHY),
-                    );
-                    let mem_points: PlotPoints = data.memory_history.iter().map(|p| [p.time, p.value]).collect();
-
-                    let line = Line::new(mem_points).color(ThemePalette::STATUS_HEALTHY);
-
-                    Plot::new("memory_plot")
-                        .height(200.0)
-                        .allow_zoom(false)
-                        .allow_drag(false)
-                        .allow_scroll(false)
-                        .include_y(0.0)
-                        .include_y(100.0)
-                        .y_axis_label("Memory %")
-                        .show(ui, |plot_ui| {
-                            plot_ui.line(line);
-                        });
-                });
-
-                ui.add_space(10.0);
-
-                // GPU Graph
-                if !data.gpu_history.is_empty() {
-                    ui.group(|ui| {
+                ui.columns(2, |cols| {
+                    // CPU Graph
+                    cols[0].group(|ui| {
                         ui.label(
-                            egui::RichText::new("GPU Usage History")
+                            egui::RichText::new("CPU Usage History")
                                 .size(15.0)
                                 .strong()
-                                .color(ThemePalette::STATUS_WARNING),
+                                .color(ThemePalette::ACCENT_PRIMARY),
                         );
-                        let gpu_points: PlotPoints = data.gpu_history.iter().map(|p| [p.time, p.value]).collect();
+                        let cpu_points: PlotPoints = data.cpu_history.iter().map(|p| [p.time, p.value]).collect();
 
-                        let line = Line::new(gpu_points).color(ThemePalette::STATUS_WARNING);
+                        let line = Line::new(cpu_points).color(ThemePalette::ACCENT_PRIMARY);
 
-                        Plot::new("gpu_plot")
+                        Plot::new("cpu_plot")
                             .height(200.0)
                             .allow_zoom(false)
                             .allow_drag(false)
                             .allow_scroll(false)
                             .include_y(0.0)
                             .include_y(100.0)
-                            .y_axis_label("GPU %")
+                            .y_axis_label("CPU %")
                             .show(ui, |plot_ui| {
                                 plot_ui.line(line);
                             });
                     });
-                }
+
+                    // Memory Graph
+                    cols[1].group(|ui| {
+                        ui.label(
+                            egui::RichText::new("Memory Usage History")
+                                .size(15.0)
+                                .strong()
+                                .color(ThemePalette::STATUS_HEALTHY),
+                        );
+                        let mem_points: PlotPoints = data.memory_history.iter().map(|p| [p.time, p.value]).collect();
+
+                        let line = Line::new(mem_points).color(ThemePalette::STATUS_HEALTHY);
+
+                        Plot::new("memory_plot")
+                            .height(200.0)
+                            .allow_zoom(false)
+                            .allow_drag(false)
+                            .allow_scroll(false)
+                            .include_y(0.0)
+                            .include_y(100.0)
+                            .y_axis_label("Memory %")
+                            .show(ui, |plot_ui| {
+                                plot_ui.line(line);
+                            });
+                    });
+                });
 
                 ui.add_space(10.0);
 
-                // Disk I/O Graph
-                ui.group(|ui| {
-                    ui.label(
-                        egui::RichText::new("Disk I/O History")
-                            .size(15.0)
-                            .strong()
-                            .color(ThemePalette::TEXT_LABEL_SUB),
-                    );
-                    let read_points: PlotPoints = data.disk_read_history.iter().map(|p| [p.time, p.value]).collect();
-                    let write_points: PlotPoints = data.disk_write_history.iter().map(|p| [p.time, p.value]).collect();
+                ui.columns(2, |cols| {
+                    // GPU Graph
+                    if !data.gpu_history.is_empty() {
+                        cols[0].group(|ui| {
+                            ui.label(
+                                egui::RichText::new("GPU Usage History")
+                                    .size(15.0)
+                                    .strong()
+                                    .color(ThemePalette::STATUS_WARNING),
+                            );
+                            let gpu_points: PlotPoints = data.gpu_history.iter().map(|p| [p.time, p.value]).collect();
 
-                    let line_r = Line::new(read_points).name("Read MB/s").color(ThemePalette::STATUS_HEALTHY);
-                    let line_w = Line::new(write_points).name("Write MB/s").color(ThemePalette::STATUS_WARNING);
+                            let line = Line::new(gpu_points).color(ThemePalette::STATUS_WARNING);
 
-                    Plot::new("disk_plot")
-                        .height(200.0)
-                        .allow_zoom(false)
-                        .allow_drag(false)
-                        .allow_scroll(false)
-                        .legend(egui_plot::Legend::default())
-                        .y_axis_label("MB/s")
-                        .show(ui, |plot_ui| {
-                            plot_ui.line(line_r);
-                            plot_ui.line(line_w);
+                            Plot::new("gpu_plot")
+                                .height(200.0)
+                                .allow_zoom(false)
+                                .allow_drag(false)
+                                .allow_scroll(false)
+                                .include_y(0.0)
+                                .include_y(100.0)
+                                .y_axis_label("GPU %")
+                                .show(ui, |plot_ui| {
+                                    plot_ui.line(line);
+                                });
                         });
+                    }
+
+                    // Disk I/O Graph
+                    cols[1].group(|ui| {
+                        ui.label(
+                            egui::RichText::new("Disk I/O History")
+                                .size(15.0)
+                                .strong()
+                                .color(ThemePalette::TEXT_LABEL_SUB),
+                        );
+                        let read_points: PlotPoints = data.disk_read_history.iter().map(|p| [p.time, p.value]).collect();
+                        let write_points: PlotPoints = data.disk_write_history.iter().map(|p| [p.time, p.value]).collect();
+
+                        let line_r = Line::new(read_points).name("Read MB/s").color(ThemePalette::STATUS_HEALTHY);
+                        let line_w = Line::new(write_points).name("Write MB/s").color(ThemePalette::STATUS_WARNING);
+
+                        Plot::new("disk_plot")
+                            .height(200.0)
+                            .allow_zoom(false)
+                            .allow_drag(false)
+                            .allow_scroll(false)
+                            .legend(egui_plot::Legend::default())
+                            .y_axis_label("MB/s")
+                            .show(ui, |plot_ui| {
+                                plot_ui.line(line_r);
+                                plot_ui.line(line_w);
+                            });
+                    });
                 });
             } else {
                 ui.label("Performance graphs are disabled. Enable them in View menu.");
@@ -2870,15 +2897,15 @@ impl SystemMonitorApp {
                     // Processes
                     for process in &filtered_processes {
                         let memory_mb = bytes_to_mb(process.memory);
-                        let memory_color = if memory_mb > 500.0 {
-                            ThemePalette::STATUS_CRITICAL
-                        } else if memory_mb > 200.0 {
-                            ThemePalette::STATUS_WARNING
-                        } else {
-                            ThemePalette::STATUS_HEALTHY
-                        };
 
-                        ui.label(process.pid.to_string());
+                        let mut text_color = ui.visuals().text_color();
+                        if memory_mb > 500.0 || process.cpu_usage > 20.0 {
+                            text_color = ThemePalette::STATUS_CRITICAL;
+                        } else if memory_mb > 200.0 || process.cpu_usage > 10.0 {
+                            text_color = ThemePalette::STATUS_WARNING;
+                        }
+
+                        ui.label(egui::RichText::new(process.pid.to_string()).color(text_color));
 
                         let display_name = if process.name.chars().count() > 40 {
                             let truncated: String = process.name.chars().take(37).collect();
@@ -2886,10 +2913,10 @@ impl SystemMonitorApp {
                         } else {
                             process.name.clone()
                         };
-                        ui.label(display_name);
+                        ui.label(egui::RichText::new(display_name).color(text_color));
 
-                        ui.colored_label(memory_color, format!("{:.2} MB", memory_mb));
-                        ui.label(format!("{:.1}%", process.cpu_usage));
+                        ui.label(egui::RichText::new(format!("{:.2} MB", memory_mb)).color(text_color));
+                        ui.label(egui::RichText::new(format!("{:.1}%", process.cpu_usage)).color(text_color));
 
                         // Action buttons
                         ui.horizontal(|ui| {
