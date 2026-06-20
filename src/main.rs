@@ -2276,14 +2276,11 @@ impl eframe::App for SystemMonitorApp {
 /// Section header with sleek gradient-like accent underline
 fn paint_section_header(ui: &mut egui::Ui, text: &str) {
     ui.add_space(4.0);
-    let r = ui.add(
-        egui::Label::new(
-            egui::RichText::new(text)
-                .text_style(egui::TextStyle::Heading)
-                .strong()
-                .color(ThemePalette::TEXT_PRIMARY),
-        )
-        .wrap(false),
+    let r = ui.label(
+        egui::RichText::new(text)
+            .text_style(egui::TextStyle::Heading)
+            .strong()
+            .color(ThemePalette::TEXT_PRIMARY),
     );
     let y = r.rect.bottom() + 4.0;
 
