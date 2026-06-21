@@ -1,0 +1,303 @@
+﻿diff --git a/src/main.rs b/src/main.rs
+index 4cc6c2f..68b720e 100644
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -2109,7 +2109,7 @@ impl eframe::App for SystemMonitorApp {
+         // Keyboard Shortcuts dialog
+         let mut show_shortcuts = self.show_shortcuts;
+         if show_shortcuts {
+-            egui::Window::new("Γî¿∩╕Å Keyboard Shortcuts")
++            egui::Window::new("Γî¿ Keyboard Shortcuts")
+                 .open(&mut show_shortcuts)
+                 .resizable(false)
+                 .default_width(400.0)
+@@ -2136,7 +2136,7 @@ impl eframe::App for SystemMonitorApp {
+         // Settings window
+         if self.show_settings {
+             let mut show_settings = self.show_settings;
+-            egui::Window::new("ΓÜÖ∩╕Å Settings")
++            egui::Window::new("ΓÜÖ Settings")
+                 .open(&mut show_settings)
+                 .resizable(true)
+                 .default_width(600.0)
+@@ -2229,7 +2229,7 @@ fn paint_section_header(ui: &mut egui::Ui, text: &str) {
+     let y = r.rect.bottom() + 4.0;
+ 
+     // Modern thick rounded line highlight
+-    let underline_w = (r.rect.width()).min(80.0).max(36.0);
++    let underline_w = r.rect.width();
+     ui.painter().line_segment(
+         [egui::pos2(r.rect.left(), y), egui::pos2(r.rect.left() + underline_w, y)],
+         egui::Stroke::new(3.5, ThemePalette::ACCENT_PRIMARY),
+@@ -4216,13 +4216,18 @@ impl SystemMonitorApp {
+         paint_section_header(ui, "Application Settings");
+ 
+         egui::ScrollArea::vertical().show(ui, |ui| {
++            let mut changed = false;
++            let mut theme_changed = false;
++
++            // --- General Group ---
+             ui.group(|ui| {
+-                ui.heading("General");
++                ui.set_width(ui.available_width());
++                ui.horizontal(|ui| {
++                    ui.colored_label(ThemePalette::ACCENT_PRIMARY, egui::RichText::new("ΓÜÖ").strong().size(16.0));
++                    ui.heading("General");
++                });
+                 ui.add_space(8.0);
+ 
+-                let mut changed = false;
+-                let mut theme_changed = false;
+-
+                 ui.columns(2, |cols| {
+                     cols[0].vertical(|ui| {
+                         changed |= ui
+@@ -4255,59 +4260,84 @@ impl SystemMonitorApp {
+                             .changed();
+                     });
+                 });
++            });
++            ui.add_space(12.0);
+ 
+-                ui.add_space(10.0);
+-                ui.separator();
+-                ui.add_space(10.0);
+-
+-                ui.heading("Monitoring");
+-                ui.add_space(8.0);
++            // --- Monitoring Group ---
++            ui.group(|ui| {
++                ui.set_width(ui.available_width());
+                 ui.horizontal(|ui| {
+-                    ui.label("Data refresh interval (seconds):");
+-                    changed |= ui
+-                        .add(egui::Slider::new(&mut self.settings.refresh_interval, 1..=10))
+-                        .changed();
++                    ui.colored_label(ThemePalette::ACCENT_PRIMARY, egui::RichText::new("≡ƒôè").strong().size(16.0));
++                    ui.heading("Monitoring");
+                 });
++                ui.add_space(8.0);
++
++                egui::Grid::new("monitoring_grid")
++                    .num_columns(2)
++                    .spacing([24.0, 12.0])
++                    .min_col_width(200.0)
++                    .show(ui, |ui| {
++                        ui.label("Data refresh interval:");
++                        changed |= ui
++                            .add(egui::Slider::new(&mut self.settings.refresh_interval, 1..=10).suffix("s"))
++                            .changed();
++                        ui.end_row();
++
++                        ui.label("Number of processes to show:");
++                        changed |= ui
++                            .add(egui::Slider::new(&mut self.settings.process_count, 5..=100))
++                            .changed();
++                        ui.end_row();
++                    });
++            });
++            ui.add_space(12.0);
++
++            // --- Alert Thresholds Group ---
++            ui.group(|ui| {
++                ui.set_width(ui.available_width());
+                 ui.horizontal(|ui| {
+-                    ui.label("Number of processes to show:");
+-                    changed |= ui
+-                        .add(egui::Slider::new(&mut self.settings.process_count, 5..=100))
+-                        .changed();
++                    ui.colored_label(ThemePalette::ACCENT_PRIMARY, egui::RichText::new("≡ƒöö").strong().size(16.0));
++                    ui.heading("Alert Thresholds");
+                 });
++                ui.add_space(8.0);
+ 
+-                ui.add_space(10.0);
+-                ui.separator();
+-                ui.add_space(10.0);
++                egui::Grid::new("alert_thresholds_grid")
++                    .num_columns(2)
++                    .spacing([24.0, 12.0])
++                    .min_col_width(200.0)
++                    .show(ui, |ui| {
++                        ui.label("CPU Usage % Alert:");
++                        changed |= ui
++                            .add(egui::Slider::new(&mut self.settings.notification_cpu_threshold, 50.0..=100.0).suffix("%"))
++                            .changed();
++                        ui.end_row();
+ 
+-                ui.heading("Alert Thresholds");
+-                ui.add_space(8.0);
+-                changed |= ui
+-                    .add(
+-                        egui::Slider::new(&mut self.settings.notification_cpu_threshold, 50.0..=100.0)
+-                            .text("CPU Usage % Alert"),
+-                    )
+-                    .changed();
+-                changed |= ui
+-                    .add(
+-                        egui::Slider::new(&mut self.settings.notification_memory_threshold, 50.0..=100.0)
+-                            .text("Memory Usage % Alert"),
+-                    )
+-                    .changed();
+-                changed |= ui
+-                    .add(
+-                        egui::Slider::new(&mut self.settings.notification_temp_threshold, 60..=105)
+-                            .text("Temperature ┬░C Alert"),
+-                    )
+-                    .changed();
+-
+-                #[cfg(target_os = "windows")]
+-                {
+-                    ui.add_space(10.0);
+-                    ui.separator();
+-                    ui.add_space(10.0);
++                        ui.label("Memory Usage % Alert:");
++                        changed |= ui
++                            .add(egui::Slider::new(&mut self.settings.notification_memory_threshold, 50.0..=100.0).suffix("%"))
++                            .changed();
++                        ui.end_row();
+ 
+-                    ui.heading("Windows Integration");
++                        ui.label("Temperature ┬░C Alert:");
++                        changed |= ui
++                            .add(egui::Slider::new(&mut self.settings.notification_temp_threshold, 60..=105).suffix("┬░C"))
++                            .changed();
++                        ui.end_row();
++                    });
++            });
++            ui.add_space(12.0);
++
++            // --- Windows Integration Group ---
++            #[cfg(target_os = "windows")]
++            {
++                ui.group(|ui| {
++                    ui.set_width(ui.available_width());
++                    ui.horizontal(|ui| {
++                        ui.colored_label(ThemePalette::ACCENT_PRIMARY, egui::RichText::new("ΓÜÖ").strong().size(16.0));
++                        ui.heading("Windows Integration");
++                    });
+                     ui.add_space(8.0);
++
+                     if ui
+                         .checkbox(&mut self.settings.auto_start, "Start with Windows")
+                         .changed()
+@@ -4318,64 +4348,65 @@ impl SystemMonitorApp {
+                     changed |= ui
+                         .checkbox(&mut self.settings.minimize_to_tray, "Minimize to system tray on close")
+                         .changed();
+-                }
++                });
++                ui.add_space(12.0);
++            }
+ 
+-                if changed {
+-                    let _ = self.settings.save();
+-                    // Sync settings to the background thread
+-                    {
+-                        let mut shared = self.shared_settings.lock();
+-                        *shared = self.settings.clone();
+-                    }
++            if changed {
++                let _ = self.settings.save();
++                // Sync settings to the background thread
++                {
++                    let mut shared = self.shared_settings.lock();
++                    *shared = self.settings.clone();
+                 }
++            }
+ 
+-                // Apply theme change live
+-                if theme_changed {
+-                    if self.settings.theme_dark {
+-                        let mut visuals = egui::Visuals::dark();
+-                        visuals.panel_fill = ThemePalette::BG_DEEP;
+-                        visuals.window_fill = ThemePalette::BG_SURFACE;
+-                        visuals.extreme_bg_color = ThemePalette::BG_DEEPEST;
+-                        visuals.selection.bg_fill = ThemePalette::ACCENT_PRIMARY;
+-                        visuals.selection.stroke = egui::Stroke::new(1.0, ThemePalette::ACCENT_ACTIVE);
+-                        visuals.hyperlink_color = ThemePalette::ACCENT_PRIMARY;
+-                        visuals.widgets.noninteractive.bg_fill = ThemePalette::BG_CARD;
+-                        visuals.widgets.noninteractive.bg_stroke = egui::Stroke::new(1.0, ThemePalette::BORDER);
+-                        visuals.widgets.noninteractive.fg_stroke = egui::Stroke::new(1.0, ThemePalette::TEXT_PRIMARY);
+-                        visuals.widgets.inactive.bg_fill = ThemePalette::WIDGET_INACTIVE;
+-                        visuals.widgets.inactive.bg_stroke = egui::Stroke::new(1.0, ThemePalette::BORDER);
+-                        visuals.widgets.inactive.fg_stroke = egui::Stroke::new(1.0, ThemePalette::TEXT_SECONDARY);
+-                        visuals.widgets.hovered.bg_fill = ThemePalette::WIDGET_HOVERED;
+-                        visuals.widgets.hovered.bg_stroke = egui::Stroke::new(1.0, ThemePalette::BORDER_LIGHT);
+-                        visuals.widgets.hovered.fg_stroke = egui::Stroke::new(1.0, ThemePalette::TEXT_SELECTED);
+-                        visuals.widgets.active.bg_fill = ThemePalette::ACCENT_ACTIVE;
+-                        visuals.widgets.active.bg_stroke = egui::Stroke::new(1.0, ThemePalette::ACCENT_PRIMARY);
+-                        visuals.widgets.active.fg_stroke = egui::Stroke::new(1.0, ThemePalette::TEXT_SELECTED);
+-                        visuals.window_rounding = egui::Rounding::same(12.0);
+-                        visuals.menu_rounding = egui::Rounding::same(10.0);
+-                        visuals.widgets.noninteractive.rounding = egui::Rounding::same(8.0);
+-                        visuals.widgets.inactive.rounding = egui::Rounding::same(8.0);
+-                        visuals.widgets.hovered.rounding = egui::Rounding::same(8.0);
+-                        visuals.widgets.active.rounding = egui::Rounding::same(8.0);
+-                        visuals.window_stroke = egui::Stroke::new(1.0, ThemePalette::BORDER_LIGHT);
+-                        visuals.window_shadow = egui::epaint::Shadow {
+-                            offset: egui::vec2(0.0, 12.0),
+-                            blur: 32.0,
+-                            spread: -4.0,
+-                            color: egui::Color32::from_rgba_premultiplied(0, 0, 0, 180),
+-                        };
+-                        visuals.popup_shadow = egui::epaint::Shadow {
+-                            offset: egui::vec2(0.0, 8.0),
+-                            blur: 24.0,
+-                            spread: -2.0,
+-                            color: egui::Color32::from_rgba_premultiplied(0, 0, 0, 150),
+-                        };
+-                        ui.ctx().set_visuals(visuals);
+-                    } else {
+-                        ui.ctx().set_visuals(egui::Visuals::light());
+-                    }
++            // Apply theme change live
++            if theme_changed {
++                if self.settings.theme_dark {
++                    let mut visuals = egui::Visuals::dark();
++                    visuals.panel_fill = ThemePalette::BG_DEEP;
++                    visuals.window_fill = ThemePalette::BG_SURFACE;
++                    visuals.extreme_bg_color = ThemePalette::BG_DEEPEST;
++                    visuals.selection.bg_fill = ThemePalette::ACCENT_PRIMARY;
++                    visuals.selection.stroke = egui::Stroke::new(1.0, ThemePalette::ACCENT_ACTIVE);
++                    visuals.hyperlink_color = ThemePalette::ACCENT_PRIMARY;
++                    visuals.widgets.noninteractive.bg_fill = ThemePalette::BG_CARD;
++                    visuals.widgets.noninteractive.bg_stroke = egui::Stroke::new(1.0, ThemePalette::BORDER);
++                    visuals.widgets.noninteractive.fg_stroke = egui::Stroke::new(1.0, ThemePalette::TEXT_PRIMARY);
++                    visuals.widgets.inactive.bg_fill = ThemePalette::WIDGET_INACTIVE;
++                    visuals.widgets.inactive.bg_stroke = egui::Stroke::new(1.0, ThemePalette::BORDER);
++                    visuals.widgets.inactive.fg_stroke = egui::Stroke::new(1.0, ThemePalette::TEXT_SECONDARY);
++                    visuals.widgets.hovered.bg_fill = ThemePalette::WIDGET_HOVERED;
++                    visuals.widgets.hovered.bg_stroke = egui::Stroke::new(1.0, ThemePalette::BORDER_LIGHT);
++                    visuals.widgets.hovered.fg_stroke = egui::Stroke::new(1.0, ThemePalette::TEXT_SELECTED);
++                    visuals.widgets.active.bg_fill = ThemePalette::ACCENT_ACTIVE;
++                    visuals.widgets.active.bg_stroke = egui::Stroke::new(1.0, ThemePalette::ACCENT_PRIMARY);
++                    visuals.widgets.active.fg_stroke = egui::Stroke::new(1.0, ThemePalette::TEXT_SELECTED);
++                    visuals.window_rounding = egui::Rounding::same(12.0);
++                    visuals.menu_rounding = egui::Rounding::same(10.0);
++                    visuals.widgets.noninteractive.rounding = egui::Rounding::same(8.0);
++                    visuals.widgets.inactive.rounding = egui::Rounding::same(8.0);
++                    visuals.widgets.hovered.rounding = egui::Rounding::same(8.0);
++                    visuals.widgets.active.rounding = egui::Rounding::same(8.0);
++                    visuals.window_stroke = egui::Stroke::new(1.0, ThemePalette::BORDER_LIGHT);
++                    visuals.window_shadow = egui::epaint::Shadow {
++                        offset: egui::vec2(0.0, 12.0),
++                        blur: 32.0,
++                        spread: -4.0,
++                        color: egui::Color32::from_rgba_premultiplied(0, 0, 0, 180),
++                    };
++                    visuals.popup_shadow = egui::epaint::Shadow {
++                        offset: egui::vec2(0.0, 8.0),
++                        blur: 24.0,
++                        spread: -2.0,
++                        color: egui::Color32::from_rgba_premultiplied(0, 0, 0, 150),
++                    };
++                    ui.ctx().set_visuals(visuals);
++                } else {
++                    ui.ctx().set_visuals(egui::Visuals::light());
+                 }
+-            });
++            }
+         });
+     }
+     fn show_about_tab(&self, ui: &mut egui::Ui, _data: &SystemData) {

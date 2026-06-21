@@ -1,0 +1,263 @@
+DBG: Launching GUI window via eframe::run_native
+DBG: eframe application creator closure running
+DBG: SystemMonitorApp::new started
+DBG: Settings loaded successfully
+DBG: Creating SystemData::default()
+DBG: Spawning background monitoring thread
+DBG: Background monitoring thread started running
+DBG: SystemMonitor::new starting, size of SystemMonitor=10208
+DBG: size of sysinfo::System=288
+DBG: SystemMonitorApp::new completed successfully
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: sysinfo::System::new_all completed
+DBG: sysinfo::System::refresh_all completed
+DBG: sysinfo::Disks::new_with_refreshed_list completed
+DBG: sysinfo::Networks::new_with_refreshed_list completed
+DBG: Initializing NVML
+DBG: update() function started running
+DBG: update() function started running
+DBG: NVML init done: true
+DBG: SystemMonitor::new finished in background thread
+DBG: monitor.get_system_info() completed
+DBG: background thread loop iteration starting
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: background thread loop iteration starting
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: background thread loop iteration starting
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: background thread loop iteration starting
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: background thread loop iteration starting
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: background thread loop iteration starting
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: background thread loop iteration starting
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: background thread loop iteration starting
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: background thread loop iteration starting
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: background thread loop iteration starting
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: background thread loop iteration starting
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: background thread loop iteration starting
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: background thread loop iteration starting
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: background thread loop iteration starting
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: background thread loop iteration starting
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: background thread loop iteration starting
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: background thread loop iteration starting
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: background thread loop iteration starting
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: background thread loop iteration starting
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: background thread loop iteration starting
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: background thread loop iteration starting
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: background thread loop iteration starting
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: background thread loop iteration starting
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: background thread loop iteration starting
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: background thread loop iteration starting
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: background thread loop iteration starting
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: background thread loop iteration starting
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: background thread loop iteration starting
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: background thread loop iteration starting
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: background thread loop iteration starting
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: background thread loop iteration starting
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: background thread loop iteration starting
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: background thread loop iteration starting
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: background thread loop iteration starting
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: background thread loop iteration starting
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: background thread loop iteration starting
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: update() function started running
+DBG: background thread loop iteration starting
+DBG: update() function started running

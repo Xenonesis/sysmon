@@ -11,6 +11,20 @@ use rfd::FileDialog;
 
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 
+macro_rules! eprintln {
+    ($($arg:tt)*) => {{
+        if let Ok(mut file) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open("c:\\Users\\Acer\\Desktop\\sysmon\\dbg.txt")
+        {
+            use std::io::Write;
+            let _ = writeln!(file, $($arg)*);
+            let _ = file.sync_all();
+        }
+    }};
+}
+
 struct ThemePalette;
 impl ThemePalette {
     // Primary Vibrant Accents -> Muted Minimalist Primary
@@ -344,7 +358,8 @@ impl AppSettings {
 
 impl SystemMonitor {
     fn new() -> Self {
-        eprintln!("DBG: SystemMonitor::new starting");
+        eprintln!("DBG: SystemMonitor::new starting, size of SystemMonitor={}", std::mem::size_of::<SystemMonitor>());
+        eprintln!("DBG: size of sysinfo::System={}", std::mem::size_of::<System>());
         let mut sys = System::new_all();
         eprintln!("DBG: sysinfo::System::new_all completed");
         sys.refresh_all();
@@ -1378,18 +1393,23 @@ impl SystemMonitorApp {
 
         // Background thread for monitoring
         eprintln!("DBG: Spawning background monitoring thread");
-        thread::spawn(move || {
-            eprintln!("DBG: Background monitoring thread started running");
+        thread::Builder::new()
+            .name("monitoring".to_string())
+            .stack_size(8 * 1024 * 1024)
+            .spawn(move || {
+                eprintln!("DBG: Background monitoring thread started running");
             let mut monitor = SystemMonitor::new();
             eprintln!("DBG: SystemMonitor::new finished in background thread");
 
             // Get system info once (doesn't change)
             let system_info = monitor.get_system_info();
+            eprintln!("DBG: monitor.get_system_info() completed");
             let mut battery_check_counter: u32 = 0;
             let mut last_alert_time: std::collections::HashMap<AlertType, Instant> = std::collections::HashMap::new();
             let mut last_hidden_tick = Instant::now();
 
             loop {
+                eprintln!("DBG: background thread loop iteration starting");
                 thread::sleep(Duration::from_millis(500));
 
                 // Read hidden status and current tab
@@ -1657,7 +1677,7 @@ impl SystemMonitorApp {
                     thread::sleep(Duration::from_millis(sleep_ms));
                 }
             }
-        });
+        }).expect("failed to spawn monitoring thread");
 
         let mut tray_icon = None;
         let mut tray_menu_show_id = None;
@@ -1851,6 +1871,7 @@ fn get_usage_color(percentage: f32) -> egui::Color32 {
 
 impl eframe::App for SystemMonitorApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        eprintln!("DBG: update() function started running");
         {
             let mut data = self.data.lock();
             data.is_hidden = self.is_hidden;
@@ -1892,14 +1913,18 @@ impl eframe::App for SystemMonitorApp {
             let mut updater = self.updater.clone();
             let ctx_clone = ctx.clone();
             let update_info_share = self.update_info_share.clone();
-            thread::spawn(move || {
-                if let Ok(update_info) = updater.check_for_updates() {
-                    *update_info_share.lock() = Some(update_info.clone());
-                    if update_info.update_available {
-                        ctx_clone.request_repaint();
+            thread::Builder::new()
+                .name("auto_updater_check".to_string())
+                .stack_size(8 * 1024 * 1024)
+                .spawn(move || {
+                    if let Ok(update_info) = updater.check_for_updates() {
+                        *update_info_share.lock() = Some(update_info.clone());
+                        if update_info.update_available {
+                            ctx_clone.request_repaint();
+                        }
                     }
-                }
-            });
+                })
+                .expect("failed to spawn auto updater check thread");
             self.update_check_time = Some(Instant::now());
         }
 
@@ -1923,11 +1948,15 @@ impl eframe::App for SystemMonitorApp {
                     ));
                     if ui.button("⬇️ Download & Install").clicked() {
                         let download_url = update_info.download_url.clone();
-                        thread::spawn(move || {
-                            if let Err(e) = updater::Updater::new().download_and_install_update(&download_url) {
-                                eprintln!("Update failed: {}", e);
-                            }
-                        });
+                        thread::Builder::new()
+                            .name("updater_downloader".to_string())
+                            .stack_size(8 * 1024 * 1024)
+                            .spawn(move || {
+                                if let Err(e) = updater::Updater::new().download_and_install_update(&download_url) {
+                                    eprintln!("Update failed: {}", e);
+                                }
+                            })
+                            .expect("failed to spawn updater downloader thread");
                     }
                     if ui.button("✖").clicked() {
                         self.show_update_notification = false;
@@ -1960,12 +1989,16 @@ impl eframe::App for SystemMonitorApp {
                 let mut updater = self.updater.clone();
                 let update_info_share = self.update_info_share.clone();
                 let ctx_clone = ctx.clone();
-                thread::spawn(move || {
-                    if let Ok(update_info) = updater.check_for_updates() {
-                        *update_info_share.lock() = Some(update_info);
-                        ctx_clone.request_repaint();
-                    }
-                });
+                thread::Builder::new()
+                    .name("manual_updater_check".to_string())
+                    .stack_size(8 * 1024 * 1024)
+                    .spawn(move || {
+                        if let Ok(update_info) = updater.check_for_updates() {
+                            *update_info_share.lock() = Some(update_info);
+                            ctx_clone.request_repaint();
+                        }
+                    })
+                    .expect("failed to spawn manual updater check thread");
             }
         });
 
@@ -2052,18 +2085,22 @@ impl eframe::App for SystemMonitorApp {
                 let data_arc = Arc::clone(&self.data);
                 let ctx_clone = ctx.clone();
                 let enable_sounds = self.settings.enable_sounds;
-                thread::spawn(move || {
-                    let mut monitor = SystemMonitor::new();
-                    let freed = monitor.clean_ram();
-                    if enable_sounds { play_success_sound(); }
-                    // Store freed bytes in SystemData for the UI to pick up
-                    {
-                        let mut d = data_arc.lock();
-                        d.ram_clean_freed_bytes += freed;
-                        d.ram_clean_is_cleaning = false;
-                    }
-                    ctx_clone.request_repaint();
-                });
+                thread::Builder::new()
+                    .name("ram_cleaner_auto".to_string())
+                    .stack_size(8 * 1024 * 1024)
+                    .spawn(move || {
+                        let mut monitor = SystemMonitor::new();
+                        let freed = monitor.clean_ram();
+                        if enable_sounds { play_success_sound(); }
+                        // Store freed bytes in SystemData for the UI to pick up
+                        {
+                            let mut d = data_arc.lock();
+                            d.ram_clean_freed_bytes += freed;
+                            d.ram_clean_is_cleaning = false;
+                        }
+                        ctx_clone.request_repaint();
+                    })
+                    .expect("failed to spawn auto ram cleaner thread");
                 // Mark cleaning in shared data too
                 {
                     let mut d = self.data.lock();
@@ -3915,17 +3952,21 @@ impl SystemMonitorApp {
                         let data_arc = Arc::clone(&self.data);
                         let ctx_clone = ui.ctx().clone();
                         let enable_sounds = self.settings.enable_sounds;
-                        thread::spawn(move || {
-                            let mut monitor = SystemMonitor::new();
-                            let freed = monitor.clean_ram();
-                            if enable_sounds { play_success_sound(); }
-                            {
-                                let mut d = data_arc.lock();
-                                d.ram_clean_freed_bytes += freed;
-                                d.ram_clean_is_cleaning = false;
-                            }
-                            ctx_clone.request_repaint();
-                        });
+                        thread::Builder::new()
+                            .name("ram_cleaner_manual".to_string())
+                            .stack_size(8 * 1024 * 1024)
+                            .spawn(move || {
+                                let mut monitor = SystemMonitor::new();
+                                let freed = monitor.clean_ram();
+                                if enable_sounds { play_success_sound(); }
+                                {
+                                    let mut data = data_arc.lock();
+                                    data.ram_clean_freed_bytes += freed;
+                                    data.ram_clean_is_cleaning = false;
+                                }
+                                ctx_clone.request_repaint();
+                            })
+                            .expect("failed to spawn manual ram cleaner thread");
                         {
                             let mut d = self.data.lock();
                             d.ram_clean_is_cleaning = true;
@@ -4008,19 +4049,23 @@ impl SystemMonitorApp {
                 let ctx = ui.ctx().clone();
                 let startup_items_share = Arc::clone(&self.startup_items_share);
                 let boot_diagnostics_share = Arc::clone(&self.boot_diagnostics_share);
-                thread::spawn(move || {
-                    let items = startup::get_startup_items();
-                    let diag = startup::get_boot_diagnostics();
-                    {
-                        let mut share = startup_items_share.lock();
-                        *share = Some(items);
-                    }
-                    {
-                        let mut share = boot_diagnostics_share.lock();
-                        *share = diag;
-                    }
-                    ctx.request_repaint();
-                });
+                thread::Builder::new()
+                    .name("startup_loader".to_string())
+                    .stack_size(8 * 1024 * 1024)
+                    .spawn(move || {
+                        let items = startup::get_startup_items();
+                        let diag = startup::get_boot_diagnostics();
+                        {
+                            let mut share = startup_items_share.lock();
+                            *share = Some(items);
+                        }
+                        {
+                            let mut share = boot_diagnostics_share.lock();
+                            *share = diag;
+                        }
+                        ctx.request_repaint();
+                    })
+                    .expect("failed to spawn startup loader thread");
             }
 
             // Sync loaded data to app state
