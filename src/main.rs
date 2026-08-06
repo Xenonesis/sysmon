@@ -231,6 +231,8 @@ struct AppSettings {
     auto_clear_alerts: bool,
     auto_start: bool,
     start_minimized: bool,
+    #[serde(default = "default_show_cpu_cores")]
+    show_cpu_cores: bool,
     minimize_to_tray: bool,
     #[serde(default = "default_auto_ram_clean")]
     auto_ram_clean: bool,
@@ -242,12 +244,22 @@ struct AppSettings {
     startup_optimization_history: Vec<StartupOptimizationEntry>,
     #[serde(default)]
     last_boot_diagnostics: Option<BootDiagnostics>,
+    #[serde(default = "default_auto_clean_interval")]
+    auto_clean_interval: u64,
+}
+
+fn default_auto_clean_interval() -> u64 {
+    300
 }
 
 fn default_enable_sounds() -> bool {
     true
 }
 
+
+fn default_show_cpu_cores() -> bool {
+    true
+}
 fn default_auto_ram_clean() -> bool {
     false
 }
@@ -302,6 +314,8 @@ impl Default for AppSettings {
             enable_sounds: true,
             startup_optimization_history: Vec::new(),
             last_boot_diagnostics: None,
+            auto_clean_interval: 300,
+            show_cpu_cores: true,
         }
     }
 }
@@ -484,8 +498,8 @@ impl SystemMonitor {
             .collect()
     }
 
-    #[allow(dead_code)]
     fn kill_process(&mut self, pid: u32) -> bool {
+        self.sys.refresh_processes();
         if let Some(process) = self.sys.process(Pid::from_u32(pid)) {
             let result = process.kill();
             if result {
@@ -1011,6 +1025,16 @@ impl SystemMonitor {
             }
         }
 
+        // Startup High Impact alert
+        if data.high_impact_startup_count > 0 {
+            alerts.push(AlertInfo {
+                timestamp: timestamp.clone(),
+                alert_type: AlertType::StartupHighImpact,
+                message: format!("{} startup item(s) have High impact on boot time", data.high_impact_startup_count),
+                value: data.high_impact_startup_count as f32,
+            });
+        }
+
         alerts
     }
 
@@ -1096,6 +1120,7 @@ struct SystemData {
     swap_info: SwapInfo,
     battery_info: Option<BatteryInfo>,
     network_sample_count: u32,
+    high_impact_startup_count: usize,
     ram_clean_freed_bytes: u64,
     ram_clean_is_cleaning: bool,
     disk_read_rate: f64,
@@ -1143,6 +1168,7 @@ impl Default for SystemData {
             },
             battery_info: None,
             network_sample_count: 0,
+            high_impact_startup_count: 0,
             ram_clean_freed_bytes: 0,
             ram_clean_is_cleaning: false,
             disk_read_rate: 0.0,
@@ -1164,8 +1190,6 @@ struct SystemMonitorApp {
     show_export: bool,
     show_alerts: bool,
     show_process_manager: bool,
-    #[allow(dead_code)]
-    show_cpu_cores: bool,
     selected_process_pid: Option<u32>,
     process_search: String,
     process_sort_column: ProcessSortColumn,
@@ -1203,6 +1227,8 @@ struct SystemMonitorApp {
     #[cfg(target_os = "windows")]
     tray_menu_quit_id: Option<tray_icon::menu::MenuId>,
     is_hidden: bool,
+    /// Whether we have already applied the start_minimized setting on the first frame.
+    start_minimized_applied: bool,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -1450,7 +1476,8 @@ impl SystemMonitorApp {
                 let need_cpu_temp = !is_hidden && selected_tab == Tab::Overview;
                 let need_gpu_wmi = !is_hidden && (selected_tab == Tab::Overview || selected_tab == Tab::Performance);
                 let need_gpu_info = need_gpu_wmi || settings_snapshot.show_notifications || settings_snapshot.show_graphs;
-                let need_processes = !is_hidden && selected_tab == Tab::Processes;
+                // Fetch processes for both Processes tab (all) and Overview tab (top N summary)
+                let need_processes = !is_hidden && (selected_tab == Tab::Processes || selected_tab == Tab::Overview);
                 let need_disks = (!is_hidden && (selected_tab == Tab::Overview || selected_tab == Tab::Storage)) || settings_snapshot.show_notifications || settings_snapshot.show_graphs;
                 let need_network = !is_hidden && (selected_tab == Tab::Overview || selected_tab == Tab::Network || selected_tab == Tab::Performance);
 
@@ -1473,7 +1500,14 @@ impl SystemMonitorApp {
                 };
 
                 let top_processes = if need_processes {
-                    monitor.get_top_processes(process_count)
+                    // On Processes tab, fetch ALL processes so search/sort works on the full list.
+                    // On Overview tab, only fetch the top N by memory for the summary panel.
+                    let fetch_count = if selected_tab == Tab::Processes {
+                        usize::MAX
+                    } else {
+                        process_count
+                    };
+                    monitor.get_top_processes(fetch_count)
                 } else {
                     Vec::new()
                 };
@@ -1581,6 +1615,7 @@ impl SystemMonitorApp {
                     // Auto-clear resolved alerts
                     if settings_snapshot.auto_clear_alerts {
                         let temp_gpu_info = data.gpu_info.clone();
+                        let high_impact_count = data.high_impact_startup_count;
                         data.alerts.retain(|alert| {
                             match alert.alert_type {
                                 AlertType::CpuHigh => cpu_usage > settings_snapshot.notification_cpu_threshold,
@@ -1593,7 +1628,7 @@ impl SystemMonitorApp {
                                         .map_or(false, |t| t > settings_snapshot.notification_temp_threshold)
                                 }
                                 AlertType::DiskSpaceLow => true, // disk alerts don't auto-clear
-                                AlertType::StartupHighImpact => true,
+                                AlertType::StartupHighImpact => high_impact_count > 0,
                             }
                         });
                     }
@@ -1706,14 +1741,13 @@ impl SystemMonitorApp {
 
         Self {
             data,
-            settings,
+            settings: settings.clone(),
             shared_settings,
             selected_tab: Tab::Overview,
             show_settings: false,
             show_export: false,
             show_alerts: false,
             show_process_manager: false,
-            show_cpu_cores: false,
             selected_process_pid: None,
             process_search: String::new(),
             process_sort_column: ProcessSortColumn::Memory,
@@ -1727,9 +1761,9 @@ impl SystemMonitorApp {
                 last_cleaned: None,
                 last_cleaned_display: String::new(),
                 bytes_freed: 0,
-                auto_clean_enabled: false,
-                auto_clean_threshold: 85.0,
-                auto_clean_interval: 300,
+                auto_clean_enabled: settings.auto_ram_clean,
+                auto_clean_threshold: settings.ram_clean_threshold,
+                auto_clean_interval: settings.auto_clean_interval,
                 is_cleaning: false,
                 clean_count: 0,
             },
@@ -1759,6 +1793,7 @@ impl SystemMonitorApp {
             #[cfg(target_os = "windows")]
             tray_menu_quit_id,
             is_hidden: false,
+            start_minimized_applied: false,
         }
     }
 
@@ -1876,6 +1911,18 @@ impl eframe::App for SystemMonitorApp {
             let mut data = self.data.lock();
             data.is_hidden = self.is_hidden;
             data.selected_tab = self.selected_tab;
+        }
+
+        // Apply start_minimized on the very first frame
+        if !self.start_minimized_applied {
+            self.start_minimized_applied = true;
+            if self.settings.start_minimized {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+                if self.settings.minimize_to_tray {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+                    self.is_hidden = true;
+                }
+            }
         }
 
         #[cfg(target_os = "windows")]
@@ -2006,20 +2053,16 @@ impl eframe::App for SystemMonitorApp {
 
         // Handle process kill actions
         if let Some(pid) = self.selected_process_pid.take() {
-            let mut temp_sys = System::new();
-            temp_sys.refresh_processes();
-            if let Some(process) = temp_sys.process(Pid::from_u32(pid)) {
-                let success = process.kill();
-                if success {
-                    if self.settings.enable_sounds { play_success_sound(); }
-                } else {
-                    if self.settings.enable_sounds { play_alert_sound(); }
-                    let _ = notify_rust::Notification::new()
-                        .summary("Action Failed")
-                        .body("Failed to kill process. Access Denied (requires Administrator privileges).")
-                        .timeout(notify_rust::Timeout::Milliseconds(5000))
-                        .show();
-                }
+            let mut monitor = SystemMonitor::new();
+            if monitor.kill_process(pid) {
+                if self.settings.enable_sounds { play_success_sound(); }
+            } else {
+                if self.settings.enable_sounds { play_alert_sound(); }
+                let _ = notify_rust::Notification::new()
+                    .summary("Action Failed")
+                    .body("Failed to kill process. Access Denied (requires Administrator privileges).")
+                    .timeout(notify_rust::Timeout::Milliseconds(5000))
+                    .show();
             }
         }
 
@@ -2339,6 +2382,9 @@ impl eframe::App for SystemMonitorApp {
 
                 ui.spacing_mut().item_spacing.y = 4.0;
                 for (tab, label) in tabs {
+                    if tab == Tab::CpuCores && !self.settings.show_cpu_cores {
+                        continue;
+                    }
                     let is_selected = self.selected_tab == tab;
                     let text = if is_selected {
                         egui::RichText::new(label).strong().color(ThemePalette::BG_DEEPEST)
@@ -2360,6 +2406,8 @@ impl eframe::App for SystemMonitorApp {
                     ui.label(egui::RichText::new(format!("Updated: {}", data.last_update)).size(11.0).color(ThemePalette::TEXT_DIMMED));
                     ui.add_space(8.0);
                     if ui.add_sized([ui.available_width(), 28.0], egui::Button::new("Settings")).clicked() { self.show_settings = true; }
+                    ui.add_space(4.0);
+                    if ui.add_sized([ui.available_width(), 28.0], egui::Button::new("Shortcuts")).clicked() { self.show_shortcuts = true; }
                     ui.add_space(4.0);
                     if ui.add_sized([ui.available_width(), 28.0], egui::Button::new("About")).clicked() { self.selected_tab = Tab::About; }
                 });
@@ -2991,10 +3039,22 @@ impl SystemMonitorApp {
     fn show_processes_tab(&mut self, ui: &mut egui::Ui, data: &SystemData) {
         paint_section_header(ui, "Process Monitor");
 
+        // Header action bar
+        ui.horizontal(|ui| {
+            if ui.button("⚙ Full Process Manager").on_hover_text("Open advanced window with Kill, Suspend & Priority controls").clicked() {
+                self.show_process_manager = true;
+            }
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui.button("📊 Export CSV").clicked() { self.show_export_csv = true; }
+                if ui.button("📄 Export JSON").clicked() { self.show_export = true; }
+            });
+        });
+        ui.add_space(4.0);
+
         // Search box
         ui.horizontal(|ui| {
             ui.label("Search:");
-            ui.add(egui::TextEdit::singleline(&mut self.process_search).hint_text("Filter processes...").desired_width(200.0));
+            ui.add(egui::TextEdit::singleline(&mut self.process_search).hint_text("Filter by name or PID (all processes)").desired_width(200.0));
             if ui.button("x").clicked() {
                 self.process_search.clear();
             }
@@ -3182,13 +3242,32 @@ impl SystemMonitorApp {
                         ui.label(egui::RichText::new(format!("{:.2} MB", memory_mb)).color(text_color));
                         ui.label(egui::RichText::new(format!("{:.1}%", process.cpu_usage)).color(text_color));
 
-                        // Action buttons
+                        // Action buttons: Kill, Suspend/Resume, Priority, Copy PID
                         ui.horizontal(|ui| {
-                            if ui.small_button("PID").on_hover_text("Copy PID").clicked() {
-                                ui.output_mut(|o| o.copied_text = process.pid.to_string());
+                            if ui.small_button("Kill").on_hover_text("Terminate this process (requires Admin for system processes)").clicked() {
+                                self.selected_process_pid = Some(process.pid);
                             }
-                            if ui.small_button("Name").on_hover_text("Copy Name").clicked() {
-                                ui.output_mut(|o| o.copied_text = process.name.clone());
+                            let is_suspended = self.suspended_pids.contains(&process.pid);
+                            if is_suspended {
+                                if ui.small_button("Resume").on_hover_text("Resume suspended process").clicked() {
+                                    self.resume_process_pid = Some(process.pid);
+                                }
+                            } else {
+                                if ui.small_button("Suspend").on_hover_text("Freeze process execution (Windows only)").clicked() {
+                                    self.suspend_process_pid = Some(process.pid);
+                                }
+                            }
+                            ui.menu_button("Priority", |ui| {
+                                ui.label("Set Priority:");
+                                for priority in &["High", "AboveNormal", "Normal", "BelowNormal", "Idle"] {
+                                    if ui.button(*priority).clicked() {
+                                        self.priority_change = Some((process.pid, priority.to_string()));
+                                        ui.close_menu();
+                                    }
+                                }
+                            }).response.on_hover_text("Set process scheduling priority");
+                            if ui.small_button("Copy PID").on_hover_text("Copy PID to clipboard").clicked() {
+                                ui.output_mut(|o| o.copied_text = process.pid.to_string());
                             }
                         });
 
@@ -3389,6 +3468,21 @@ impl SystemMonitorApp {
 
     fn show_alerts_tab(&mut self, ui: &mut egui::Ui, data: &SystemData) {
         paint_section_header(ui, "System Alerts");
+
+        // Warn when desktop notifications are off — alerts tracked in-app only
+        if !self.settings.show_notifications {
+            ui.group(|ui| {
+                ui.horizontal(|ui| {
+                    ui.colored_label(ThemePalette::STATUS_WARNING,
+                        "⚠  Desktop notifications are disabled.");
+                    ui.label("Alerts are tracked inside the app only.");
+                    if ui.small_button("Enable in Settings").clicked() {
+                        self.show_settings = true;
+                    }
+                });
+            });
+            ui.add_space(8.0);
+        }
 
         if data.alerts.is_empty() {
             ui.group(|ui| {
@@ -3789,8 +3883,8 @@ impl SystemMonitorApp {
                 ui.horizontal(|ui| {
                     ui.label(format!("Total processes: {}", data.top_processes.len()));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button("Refresh").clicked() {
-                            // Refresh happens automatically
+                        if ui.button("🔄 Refresh").on_hover_text("Data updates automatically from the monitoring thread").clicked() {
+                            ui.ctx().request_repaint();
                         }
                     });
                 });
@@ -3986,27 +4080,41 @@ impl SystemMonitorApp {
                 ui.heading("Auto Clean");
                 ui.separator();
 
-                ui.checkbox(
+                let mut settings_changed = false;
+                if ui.checkbox(
                     &mut self.ram_cleaner_state.auto_clean_enabled,
                     "Enable automatic RAM cleaning",
-                );
+                ).changed() {
+                    self.settings.auto_ram_clean = self.ram_cleaner_state.auto_clean_enabled;
+                    settings_changed = true;
+                }
 
                 if self.ram_cleaner_state.auto_clean_enabled {
                     ui.add_space(5.0);
                     ui.horizontal(|ui| {
                         ui.label("Clean when RAM usage exceeds:");
-                        ui.add(
+                        if ui.add(
                             egui::Slider::new(&mut self.ram_cleaner_state.auto_clean_threshold, 50.0..=95.0)
                                 .suffix("%"),
-                        );
+                        ).changed() {
+                            self.settings.ram_clean_threshold = self.ram_cleaner_state.auto_clean_threshold;
+                            settings_changed = true;
+                        }
                     });
                     ui.horizontal(|ui| {
                         ui.label("Minimum interval between cleans:");
-                        ui.add(
+                        if ui.add(
                             egui::Slider::new(&mut self.ram_cleaner_state.auto_clean_interval, 60..=1800)
                                 .suffix(" sec"),
-                        );
+                        ).changed() {
+                            self.settings.auto_clean_interval = self.ram_cleaner_state.auto_clean_interval;
+                            settings_changed = true;
+                        }
                     });
+                }
+
+                if settings_changed {
+                    let _ = self.settings.save();
                 }
             });
 
@@ -4075,6 +4183,10 @@ impl SystemMonitorApp {
                     self.startup_items = items.clone();
                     self.startup_items_loaded = true;
                     self.startup_items_loading = false;
+                    
+                    let high_impact_count = items.iter().filter(|i| i.impact_tier == ImpactTier::High && i.enabled).count();
+                    self.data.lock().high_impact_startup_count = high_impact_count;
+                    
                     false
                 } else {
                     true
@@ -4553,6 +4665,12 @@ impl SystemMonitorApp {
                         changed |= ui
                             .checkbox(&mut self.settings.show_processes, "Show Process List")
                             .changed();
+                        changed |= ui
+                            .checkbox(&mut self.settings.show_per_core_cpu, "Show Per-Core CPU in Overview")
+                            .changed();
+                        changed |= ui
+                            .checkbox(&mut self.settings.show_cpu_cores, "Show CPU Cores Tab")
+                            .changed();
                     });
 
                     cols[1].vertical(|ui| {
@@ -4659,9 +4777,32 @@ impl SystemMonitorApp {
                     changed |= ui
                         .checkbox(&mut self.settings.minimize_to_tray, "Minimize to system tray on close")
                         .changed();
+                    changed |= ui
+                        .checkbox(&mut self.settings.start_minimized, "Start minimized on launch")
+                        .changed();
                 });
                 ui.add_space(12.0);
             }
+
+            // --- Export Group ---
+            ui.group(|ui| {
+                ui.set_width(ui.available_width());
+                ui.horizontal(|ui| {
+                    ui.heading("Export Data");
+                });
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    if ui.button("📊 Export to CSV").clicked() {
+                        self.show_export_csv = true;
+                    }
+                    if ui.button("📄 Export to JSON").clicked() {
+                        self.show_export = true;
+                    }
+                });
+                ui.label(egui::RichText::new("Save current system snapshot to a file")
+                    .size(11.0).color(ThemePalette::TEXT_DIMMED));
+            });
+            ui.add_space(12.0);
 
             if changed {
                 let _ = self.settings.save();

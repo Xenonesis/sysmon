@@ -645,22 +645,6 @@ pub fn search_online(_name: &str) {}
 
 // ─── Sorting / Filtering helpers ─────────────────────────────
 
-#[allow(dead_code)]
-pub fn sort_items(items: &mut Vec<StartupItem>, col: StartupSortColumn, ascending: bool) {
-    items.sort_by(|a, b| {
-        let cmp = match col {
-            StartupSortColumn::Name => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
-            StartupSortColumn::Impact => a.impact_tier.sort_key().cmp(&b.impact_tier.sort_key()),
-            StartupSortColumn::Source => a.source.cmp(&b.source),
-            StartupSortColumn::Publisher => {
-                let pa = a.publisher.as_deref().unwrap_or("zzz").to_lowercase();
-                let pb = b.publisher.as_deref().unwrap_or("zzz").to_lowercase();
-                pa.cmp(&pb)
-            }
-        };
-        if ascending { cmp } else { cmp.reverse() }
-    });
-}
 
 pub fn high_impact_count(items: &[StartupItem]) -> usize {
     items.iter().filter(|i| i.impact_tier == ImpactTier::High && i.enabled).count()
