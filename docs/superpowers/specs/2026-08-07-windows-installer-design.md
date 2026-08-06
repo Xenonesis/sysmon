@@ -53,9 +53,11 @@ Key directives:
 - `PrivilegesRequired=admin`
 - `OutputBaseFilename=SystemMonitor-{#AppVersion}-setup`
 - `Compression=lzma2`, `SolidCompression=yes`
-- `SetupIconFile` and `UninstallDisplayIcon` from `assets/icon.ico`
-  (generate `.ico` in CI alongside the build; build.rs already converts
-  `assets/icon.png` to `.ico`, reuse that path or emit one in the workflow)
+- `SetupIconFile=assets\icon.ico` — commit a generated `assets/icon.ico`
+  to the repo (one-time conversion from `assets/icon.png`; build.rs already
+  does this conversion, so the committed file matches the embedded icon)
+- `UninstallDisplayIcon={app}\system-monitor.exe` — exe already embeds the
+  icon via build.rs/winres, no extra file needed
 - Files section: `system-monitor.exe` only
 - Icons section: Start Menu folder entry (makes the app Windows-searchable)
   + optional Desktop shortcut (`Tasks`-gated, default on)
