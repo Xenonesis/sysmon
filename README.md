@@ -28,7 +28,7 @@ The recommended distribution is our standalone Windows installer, providing auto
 ## Core Capabilities
 
 ### Modern GUI Interface
-* **Premium Typography & Spacing:** Designed using a 4/8dp rhythm and clear visual hierarchies.
+* **Premium Typography & Spacing:** Designed using an 8dp spacing rhythm and clear visual hierarchies.
 * **Dual Themes:** Polished 'Terminal Noir' dark mode and an Apple-inspired minimal light mode.
 * **Adaptive Layout:** Resizable interface with a quick-stats sidebar and multi-tab structure.
 * **Visual States:** Color-coded usage indicators and smooth transition animations.
@@ -47,6 +47,8 @@ The recommended distribution is our standalone Windows installer, providing auto
 
 ### System Integration
 * **Tray Quick Actions:** Clean RAM, Open Process Manager, or Pause Monitoring directly from the system tray.
+* **Power Plan Toggle:** Switch between installed Windows power plans straight from the tray menu.
+* **Desktop Mini-Widget:** A compact always-visible overlay showing live CPU, RAM, GPU, network, and thermal telemetry.
 * **System Information:** WMI-enriched motherboard, BIOS, GPU driver, and OS build telemetry.
 * **Data Export:** Snapshot current system state to CSV or JSON formats for analysis.
 * **Notifications:** Windows-native alerts for high CPU, memory, GPU temperatures, or heavy startup impact.
@@ -74,6 +76,8 @@ The compiled executable will be located at: `target/release/system-monitor.exe`.
 ### [2.4.0] — Feature Expansion
 * **Process Pro:** Added an exhaustive details panel (path, command line, threads, start time) and a Deep Kill Tree action.
 * **Tray Quick Actions:** Upgraded system tray menu with actions to Clean RAM, pause monitoring, and open the process manager.
+* **Power Plan Toggle:** Enumerate and switch active Windows power schemes from the tray menu.
+* **Desktop Mini-Widget:** Floating telemetry overlay (CPU, RAM, GPU, network, thermals), toggled from Settings.
 * **Advanced GPU Metrics:** Added real-time Clock Speed, Power Draw, and Fan Speed metrics via NVML.
 * **System Info Enrichment:** Deeper system insights using WMI (Motherboard, BIOS, GPU Driver, OS Build).
 * **UI/UX Polish:** Refined application spacing, corner radiuses, and shadow elevations across themes for a premium feel.

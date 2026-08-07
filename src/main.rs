@@ -5277,8 +5277,8 @@ impl SystemMonitorApp {
                     visuals.widgets.active.bg_fill = ThemePalette::ACCENT_ACTIVE;
                     visuals.widgets.active.bg_stroke = egui::Stroke::new(1.0, ThemePalette::ACCENT_PRIMARY);
                     visuals.widgets.active.fg_stroke = egui::Stroke::new(1.0, ThemePalette::TEXT_SELECTED);
-                    visuals.window_rounding = egui::Rounding::same(12.0);
-                    visuals.menu_rounding = egui::Rounding::same(10.0);
+                    visuals.window_rounding = egui::Rounding::same(8.0);
+                    visuals.menu_rounding = egui::Rounding::same(8.0);
                     visuals.widgets.noninteractive.rounding = egui::Rounding::same(8.0);
                     visuals.widgets.inactive.rounding = egui::Rounding::same(8.0);
                     visuals.widgets.hovered.rounding = egui::Rounding::same(8.0);
