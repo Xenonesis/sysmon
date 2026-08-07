@@ -1151,6 +1151,7 @@ struct SystemData {
     disk_write_history: VecDeque<DataPoint>,
     is_hidden: bool,
     selected_tab: Tab,
+    services: Vec<services::ServiceInfo>,
 }
 
 impl Default for SystemData {
@@ -1206,6 +1207,7 @@ impl Default for SystemData {
             disk_write_history: VecDeque::new(),
             is_hidden: false,
             selected_tab: Tab::Overview,
+            services: Vec::new(),
         }
     }
 }
@@ -1284,6 +1286,7 @@ enum Tab {
     Alerts,
     RamCleaner,
     StartupManager,
+    Services,
     About,
 }
 
@@ -1473,6 +1476,7 @@ impl SystemMonitorApp {
             let system_info = monitor.get_system_info();
             eprintln!("DBG: monitor.get_system_info() completed");
             let mut battery_check_counter: u32 = 0;
+            let mut service_check_counter: u32 = 0;
             let mut last_alert_time: std::collections::HashMap<AlertType, Instant> = std::collections::HashMap::new();
             let mut last_hidden_tick = Instant::now();
 
@@ -1594,6 +1598,14 @@ impl SystemMonitorApp {
                     }
                 }
                 battery_check_counter = battery_check_counter.wrapping_add(1);
+
+                // Poll services every 60 ticks (~30s) — WMI queries are expensive
+                if !is_hidden && selected_tab == Tab::Services && service_check_counter % 60 == 0 {
+                    let services_list = services::get_services();
+                    let mut data = data_clone.lock();
+                    data.services = services_list;
+                }
+                service_check_counter = service_check_counter.wrapping_add(1);
 
                 // Calculate total network rates
                 let total_download_rate: f64 = network_info.iter().map(|n| n.received_rate).sum();
@@ -2566,6 +2578,7 @@ impl eframe::App for SystemMonitorApp {
                     (Tab::SystemInfo, "System Info"),
                     (Tab::RamCleaner, "RAM Cleaner"),
                     (Tab::StartupManager, "Startup Apps"),
+                    (Tab::Services, "Services"),
                 ];
 
                 ui.spacing_mut().item_spacing.y = 4.0;
@@ -2710,6 +2723,7 @@ impl eframe::App for SystemMonitorApp {
             Tab::Alerts => self.show_alerts_tab(ui, &data),
             Tab::RamCleaner => self.show_ram_cleaner_tab(ui, &data),
             Tab::StartupManager => self.show_startup_manager_tab(ui),
+            Tab::Services => self.show_services_tab(ui, &data),
             Tab::About => self.show_about_tab(ui, &data),
         });
     }
@@ -5176,6 +5190,40 @@ impl SystemMonitorApp {
                     ui.colored_label(ThemePalette::STATUS_CRITICAL, "●  Critical > 75%");
                 });
             });
+        });
+    }
+
+    fn show_services_tab(&mut self, ui: &mut egui::Ui, data: &SystemData) {
+        paint_section_header(ui, "Windows Services");
+
+        if data.services.is_empty() {
+            ui.add_space(16.0);
+            ui.label(egui::RichText::new("Loading services…").color(ThemePalette::TEXT_SECONDARY));
+            return;
+        }
+
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            egui::Grid::new("services_grid")
+                .striped(true)
+                .min_col_width(200.0)
+                .show(ui, |ui| {
+                    ui.strong("Display Name");
+                    ui.strong("Service Name");
+                    ui.strong("State");
+                    ui.end_row();
+
+                    for svc in &data.services {
+                        ui.label(&svc.display_name);
+                        ui.label(&svc.name);
+                        let color = if svc.state == "Running" {
+                            egui::Color32::from_rgb(0, 200, 100)
+                        } else {
+                            ThemePalette::TEXT_SECONDARY
+                        };
+                        ui.colored_label(color, &svc.state);
+                        ui.end_row();
+                    }
+                });
         });
     }
 }
