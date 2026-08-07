@@ -42,6 +42,28 @@ jobs:
         run: |
           cargo build --release --target x86_64-pc-windows-msvc
 
+      - name: Compute version from tag
+        id: version
+        shell: pwsh
+        run: |
+          $v = "${{ github.ref_name }}".TrimStart('v')
+          echo "version=$v" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup -y --no-progress
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer.iss /DAppVersion=${{ steps.version.outputs.version }}
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: system-monitor-installer
+          path: downloads\SystemMonitor-*-setup.exe
+
       - name: Upload exe as workflow artifact
         uses: actions/upload-artifact@v4
         with:
@@ -66,4 +88,13 @@ jobs:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
           asset_path: target\\x86_64-pc-windows-msvc\\release\\system-monitor.exe
           asset_name: system-monitor-${{ github.ref_name }}-windows-x64.exe
+          asset_content_type: application/octet-stream
+
+      - name: Upload installer release asset (only on tag push)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: actions/upload-release-asset@v1
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: downloads\SystemMonitor-${{ steps.version.outputs.version }}-setup.exe
+          asset_name: SystemMonitor-${{ steps.version.outputs.version }}-setup.exe
           asset_content_type: application/octet-stream
