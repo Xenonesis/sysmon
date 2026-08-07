@@ -20,12 +20,15 @@ A comprehensive, professional system monitoring application built with Rust feat
 
 Or download directly from [GitHub Releases](https://github.com/Xenonesis/sysmon/releases)
 
-### ⚡ Direct .exe Download
+### ⚡ Installer Download (Recommended)
 
-- **No installation required** - Just download and run!
-- **Instant setup** - Click download → Run .exe → Done!
+- **Proper Windows install** - Installs to Program Files with Start Menu entry
+- **Searchable** - Find it from Windows search / Start Menu
+- **Clean uninstall** - Listed in Settings → Apps
 - **Auto-updates** - App automatically checks for updates every 24 hours
 - **Size:** ~5.4 MB - Lightweight and fast
+
+Prefer portable? Use `system-monitor-<version>-windows-x64.exe` - no installation needed.
 
 ---
 
@@ -113,52 +116,27 @@ Or download directly from [GitHub Releases](https://github.com/Xenonesis/sysmon/
 
 ## Installation
 
-### Option 1: Download Pre-built (Recommended)
+### Option 1: Installer (Recommended)
 
-**Easiest method** - Visit our website and click "Download Now":
+Download `SystemMonitor-<version>-setup.exe` from the [Releases page](https://github.com/Xenonesis/sysmon/releases).
 
-- [systemmonitor.xenonesis.dev](https://systemmonitor.xenonesis.dev)
-- Direct `.exe` download (~5.4 MB)
-- No installation needed - just run!
-- Auto-updates built-in
+The installer:
 
-### Option 2: Quick Build
+- Installs to `C:\Program Files\System Monitor`
+- Adds a Start Menu entry (searchable from Windows search)
+- Optionally creates a Desktop shortcut
+- Registers the app in Settings → Apps for clean uninstall
+- Requires administrator privileges (the app needs elevated rights for RAM cleaning, process management, and startup optimization)
 
-Run the build script:
+### Option 2: Portable
 
-```powershell
-.\build.ps1
-```
+Prefer running without installing? Download `system-monitor-<version>-windows-x64.exe` and run it directly. Settings are still stored per-user in `%APPDATA%\Xenonesis\SystemMonitor`.
 
-The build will automatically save to `downloads/` folder for easy access.
+### Building from source
 
-### Manual Build
-
-1. Build the project:
-
-```powershell
-cargo build --release
-```
-
-2. Run the monitor:
-
-```powershell
-.\target\release\system-monitor.exe
-```
-
-### Install as Windows Application
-
-Copy the executable to your desired location:
-
-```powershell
-# Copy to a permanent location
-Copy-Item "target\release\system-monitor.exe" "C:\Program Files\SystemMonitor\system-monitor.exe"
-
-# Or copy to your user folder
-Copy-Item "target\release\system-monitor.exe" "$env:USERPROFILE\Applications\system-monitor.exe"
-```
-
-Then create a desktop shortcut or pin to taskbar!
+1. Install [Rust](https://rustup.rs) 1.70+
+2. `cargo build --release`
+3. The executable is at `target\release\system-monitor.exe`
 
 ## Usage
 
