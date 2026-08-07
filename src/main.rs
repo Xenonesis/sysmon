@@ -208,6 +208,10 @@ struct SystemInfo {
     uptime: u64,
     cpu_count: usize,
     cpu_brand: String,
+    motherboard: Option<String>,
+    bios_version: Option<String>,
+    gpu_driver: Option<String>,
+    os_build: Option<String>,
 }
 
 // Settings structure
@@ -917,6 +921,40 @@ impl SystemMonitor {
         None
     }
 
+    #[cfg(target_os = "windows")]
+    /// One-time WMI queries for motherboard/BIOS/GPU-driver/OS-build details.
+    /// Any failure returns `None` for the failed fields; WMI init failure returns all `None`.
+    fn get_wmi_system_details() -> (Option<String>, Option<String>, Option<String>, Option<String>) {
+        use wmi::{COMLibrary, WMIConnection, Variant};
+        use std::rc::Rc;
+        let com = match COMLibrary::new() {
+            Ok(c) => Rc::new(c),
+            Err(_) => return (None, None, None, None),
+        };
+        let wmi = match WMIConnection::new(com) {
+            Ok(w) => w,
+            Err(_) => return (None, None, None, None),
+        };
+        let one = |query: &str, field: &str| -> Option<String> {
+            let rows: Vec<std::collections::HashMap<String, Variant>> = wmi.raw_query(query).ok()?;
+            rows.first().and_then(|row| row.get(field)).and_then(|v| match v {
+                Variant::String(s) => Some(s.clone()),
+                _ => None,
+            })
+        };
+        let motherboard = one("SELECT Manufacturer, Product FROM Win32_BaseBoard", "Manufacturer")
+            .map(|m| if m.trim().is_empty() { "N/A".to_string() } else { m });
+        let bios_version = one("SELECT SMBIOSBIOSVersion FROM Win32_BIOS", "SMBIOSBIOSVersion");
+        let gpu_driver = one("SELECT DriverVersion FROM Win32_VideoController", "DriverVersion");
+        let os_build = one("SELECT BuildNumber FROM Win32_OperatingSystem", "BuildNumber");
+        (motherboard, bios_version, gpu_driver, os_build)
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    fn get_wmi_system_details() -> (Option<String>, Option<String>, Option<String>, Option<String>) {
+        (None, None, None, None)
+    }
+
     fn get_disk_info(&self) -> Vec<DiskInfo> {
         self.disks
             .iter()
@@ -1068,6 +1106,7 @@ impl SystemMonitor {
     }
 
     fn get_system_info(&self) -> SystemInfo {
+        let (motherboard, bios_version, gpu_driver, os_build) = Self::get_wmi_system_details();
         SystemInfo {
             os_name: System::name().unwrap_or_else(|| "Unknown".to_string()),
             os_version: System::os_version().unwrap_or_else(|| "Unknown".to_string()),
@@ -1081,6 +1120,10 @@ impl SystemMonitor {
                 .first()
                 .map(|cpu| cpu.brand().to_string())
                 .unwrap_or_else(|| "Unknown".to_string()),
+            motherboard,
+            bios_version,
+            gpu_driver,
+            os_build,
         }
     }
 }
@@ -1154,6 +1197,10 @@ impl Default for SystemData {
                 uptime: 0,
                 cpu_count: 0,
                 cpu_brand: String::new(),
+                motherboard: None,
+                bios_version: None,
+                gpu_driver: None,
+                os_build: None,
             },
             cpu_temperature: None,
             last_update: String::new(),
@@ -3754,6 +3801,31 @@ impl SystemMonitorApp {
                     let minutes = (data.system_info.uptime % 3600) / 60;
                     ui.strong(format!("{}d {}h {}m", days, hours, minutes));
                 });
+
+                    if let Some(mb) = &data.system_info.motherboard {
+                        ui.horizontal(|ui| {
+                            ui.label("Motherboard:");
+                            ui.strong(mb);
+                        });
+                    }
+                    if let Some(bios) = &data.system_info.bios_version {
+                        ui.horizontal(|ui| {
+                            ui.label("BIOS Version:");
+                            ui.strong(bios);
+                        });
+                    }
+                    if let Some(drv) = &data.system_info.gpu_driver {
+                        ui.horizontal(|ui| {
+                            ui.label("GPU Driver:");
+                            ui.strong(drv);
+                        });
+                    }
+                    if let Some(build) = &data.system_info.os_build {
+                        ui.horizontal(|ui| {
+                            ui.label("OS Build:");
+                            ui.strong(build);
+                        });
+                    }
             });
 
             ui.add_space(10.0);
