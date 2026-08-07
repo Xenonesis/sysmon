@@ -211,7 +211,6 @@ The executable will be at: `target/release/system-monitor.exe`
 - [ ] Process management (kill/suspend processes)
 - [ ] System tray icon with notifications
 - [ ] Code signing certificate for executable
-- [ ] Installer wizard (optional alternative to portable .exe)
 
 ## License
 
