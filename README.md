@@ -26,7 +26,7 @@ Or download directly from [GitHub Releases](https://github.com/Xenonesis/sysmon/
 - **Searchable** - Find it from Windows search / Start Menu
 - **Clean uninstall** - Listed in Settings → Apps
 - **Auto-updates** - App automatically checks for updates every 24 hours
-- **Size:** ~5.4 MB - Lightweight and fast
+- **Size:** ~5 MB - Lightweight and fast
 
 ---
 
@@ -114,7 +114,7 @@ Or download directly from [GitHub Releases](https://github.com/Xenonesis/sysmon/
 
 ## Installation
 
-### Option 1: Installer (Recommended)
+### Installer (Recommended)
 
 Download `SystemMonitor-<version>-setup.exe` from the [Releases page](https://github.com/Xenonesis/sysmon/releases).
 
@@ -193,16 +193,13 @@ The executable will be at: `target/release/system-monitor.exe`
 
 - ✅ **Auto-update system** - Automatic update checking and one-click installation
 - ✅ **Installer** - Proper Windows install with silent auto-updates
-- ✅ **Downloads folder** - Build artifacts automatically saved for distribution
-- ✅ **Smart download fallback** - Local-first, then GitHub releases
+- ✅ **Automated releases** - CI publishes the installer to GitHub Releases
 - ✅ **Update notifications** - In-app banner when new version available
 
 ## Future Enhancements
 
 - [ ] Export logs to file
-- [ ] Alert system for high usage
 - [ ] Disk I/O statistics
-- [ ] Process management (kill/suspend processes)
 - [ ] System tray icon with notifications
 - [ ] Code signing certificate for executable
 
