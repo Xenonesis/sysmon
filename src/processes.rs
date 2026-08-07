@@ -13,6 +13,8 @@ pub struct ProcessInfo {
     pub cpu_usage: f32,
     pub memory: u64,
     pub status: String,
+    pub disk_read_bytes: u64,
+    pub disk_written_bytes: u64,
 }
 
 #[derive(PartialEq, Clone, Copy)]
@@ -144,6 +146,8 @@ mod tests {
             cpu_usage: cpu,
             memory: mem,
             status: status.to_string(),
+            disk_read_bytes: 0,
+            disk_written_bytes: 0,
         }
     }
 

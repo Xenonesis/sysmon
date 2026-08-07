@@ -483,6 +483,8 @@ impl SystemMonitor {
                     cpu_usage: process.cpu_usage(),
                     memory: process.memory(),
                     status: format!("{:?}", process.status()),
+                    disk_read_bytes: process.disk_usage().read_bytes,
+                    disk_written_bytes: process.disk_usage().written_bytes,
                 }
             })
             .collect();
@@ -3383,6 +3385,8 @@ impl SystemMonitorApp {
                             self.process_sort_ascending = false; // default descending for CPU
                         }
                     }
+                    ui.strong("Disk Read");
+                    ui.strong("Disk Write");
                     ui.strong("Actions");
                     ui.end_row();
 
@@ -3416,6 +3420,8 @@ impl SystemMonitorApp {
 
                         ui.label(egui::RichText::new(format!("{:.2} MB", memory_mb)).color(text_color));
                         ui.label(egui::RichText::new(format!("{:.1}%", process.cpu_usage)).color(text_color));
+                        ui.label(egui::RichText::new(format!("{:.1} KB/s", process.disk_read_bytes as f64 / 1024.0)).color(text_color));
+                        ui.label(egui::RichText::new(format!("{:.1} KB/s", process.disk_written_bytes as f64 / 1024.0)).color(text_color));
 
                         // Action buttons: Tree, Kill, Suspend/Resume, Priority, Copy PID
                         ui.horizontal(|ui| {
