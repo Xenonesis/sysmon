@@ -12,3 +12,4 @@ Cargo.lock
 *.pdb
 .vscode/
 .idea/
+/.superpowers/
