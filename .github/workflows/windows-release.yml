@@ -42,6 +42,12 @@ jobs:
         run: |
           cargo build --release --target x86_64-pc-windows-msvc
 
+      - name: Copy exe to host release path for installer
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force target\release | Out-Null
+          Copy-Item target\x86_64-pc-windows-msvc\release\system-monitor.exe target\release\system-monitor.exe
+
       - name: Compute version from tag
         id: version
         shell: pwsh
