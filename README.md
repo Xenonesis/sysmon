@@ -10,7 +10,7 @@
 
 A comprehensive, professional system monitoring application built with Rust featuring a beautiful native Windows GUI. Monitor CPU, RAM, GPU, storage, network, and processes in real-time with historical performance graphs.
 
-![System Monitor](https://img.shields.io/badge/version-2.3.0-brightgreen)
+![System Monitor](https://img.shields.io/badge/version-2.4.0-brightgreen)
 
 ---
 
@@ -60,8 +60,11 @@ Or download directly from [GitHub Releases](https://github.com/Xenonesis/sysmon/
   - GPU utilization percentage
   - GPU memory (VRAM) usage
   - GPU temperature with color-coded warnings (Green/Yellow/Red)
+  - clock speed, power draw, fan speed
 - ✅ **Process monitoring** - Top 15 processes by memory consumption
 - ✅ **Auto-refresh** every 2 seconds
+- ✅ **Process details** - Exe path, command line, working directory, start time, run time, parent process
+- ✅ **Kill tree** - Terminate a process together with all its children
 
 ### 📈 Performance Graphs
 
@@ -87,6 +90,7 @@ Or download directly from [GitHub Releases](https://github.com/Xenonesis/sysmon/
 - ✅ **Native Windows app** - Full OS integration
 - ✅ **Auto-update system** - Automatic update checking and installation
 - ✅ **Installer** - Proper install with silent auto-updates
+- ✅ **Tray quick actions** - Clean RAM, open Process Manager, pause monitoring right from the tray menu
 
 ## 🎯 Key Features at a Glance
 
@@ -191,6 +195,7 @@ The executable will be at: `target/release/system-monitor.exe`
 
 ## Recent Updates
 
+- ✅ **v2.4.0** - Process details & kill tree, tray quick actions, GPU clocks/power/fan, system info depth
 - ✅ **Auto-update system** - Automatic update checking and one-click installation
 - ✅ **Installer** - Proper Windows install with silent auto-updates
 - ✅ **Automated releases** - CI publishes the installer to GitHub Releases
@@ -198,9 +203,6 @@ The executable will be at: `target/release/system-monitor.exe`
 
 ## Future Enhancements
 
-- [ ] Export logs to file
-- [ ] Disk I/O statistics
-- [ ] System tray icon with notifications
 - [ ] Code signing certificate for executable
 
 ## License
