@@ -129,6 +129,8 @@ use sysinfo::{Disks, Networks, Pid, System};
 use nvml_wrapper::Nvml;
 #[cfg(target_os = "windows")]
 use tray_icon::{TrayIconBuilder, menu::{Menu, MenuItem, CheckMenuItem, MenuEvent}};
+#[cfg(target_os = "windows")]
+use wmi::COMLibrary;
 
 #[cfg(target_os = "windows")]
 fn play_alert_sound() {
@@ -318,6 +320,8 @@ struct SystemMonitor {
     #[cfg(target_os = "windows")]
     nvml: Option<Nvml>,
     #[cfg(target_os = "windows")]
+    wmi_com: Option<std::rc::Rc<wmi::COMLibrary>>,
+    #[cfg(target_os = "windows")]
     wmi_gpu_engine_class: Option<String>,
     #[cfg(target_os = "windows")]
     wmi_gpu_memory_class: Option<String>,
@@ -429,31 +433,45 @@ impl SystemMonitor {
         // Probe which WMI GPU performance counter class name is available on this system.
         // Windows versions differ: some use "GPUPerformanceMonitors", others use "GPUPerformanceCounters".
         #[cfg(target_os = "windows")]
-        let (wmi_gpu_engine_class, wmi_gpu_memory_class) = {
-            use wmi::{COMLibrary, WMIConnection, Variant};
-            use std::rc::Rc;
+        let (wmi_com, wmi_gpu_engine_class, wmi_gpu_memory_class) = {
+            let com = COMLibrary::new().ok().map(std::rc::Rc::new);
             let mut engine_class = None;
             let mut memory_class = None;
-            if let Some(com) = COMLibrary::new().ok() {
-                if let Ok(wmi) = WMIConnection::new(Rc::new(com)) {
-                    // Try GPUPerformanceCounters first (more common on modern Windows)
+            if let Some(com_lib) = com.as_ref() {
+                if let Ok(wmi) = wmi::WMIConnection::new(com_lib.clone()) {
                     for prefix in &["GPUPerformanceCounters", "GPUPerformanceMonitors"] {
                         if engine_class.is_none() {
-                            let q = format!("SELECT UtilizationPercentage FROM Win32_PerfFormattedData_{}_GPUEngine", prefix);
-                            if wmi.raw_query::<std::collections::HashMap<String, Variant>>(&q).is_ok() {
-                                engine_class = Some(format!("Win32_PerfFormattedData_{}_GPUEngine", prefix));
+                            let q = format!(
+                                "SELECT UtilizationPercentage FROM Win32_PerfFormattedData_{}_GPUEngine",
+                                prefix
+                            );
+                            if wmi
+                                .raw_query::<std::collections::HashMap<String, wmi::Variant>>(&q)
+                                .is_ok()
+                            {
+                                engine_class =
+                                    Some(format!("Win32_PerfFormattedData_{}_GPUEngine", prefix));
                             }
                         }
                         if memory_class.is_none() {
-                            let q = format!("SELECT LocalUsage FROM Win32_PerfFormattedData_{}_GPULocalAdapterMemory", prefix);
-                            if wmi.raw_query::<std::collections::HashMap<String, Variant>>(&q).is_ok() {
-                                memory_class = Some(format!("Win32_PerfFormattedData_{}_GPULocalAdapterMemory", prefix));
+                            let q = format!(
+                                "SELECT LocalUsage FROM Win32_PerfFormattedData_{}_GPULocalAdapterMemory",
+                                prefix
+                            );
+                            if wmi
+                                .raw_query::<std::collections::HashMap<String, wmi::Variant>>(&q)
+                                .is_ok()
+                            {
+                                memory_class = Some(format!(
+                                    "Win32_PerfFormattedData_{}_GPULocalAdapterMemory",
+                                    prefix
+                                ));
                             }
                         }
                     }
                 }
             }
-            (engine_class, memory_class)
+            (com, engine_class, memory_class)
         };
 
         SystemMonitor {
@@ -462,6 +480,8 @@ impl SystemMonitor {
             networks,
             #[cfg(target_os = "windows")]
             nvml,
+            #[cfg(target_os = "windows")]
+            wmi_com,
             #[cfg(target_os = "windows")]
             wmi_gpu_engine_class,
             #[cfg(target_os = "windows")]
@@ -768,60 +788,59 @@ impl SystemMonitor {
     }
 
     #[cfg(target_os = "windows")]
+    fn get_battery_wmi(&self) -> Option<wmi::WMIConnection> {
+        let com = self.wmi_com.as_ref()?;
+        wmi::WMIConnection::new(com.clone()).ok()
+    }
+
+    #[cfg(target_os = "windows")]
     fn get_gpu_info_wmi(&self) -> Option<Vec<GpuInfo>> {
-        use wmi::{COMLibrary, WMIConnection, Variant};
-        use std::rc::Rc;
-        
-        let com = Rc::new(COMLibrary::new().ok()?);
-        let wmi = WMIConnection::new(com).ok()?;
-        
-        // Query all GPU controllers
-        let results: Vec<std::collections::HashMap<String, Variant>> = wmi
+        let com = self.wmi_com.as_ref()?;
+        let wmi = wmi::WMIConnection::new(com.clone()).ok()?;
+
+        let results: Vec<std::collections::HashMap<String, wmi::Variant>> = wmi
             .raw_query("SELECT Name, DriverVersion, VideoProcessor, AdapterRAM FROM Win32_VideoController")
             .ok()?;
-        
+
         if results.is_empty() {
             return None;
         }
-        
+
         let mut gpus = Vec::new();
 
         for gpu_entry in &results {
             let name = gpu_entry.get("Name")
-                .and_then(|v| match v { Variant::String(s) => Some(s.clone()), _ => None })
+                .and_then(|v| match v { wmi::Variant::String(s) => Some(s.clone()), _ => None })
                 .unwrap_or_else(|| "Unknown GPU".to_string());
-            
-            // Filter out generic/virtual adapters
+
             if name.contains("Microsoft Basic Display Adapter") || name.contains("Standard VGA") {
                 continue;
             }
 
-            // Get adapter RAM for this entry
             let adapter_ram = gpu_entry.get("AdapterRAM").and_then(|v| match v {
-                Variant::UI4(n) => Some(*n as u64),
-                Variant::UI8(n) => Some(*n),
-                Variant::I4(n) => Some(*n as u64),
+                wmi::Variant::UI4(n) => Some(*n as u64),
+                wmi::Variant::UI8(n) => Some(*n),
+                wmi::Variant::I4(n) => Some(*n as u64),
                 _ => None,
             });
-            
-            // Query real-time GPU utilization using cached class name
+
             let mut utilization = 0.0;
             if let Some(ref engine_class) = self.wmi_gpu_engine_class {
                 let q = format!("SELECT Name, UtilizationPercentage FROM {}", engine_class);
-                if let Ok(perf_results) = wmi.raw_query::<std::collections::HashMap<String, Variant>>(&q) {
+                if let Ok(perf_results) = wmi.raw_query::<std::collections::HashMap<String, wmi::Variant>>(&q) {
                     let mut max_util = 0u64;
                     for engine in perf_results {
                         if let Some(val) = engine.get("UtilizationPercentage") {
                             let u = match val {
-                                Variant::UI1(n) => *n as u64,
-                                Variant::UI2(n) => *n as u64,
-                                Variant::UI4(n) => *n as u64,
-                                Variant::UI8(n) => *n,
-                                Variant::I1(n) => *n as u64,
-                                Variant::I2(n) => *n as u64,
-                                Variant::I4(n) => *n as u64,
-                                Variant::I8(n) => *n as u64,
-                                Variant::String(s) => s.parse().unwrap_or(0),
+                                wmi::Variant::UI1(n) => *n as u64,
+                                wmi::Variant::UI2(n) => *n as u64,
+                                wmi::Variant::UI4(n) => *n as u64,
+                                wmi::Variant::UI8(n) => *n,
+                                wmi::Variant::I1(n) => *n as u64,
+                                wmi::Variant::I2(n) => *n as u64,
+                                wmi::Variant::I4(n) => *n as u64,
+                                wmi::Variant::I8(n) => *n as u64,
+                                wmi::Variant::String(s) => s.parse().unwrap_or(0),
                                 _ => 0,
                             };
                             if u > max_util {
@@ -833,24 +852,23 @@ impl SystemMonitor {
                 }
             }
 
-            // Query real-time VRAM usage using cached class name
             let mut memory_used = None;
             if let Some(ref mem_class) = self.wmi_gpu_memory_class {
                 let q = format!("SELECT LocalUsage FROM {}", mem_class);
-                if let Ok(mem_results) = wmi.raw_query::<std::collections::HashMap<String, Variant>>(&q) {
+                if let Ok(mem_results) = wmi.raw_query::<std::collections::HashMap<String, wmi::Variant>>(&q) {
                     let mut total_used = 0u64;
                     for instance in mem_results {
                         if let Some(val) = instance.get("LocalUsage") {
                             let u = match val {
-                                Variant::UI1(n) => *n as u64,
-                                Variant::UI2(n) => *n as u64,
-                                Variant::UI4(n) => *n as u64,
-                                Variant::UI8(n) => *n,
-                                Variant::I1(n) => *n as u64,
-                                Variant::I2(n) => *n as u64,
-                                Variant::I4(n) => *n as u64,
-                                Variant::I8(n) => *n as u64,
-                                Variant::String(s) => s.parse().unwrap_or(0),
+                                wmi::Variant::UI1(n) => *n as u64,
+                                wmi::Variant::UI2(n) => *n as u64,
+                                wmi::Variant::UI4(n) => *n as u64,
+                                wmi::Variant::UI8(n) => *n,
+                                wmi::Variant::I1(n) => *n as u64,
+                                wmi::Variant::I2(n) => *n as u64,
+                                wmi::Variant::I4(n) => *n as u64,
+                                wmi::Variant::I8(n) => *n as u64,
+                                wmi::Variant::String(s) => s.parse().unwrap_or(0),
                                 _ => 0,
                             };
                             total_used = total_used.saturating_add(u);
@@ -861,7 +879,7 @@ impl SystemMonitor {
                     }
                 }
             }
-            
+
             gpus.push(GpuInfo {
                 name,
                 utilization,
@@ -873,7 +891,7 @@ impl SystemMonitor {
                 fan_percent: None,
             });
         }
-        
+
         if gpus.is_empty() { None } else { Some(gpus) }
     }
 
@@ -884,16 +902,21 @@ impl SystemMonitor {
 
     #[cfg(target_os = "windows")]
     fn get_cpu_temperature_wmi() -> Option<f32> {
-        use wmi::{COMLibrary, WMIConnection, Variant};
-        use std::rc::Rc;
-        
-        let com = Rc::new(COMLibrary::new().ok()?);
+        let com = match wmi::COMLibrary::new() {
+            Ok(c) => std::rc::Rc::new(c),
+            Err(_) => return None,
+        };
         // The MSAcpi_ThermalZoneTemperature class is in the \root\wmi namespace
-        let wmi = WMIConnection::with_namespace_path("ROOT\\WMI", com).ok()?;
-        
-        let results = wmi.raw_query::<std::collections::HashMap<String, Variant>>(
-            "SELECT CurrentTemperature FROM MSAcpi_ThermalZoneTemperature"
-        ).ok()?;
+        let wmi = match wmi::WMIConnection::with_namespace_path("ROOT\\WMI", com) {
+            Ok(w) => w,
+            Err(_) => return None,
+        };
+
+        let results = wmi
+            .raw_query::<std::collections::HashMap<String, wmi::Variant>>(
+                "SELECT CurrentTemperature FROM MSAcpi_ThermalZoneTemperature",
+            )
+            .ok()?;
 
         if results.is_empty() {
             return None;
@@ -902,17 +925,17 @@ impl SystemMonitor {
         // Temperature is in tenths of degrees Kelvin
         if let Some(val) = results[0].get("CurrentTemperature") {
             let temp_k_tenths = match val {
-                Variant::UI4(n) => *n as f32,
-                Variant::I4(n) => *n as f32,
-                Variant::UI8(n) => *n as f32,
+                wmi::Variant::UI4(n) => *n as f32,
+                wmi::Variant::I4(n) => *n as f32,
+                wmi::Variant::UI8(n) => *n as f32,
                 _ => return None,
             };
-            
+
             // Convert to Celsius: (K / 10) - 273.15
             let temp_c = (temp_k_tenths / 10.0) - 273.15;
             return Some(temp_c.round());
         }
-        
+
         None
     }
 
@@ -993,8 +1016,17 @@ impl SystemMonitor {
 
         self.last_disk_update = Instant::now();
 
-        let interval = if refresh_interval > 0 { refresh_interval as f64 } else { elapsed };
-        let effective_elapsed = if elapsed > 0.0 { elapsed } else { interval };
+        let min_window = 0.25;
+        let effective_elapsed = if elapsed > min_window {
+            elapsed
+        } else {
+            let fallback = if refresh_interval > 0 {
+                refresh_interval as f64
+            } else {
+                min_window
+            };
+            fallback.max(min_window)
+        };
 
         let read_rate = total_read as f64 / effective_elapsed / 1024.0 / 1024.0; // MB/s
         let write_rate = total_written as f64 / effective_elapsed / 1024.0 / 1024.0; // MB/s
@@ -1504,6 +1536,7 @@ impl SystemMonitorApp {
             let mut service_check_counter: u32 = 0;
             let mut last_alert_time: std::collections::HashMap<AlertType, Instant> = std::collections::HashMap::new();
             let mut last_hidden_tick = Instant::now();
+            let mut last_selected_tab = data_clone.lock().selected_tab;
 
             loop {
                 eprintln!("DBG: background thread loop iteration starting");
@@ -1612,10 +1645,8 @@ impl SystemMonitorApp {
                 // Get battery info every 15 ticks (~7.5s) — retain previous value if unavailable
                 if battery_check_counter % 15 == 0 {
                     let mut bi = None;
-                    if let Ok(com) = wmi::COMLibrary::without_security() {
-                        if let Ok(wmi_con) = wmi::WMIConnection::new(std::rc::Rc::new(com)) {
-                            bi = get_battery_info(&wmi_con);
-                        }
+                    if let Some(wmi_con) = monitor.get_battery_wmi() {
+                        bi = get_battery_info(&wmi_con);
                     }
                     if let Some(bi) = bi {
                         let mut data = data_clone.lock();
@@ -1625,12 +1656,29 @@ impl SystemMonitorApp {
                 battery_check_counter = battery_check_counter.wrapping_add(1);
 
                 // Poll services every 60 ticks (~30s) — WMI queries are expensive
-                if !is_hidden && selected_tab == Tab::Services && service_check_counter % 60 == 0 {
-                    let services_list = services::get_services();
-                    let mut data = data_clone.lock();
-                    data.services = services_list;
+                if !is_hidden && selected_tab == Tab::Services {
+                    let services_list = if last_selected_tab != Tab::Services || data_clone.lock().services.is_empty() {
+                        if let Some(ref com) = monitor.wmi_com {
+                            services::get_services_with_com(Some(com))
+                        } else {
+                            services::get_services()
+                        }
+                    } else if service_check_counter % 60 == 0 {
+                        if let Some(ref com) = monitor.wmi_com {
+                            services::get_services_with_com(Some(com))
+                        } else {
+                            services::get_services()
+                        }
+                    } else {
+                        Vec::new()
+                    };
+                    if !services_list.is_empty() {
+                        let mut data = data_clone.lock();
+                        data.services = services_list;
+                    }
                 }
                 service_check_counter = service_check_counter.wrapping_add(1);
+                last_selected_tab = selected_tab;
 
                 // Calculate total network rates
                 let total_download_rate: f64 = network_info.iter().map(|n| n.received_rate).sum();

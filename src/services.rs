@@ -57,13 +57,30 @@ pub fn send_service_control(name: &str, action: ServiceControlAction) -> bool {
 }
 
 pub fn get_services() -> Vec<ServiceInfo> {
+    get_services_with_com(None)
+}
+
+pub fn get_services_with_com(com: Option<&std::rc::Rc<wmi::COMLibrary>>) -> Vec<ServiceInfo> {
     let mut result = Vec::new();
-    
-    // Fallback to WMI because `windows-service` crate does not have `enumerate_services_status`
-    // and `ServiceAccess` is a private struct in the `service_manager` module.
-    if let Ok(com_lib) = COMLibrary::new() {
-        if let Ok(wmi_con) = WMIConnection::new(com_lib.into()) {
-            let results: Result<Vec<Win32_Service>, _> = wmi_con.raw_query("SELECT Name, DisplayName, State FROM Win32_Service");
+
+    if let Some(com_lib) = com {
+        if let Ok(wmi_con) = WMIConnection::new(com_lib.clone()) {
+            let results: Result<Vec<Win32_Service>, _> =
+                wmi_con.raw_query("SELECT Name, DisplayName, State FROM Win32_Service");
+            if let Ok(services) = results {
+                for svc in services {
+                    result.push(ServiceInfo {
+                        name: svc.name,
+                        display_name: svc.display_name.unwrap_or_default(),
+                        state: svc.state,
+                    });
+                }
+            }
+        }
+    } else if let Ok(com_lib) = COMLibrary::new() {
+        if let Ok(wmi_con) = WMIConnection::new(std::rc::Rc::new(com_lib)) {
+            let results: Result<Vec<Win32_Service>, _> =
+                wmi_con.raw_query("SELECT Name, DisplayName, State FROM Win32_Service");
             if let Ok(services) = results {
                 for svc in services {
                     result.push(ServiceInfo {
@@ -75,7 +92,7 @@ pub fn get_services() -> Vec<ServiceInfo> {
             }
         }
     }
-    
+
     result.sort_by(|a, b| a.display_name.cmp(&b.display_name));
     result
 }
