@@ -3,7 +3,9 @@ use chrono::Local;
 mod updater;
 mod startup;
 mod privilege;
+mod processes;
 use startup::{StartupItem, ImpactTier, Recommendation, StartupSortColumn, BootDiagnostics, StartupOptimizationEntry};
+use processes::{ProcessInfo, ProcessSortColumn};
 use eframe::egui;
 use egui_plot::{Line, Plot, PlotPoints};
 use tracing::{error, info, warn};
@@ -109,15 +111,6 @@ fn play_alert_sound() {}
 fn play_success_sound() {}
 
 // Data structures
-#[derive(Clone, Serialize)]
-struct ProcessInfo {
-    pid: u32,
-    name: String,
-    cpu_usage: f32,
-    memory: u64,
-    status: String,
-}
-
 #[derive(Clone)]
 struct CpuCoreInfo {
     core_id: usize,
@@ -265,16 +258,6 @@ fn default_auto_ram_clean() -> bool {
 }
 fn default_ram_clean_threshold() -> f32 {
     85.0
-}
-
-#[derive(PartialEq, Clone, Copy)]
-enum ProcessSortColumn {
-    Pid,
-    Name,
-    Memory,
-    Cpu,
-    #[allow(dead_code)]
-    Status,
 }
 
 struct SystemMonitor {
