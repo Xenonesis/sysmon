@@ -5,6 +5,9 @@ use std::io::Read;
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 const UPDATE_CHECK_URL: &str = "https://api.github.com/repos/Xenonesis/sysmon/releases/latest";
 
+// Must match the AppId in installer.iss.
+const INSTALLER_APP_ID: &str = "{3F2A9C41-8E7D-4B6A-9C21-5D8E4F1A7B62}";
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct UpdateInfo {
     pub current_version: String,
@@ -65,19 +68,31 @@ impl Updater {
                 self.update_info.update_available =
                     self.is_newer_version(current_version, latest_version);
 
-                // Prefer the installer asset (SystemMonitor-<ver>-setup.exe);
-                // fall back to the first portable exe/zip.
+                // Clear any URL from a previous check in this session.
+                self.update_info.download_url.clear();
+
+                // Installed app: prefer the installer asset (SystemMonitor-<ver>-setup.exe),
+                // fall back to the first portable exe/zip. Portable app: must pick a
+                // non-setup exe/zip — self-replacing with the installer would overwrite
+                // the running binary with the Inno Setup wizard.
+                let installed = self.is_installed();
                 let mut fallback_url = String::new();
                 for asset in release.assets {
                     let name = asset.name.to_lowercase();
-                    if name.contains("setup") && name.ends_with(".exe") {
+                    let is_setup = name.contains("setup") && name.ends_with(".exe");
+                    if installed {
+                        if is_setup {
+                            self.update_info.download_url = asset.browser_download_url;
+                            break;
+                        }
+                        if fallback_url.is_empty()
+                            && (name.ends_with(".zip") || name.ends_with(".exe"))
+                        {
+                            fallback_url = asset.browser_download_url;
+                        }
+                    } else if !is_setup && (name.ends_with(".zip") || name.ends_with(".exe")) {
                         self.update_info.download_url = asset.browser_download_url;
                         break;
-                    }
-                    if fallback_url.is_empty()
-                        && (name.ends_with(".zip") || name.ends_with(".exe"))
-                    {
-                        fallback_url = asset.browser_download_url;
                     }
                 }
                 if self.update_info.download_url.is_empty() {
@@ -136,10 +151,11 @@ impl Updater {
             use winreg::enums::*;
             use winreg::RegKey;
             let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
-            if hklm
-                .open_subkey(r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\System Monitor")
-                .is_ok()
-            {
+            let key = format!(
+                r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{}_is1",
+                INSTALLER_APP_ID
+            );
+            if hklm.open_subkey(&key).is_ok() {
                 return true;
             }
         }
