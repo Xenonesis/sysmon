@@ -1088,6 +1088,9 @@ struct SystemData {
     cpu_cores: Vec<CpuCoreInfo>,
     gpu_info: Vec<GpuInfo>,
     top_processes: Vec<ProcessInfo>,
+    monitoring_paused: bool,
+    selected_process_pid: Option<u32>,
+    selected_process_details: Option<(u32, processes::ProcessDetails)>,
     disk_info: Vec<DiskInfo>,
     network_info: Vec<NetworkInfo>,
     system_info: SystemInfo,
@@ -1124,6 +1127,9 @@ impl Default for SystemData {
             cpu_cores: Vec::new(),
             gpu_info: Vec::new(),
             top_processes: Vec::new(),
+            monitoring_paused: false,
+            selected_process_pid: None,
+            selected_process_details: None,
             disk_info: Vec::new(),
             network_info: Vec::new(),
             system_info: SystemInfo {
@@ -1174,6 +1180,8 @@ struct SystemMonitorApp {
     show_alerts: bool,
     show_process_manager: bool,
     selected_process_pid: Option<u32>,
+    details_pid: Option<u32>,
+    kill_tree_pid: Option<u32>,
     process_search: String,
     process_sort_column: ProcessSortColumn,
     process_sort_ascending: bool,
@@ -1687,6 +1695,21 @@ impl SystemMonitorApp {
                     }
                 }
 
+                // Process details for the selected row (recompute only when selection changed)
+                let selected_pid = { let d = data_clone.lock(); d.selected_process_pid };
+                if let Some(pid) = selected_pid {
+                    let cached = {
+                        let d = data_clone.lock();
+                        d.selected_process_details.as_ref().map(|(p, _)| *p)
+                    };
+                    if cached != Some(pid) {
+                        if let Some(details) = processes::lookup_details(&monitor.sys, pid) {
+                            let mut d = data_clone.lock();
+                            d.selected_process_details = Some((pid, details));
+                        }
+                    }
+                }
+
                 if is_hidden {
                     // Minimized: sleep 10s
                     thread::sleep(Duration::from_millis(10000));
@@ -1732,6 +1755,8 @@ impl SystemMonitorApp {
             show_alerts: false,
             show_process_manager: false,
             selected_process_pid: None,
+            details_pid: None,
+            kill_tree_pid: None,
             process_search: String::new(),
             process_sort_column: ProcessSortColumn::Memory,
             process_sort_ascending: false,
@@ -2032,6 +2057,15 @@ impl eframe::App for SystemMonitorApp {
             }
         });
 
+        // Mirror details selection into shared state so the monitor thread computes details
+        {
+            let mut d = self.data.lock();
+            if d.selected_process_pid != self.details_pid {
+                d.selected_process_pid = self.details_pid;
+                d.selected_process_details = None;
+            }
+        }
+
         let data = self.data.lock().clone();
 
         // Handle process kill actions
@@ -2047,6 +2081,56 @@ impl eframe::App for SystemMonitorApp {
                     .timeout(notify_rust::Timeout::Milliseconds(5000))
                     .show();
             }
+        }
+
+        // Handle process tree kill actions (background thread; tree walk + kills can take seconds)
+        if let Some(root) = self.kill_tree_pid.take() {
+            let ctx_clone = ctx.clone();
+            let enable_sounds = self.settings.enable_sounds;
+            thread::Builder::new()
+                .name("kill_tree".to_string())
+                .stack_size(8 * 1024 * 1024)
+                .spawn(move || {
+                    let mut monitor = SystemMonitor::new();
+                    monitor.sys.refresh_processes();
+                    let tree = processes::build_process_tree(&monitor.sys);
+                    let order = processes::kill_order(&tree, root);
+                    let total = order.len();
+                    let mut killed = 0usize;
+                    let mut failed_pids: Vec<u32> = Vec::new();
+                    for pid in order {
+                        if monitor.kill_process(pid) {
+                            killed += 1;
+                        } else {
+                            failed_pids.push(pid);
+                        }
+                    }
+                    let summary = if failed_pids.is_empty() {
+                        format!("Process tree killed successfully ({} processes).", killed)
+                    } else {
+                        format!(
+                            "Killed {} of {} processes. {} failed (Access Denied): {:?}",
+                            killed,
+                            total,
+                            failed_pids.len(),
+                            failed_pids
+                        )
+                    };
+                    let _ = notify_rust::Notification::new()
+                        .summary("Process Tree Kill")
+                        .body(&summary)
+                        .timeout(notify_rust::Timeout::Milliseconds(5000))
+                        .show();
+                    if enable_sounds {
+                        if failed_pids.is_empty() {
+                            play_success_sound();
+                        } else {
+                            play_alert_sound();
+                        }
+                    }
+                    ctx_clone.request_repaint();
+                })
+                .expect("failed to spawn kill tree thread");
         }
 
         // Handle process suspend actions
@@ -2530,6 +2614,18 @@ fn paint_section_header(ui: &mut egui::Ui, text: &str) {
         egui::Stroke::new(3.5, ThemePalette::ACCENT_PRIMARY),
     );
     ui.add_space(12.0);
+}
+
+fn details_row(ui: &mut egui::Ui, label: &str, value: &str) {
+    ui.label(egui::RichText::new(label).strong());
+    ui.label(value);
+    ui.end_row();
+}
+
+fn format_started(epoch_secs: u64) -> String {
+    chrono::DateTime::from_timestamp(epoch_secs as i64, 0)
+        .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
+        .unwrap_or_else(|| "N/A".to_string())
 }
 
 /// Rounded pill progress bar with subtle track
@@ -3046,75 +3142,11 @@ impl SystemMonitorApp {
         ui.add_space(5.0);
 
         // Filter processes
-        let mut filtered_processes: Vec<_> = if self.process_search.is_empty() {
-            data.top_processes.clone()
-        } else {
-            let query = self.process_search.to_lowercase();
-            data.top_processes
-                .iter()
-                .filter(|p| {
-                    p.name.to_lowercase().contains(&query)
-                        || p.pid.to_string().contains(&query)
-                })
-                .cloned()
-                .collect()
-        };
+        let mut filtered_processes = processes::filter_processes(&data.top_processes, &self.process_search);
 
         // Sort processes
         let ascending = self.process_sort_ascending;
-        match self.process_sort_column {
-            ProcessSortColumn::Pid => {
-                filtered_processes.sort_by(|a, b| {
-                    if ascending {
-                        a.pid.cmp(&b.pid)
-                    } else {
-                        b.pid.cmp(&a.pid)
-                    }
-                });
-            }
-            ProcessSortColumn::Name => {
-                filtered_processes.sort_by(|a, b| {
-                    let cmp = a.name.to_lowercase().cmp(&b.name.to_lowercase());
-                    if ascending {
-                        cmp
-                    } else {
-                        cmp.reverse()
-                    }
-                });
-            }
-            ProcessSortColumn::Memory => {
-                filtered_processes.sort_by(|a, b| {
-                    if ascending {
-                        a.memory.cmp(&b.memory)
-                    } else {
-                        b.memory.cmp(&a.memory)
-                    }
-                });
-            }
-            ProcessSortColumn::Cpu => {
-                filtered_processes.sort_by(|a, b| {
-                    let cmp = a
-                        .cpu_usage
-                        .partial_cmp(&b.cpu_usage)
-                        .unwrap_or(std::cmp::Ordering::Equal);
-                    if ascending {
-                        cmp
-                    } else {
-                        cmp.reverse()
-                    }
-                });
-            }
-            ProcessSortColumn::Status => {
-                // Status sorting not applicable for basic process info, fall back to memory
-                filtered_processes.sort_by(|a, b| {
-                    if ascending {
-                        a.memory.cmp(&b.memory)
-                    } else {
-                        b.memory.cmp(&a.memory)
-                    }
-                });
-            }
-        }
+        processes::sort_processes(&mut filtered_processes, self.process_sort_column, ascending);
 
         ui.label(format!(
             "Showing {} of {} processes",
@@ -3220,13 +3252,23 @@ impl SystemMonitorApp {
                         } else {
                             process.name.clone()
                         };
-                        ui.label(egui::RichText::new(display_name).color(text_color));
+                        let selected = self.details_pid == Some(process.pid);
+                        if ui
+                            .selectable_label(selected, egui::RichText::new(display_name).color(text_color))
+                            .on_hover_text("Click to view process details")
+                            .clicked()
+                        {
+                            self.details_pid = Some(process.pid);
+                        }
 
                         ui.label(egui::RichText::new(format!("{:.2} MB", memory_mb)).color(text_color));
                         ui.label(egui::RichText::new(format!("{:.1}%", process.cpu_usage)).color(text_color));
 
-                        // Action buttons: Kill, Suspend/Resume, Priority, Copy PID
+                        // Action buttons: Tree, Kill, Suspend/Resume, Priority, Copy PID
                         ui.horizontal(|ui| {
+                            if ui.small_button("Tree").on_hover_text("Kill this process and all its children (deepest first)").clicked() {
+                                self.kill_tree_pid = Some(process.pid);
+                            }
                             if ui.small_button("Kill").on_hover_text("Terminate this process (requires Admin for system processes)").clicked() {
                                 self.selected_process_pid = Some(process.pid);
                             }
@@ -3257,7 +3299,28 @@ impl SystemMonitorApp {
                         ui.end_row();
                     }
                 });
-        });
+
+                // Details panel for selected process
+                if let Some((pid, details)) = &data.selected_process_details {
+                    if self.details_pid == Some(*pid) {
+                        ui.add_space(8.0);
+                        ui.separator();
+                        paint_section_header(ui, &format!("Process Details — PID {}", pid));
+                        egui::Grid::new("process_details_grid")
+                            .num_columns(2)
+                            .spacing([16.0, 4.0])
+                            .show(ui, |ui| {
+                                details_row(ui, "Executable", details.exe_path.as_deref().unwrap_or("N/A"));
+                                details_row(ui, "Command Line", &details.command_line);
+                                details_row(ui, "Working Directory", details.cwd.as_deref().unwrap_or("N/A"));
+                                details_row(ui, "Started", &format_started(details.start_time));
+                                details_row(ui, "Run Time", &format!("{}m {}s", details.run_time / 60, details.run_time % 60));
+                                details_row(ui, "Parent PID", &details.parent_pid.map(|p| p.to_string()).unwrap_or_else(|| "—".to_string()));
+                                details_row(ui, "Parent Name", details.parent_name.as_deref().unwrap_or("—"));
+                            });
+                    }
+                }
+            });
     }
 
     fn show_storage_tab(&self, ui: &mut egui::Ui, data: &SystemData) {
