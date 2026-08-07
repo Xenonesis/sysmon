@@ -7,7 +7,7 @@ A comprehensive, professional system monitoring application built with Rust feat
 [![License: MIT](https://img.shields.io/badge/License-MIT-gray.svg?style=flat-square)](https://opensource.org/licenses/MIT)
 [![Rust](https://img.shields.io/badge/Rust-1.70%2B-gray.svg?style=flat-square)](https://www.rust-lang.org/)
 [![Platform](https://img.shields.io/badge/Platform-Windows-gray.svg?style=flat-square)](https://www.microsoft.com/windows)
-[![Version](https://img.shields.io/badge/Version-2.4.0-gray.svg?style=flat-square)](https://github.com/Xenonesis/sysmon/releases/latest)
+[![Version](https://img.shields.io/badge/Version-2.5.0-gray.svg?style=flat-square)](https://github.com/Xenonesis/sysmon/releases/latest)
 
 ---
 
@@ -15,7 +15,7 @@ A comprehensive, professional system monitoring application built with Rust feat
 
 The recommended distribution is our standalone Windows installer, providing automatic updates and seamless system integration.
 
-**[Download SysMon Installer (v2.4.0)](https://systemmonitor.xenonesis.dev)**
+**[Download SysMon Installer (v2.5.0)](https://systemmonitor.xenonesis.dev)**
 
 **Installer Features:**
 * **Native Integration:** Installs to `Program Files` with a searchable Start Menu entry.
@@ -73,11 +73,14 @@ The compiled executable will be located at: `target/release/system-monitor.exe`.
 
 ## Changelog
 
+### [2.5.0] — Power & Desktop Widget
+* **Power Plan Toggle:** Enumerate and switch active Windows power schemes from the tray menu.
+* **Desktop Mini-Widget:** Floating telemetry overlay (CPU, RAM, GPU, network, thermals), toggled from Settings.
+* **UI/UX Polish:** Unified 8px corner rounding across themes and documented the new capabilities.
+
 ### [2.4.0] — Feature Expansion
 * **Process Pro:** Added an exhaustive details panel (path, command line, threads, start time) and a Deep Kill Tree action.
 * **Tray Quick Actions:** Upgraded system tray menu with actions to Clean RAM, pause monitoring, and open the process manager.
-* **Power Plan Toggle:** Enumerate and switch active Windows power schemes from the tray menu.
-* **Desktop Mini-Widget:** Floating telemetry overlay (CPU, RAM, GPU, network, thermals), toggled from Settings.
 * **Advanced GPU Metrics:** Added real-time Clock Speed, Power Draw, and Fan Speed metrics via NVML.
 * **System Info Enrichment:** Deeper system insights using WMI (Motherboard, BIOS, GPU Driver, OS Build).
 * **UI/UX Polish:** Refined application spacing, corner radiuses, and shadow elevations across themes for a premium feel.
