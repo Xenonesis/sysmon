@@ -3420,8 +3420,8 @@ impl SystemMonitorApp {
 
                         ui.label(egui::RichText::new(format!("{:.2} MB", memory_mb)).color(text_color));
                         ui.label(egui::RichText::new(format!("{:.1}%", process.cpu_usage)).color(text_color));
-                        ui.label(egui::RichText::new(format!("{:.1} KB/s", process.disk_read_bytes as f64 / 1024.0)).color(text_color));
-                        ui.label(egui::RichText::new(format!("{:.1} KB/s", process.disk_written_bytes as f64 / 1024.0)).color(text_color));
+                        ui.label(egui::RichText::new(format!("{:.1} KB", process.disk_read_bytes as f64 / 1024.0)).color(text_color));
+                        ui.label(egui::RichText::new(format!("{:.1} KB", process.disk_written_bytes as f64 / 1024.0)).color(text_color));
 
                         // Action buttons: Tree, Kill, Suspend/Resume, Priority, Copy PID
                         ui.horizontal(|ui| {
