@@ -1,27 +1,5 @@
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 use chrono::Local;
-#[derive(Deserialize, Debug)]
-#[serde(rename_all = "PascalCase")]
-struct Win32Battery {
-    design_capacity: Option<u32>,
-    full_charge_capacity: Option<u32>,
-    battery_status: Option<u16>,
-}
-
-pub fn get_battery_info(wmi_con: &wmi::WMIConnection) -> Option<BatteryInfo> {
-    let results: Result<Vec<Win32Battery>, _> = wmi_con.raw_query("SELECT DesignCapacity, FullChargeCapacity, BatteryStatus FROM Win32_Battery");
-    if let Ok(mut bats) = results {
-        if let Some(bat) = bats.pop() {
-            return Some(BatteryInfo {
-                design_capacity: bat.design_capacity.unwrap_or(0),
-                full_charge_capacity: bat.full_charge_capacity.unwrap_or(0),
-                status: bat.battery_status.unwrap_or(0),
-                present: true,
-            });
-        }
-    }
-    None
-}
 mod updater;
 mod startup;
 mod privilege;
@@ -35,6 +13,55 @@ use tracing::{error, info, warn};
 use rfd::FileDialog;
 
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+#[cfg(target_os = "windows")]
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "PascalCase")]
+struct Win32Battery {
+    design_capacity: Option<u32>,
+    full_charge_capacity: Option<u32>,
+    battery_status: Option<u16>,
+    discharge_state: Option<String>,
+}
+
+#[cfg(target_os = "windows")]
+fn battery_status_label(status: u16) -> Option<&'static str> {
+    match status {
+        1 => Some("Discharging"),
+        2 => Some("AC Power"),
+        3 => Some("Fully Charged"),
+        4 => Some("Low"),
+        5 => Some("Critical"),
+        6 => Some("Charging"),
+        7 => Some("Charging and High"),
+        8 => Some("Charging and Low"),
+        9 => Some("Charging and Critical"),
+        10 => Some("Undefined"),
+        11 => Some("Partially Charged"),
+        _ => None,
+    }
+}
+
+#[cfg(target_os = "windows")]
+pub fn get_battery_info(wmi_con: &wmi::WMIConnection) -> Option<BatteryInfo> {
+    let results: Result<Vec<Win32Battery>, _> = wmi_con.raw_query("SELECT DesignCapacity, FullChargeCapacity, BatteryStatus, DischargeRate FROM Win32_Battery");
+    if let Ok(mut bats) = results {
+        if let Some(bat) = bats.pop() {
+            let discharge_state = bat
+                .battery_status
+                .and_then(battery_status_label)
+                .map(|s| s.to_string());
+            return Some(BatteryInfo {
+                design_capacity: bat.design_capacity.unwrap_or(0),
+                full_charge_capacity: bat.full_charge_capacity.unwrap_or(0),
+                status: bat.battery_status.unwrap_or(0),
+                discharge_state,
+                present: true,
+            });
+        }
+    }
+    None
+}
 
 macro_rules! eprintln {
     ($($arg:tt)*) => {{
@@ -953,7 +980,7 @@ impl SystemMonitor {
             .collect()
     }
 
-    fn get_disk_io(&mut self) -> (f64, f64) {
+    fn get_disk_io(&mut self, refresh_interval: u64) -> (f64, f64) {
         let elapsed = self.last_disk_update.elapsed().as_secs_f64();
         let mut total_read = 0;
         let mut total_written = 0;
@@ -966,17 +993,11 @@ impl SystemMonitor {
 
         self.last_disk_update = Instant::now();
 
-        let read_rate = if elapsed > 0.0 {
-            total_read as f64 / elapsed / 1024.0 / 1024.0 // MB/s
-        } else {
-            0.0
-        };
+        let interval = if refresh_interval > 0 { refresh_interval as f64 } else { elapsed };
+        let effective_elapsed = if elapsed > 0.0 { elapsed } else { interval };
 
-        let write_rate = if elapsed > 0.0 {
-            total_written as f64 / elapsed / 1024.0 / 1024.0 // MB/s
-        } else {
-            0.0
-        };
+        let read_rate = total_read as f64 / effective_elapsed / 1024.0 / 1024.0; // MB/s
+        let write_rate = total_written as f64 / effective_elapsed / 1024.0 / 1024.0; // MB/s
 
         (read_rate, write_rate)
     }
@@ -1114,6 +1135,7 @@ pub struct BatteryInfo {
     pub design_capacity: u32,
     pub full_charge_capacity: u32,
     pub status: u16,
+    pub discharge_state: Option<String>,
     pub present: bool,
 }
 #[derive(Clone)]
@@ -1226,6 +1248,7 @@ struct SystemMonitorApp {
     selected_process_pid: Option<u32>,
     details_pid: Option<u32>,
     kill_tree_pid: Option<u32>,
+    pending_service_action: Option<services::ServiceAction>,
     process_search: String,
     process_sort_column: ProcessSortColumn,
     process_sort_ascending: bool,
@@ -1579,7 +1602,7 @@ impl SystemMonitorApp {
                 let swap_info = monitor.get_swap_info();
                 
                 let (disk_read_rate, disk_write_rate) = if !is_hidden {
-                    monitor.get_disk_io()
+                    monitor.get_disk_io(refresh_interval)
                 } else {
                     (0.0, 0.0)
                 };
@@ -1589,7 +1612,7 @@ impl SystemMonitorApp {
                 // Get battery info every 15 ticks (~7.5s) — retain previous value if unavailable
                 if battery_check_counter % 15 == 0 {
                     let mut bi = None;
-                    if let Ok(com) = wmi::COMLibrary::new() {
+                    if let Ok(com) = wmi::COMLibrary::without_security() {
                         if let Ok(wmi_con) = wmi::WMIConnection::new(std::rc::Rc::new(com)) {
                             bi = get_battery_info(&wmi_con);
                         }
@@ -1882,6 +1905,7 @@ impl SystemMonitorApp {
             resume_process_pid: None,
             suspended_pids: std::collections::HashSet::new(),
             priority_change: None,
+            pending_service_action: None,
             #[cfg(target_os = "windows")]
             tray_icon,
             #[cfg(target_os = "windows")]
@@ -4000,6 +4024,14 @@ impl SystemMonitorApp {
                             ui.label("Battery Wear Level:");
                             ui.strong(format!("{:.1}%", wear));
                         });
+                        ui.horizontal(|ui| {
+                            ui.label("Discharge/Charge State:");
+                            ui.strong(bat.discharge_state.as_deref().unwrap_or("N/A").to_string());
+                        });
+                        ui.horizontal(|ui| {
+                            ui.label("Discharge/Charge State:");
+                            ui.strong(bat.discharge_state.as_deref().unwrap_or("N/A").to_string());
+                        });
                     });
                     ui.add_space(12.0);
                 }
@@ -5216,6 +5248,7 @@ impl SystemMonitorApp {
                     ui.strong("Display Name");
                     ui.strong("Service Name");
                     ui.strong("State");
+                    ui.strong("Actions");
                     ui.end_row();
 
                     for svc in &data.services {
@@ -5227,10 +5260,38 @@ impl SystemMonitorApp {
                             ThemePalette::TEXT_SECONDARY
                         };
                         ui.colored_label(color, &svc.state);
+
+                        ui.horizontal(|ui| {
+                            let start_btn = ui.small_button("Start");
+                            let stop_btn = ui.small_button("Stop");
+                            let restart_btn = ui.small_button("Restart");
+                            if start_btn.clicked() {
+                                self.pending_service_action = Some(services::ServiceAction {
+                                    name: svc.name.clone(),
+                                    action: services::ServiceControlAction::Start,
+                                });
+                            }
+                            if stop_btn.clicked() {
+                                self.pending_service_action = Some(services::ServiceAction {
+                                    name: svc.name.clone(),
+                                    action: services::ServiceControlAction::Stop,
+                                });
+                            }
+                            if restart_btn.clicked() {
+                                self.pending_service_action = Some(services::ServiceAction {
+                                    name: svc.name.clone(),
+                                    action: services::ServiceControlAction::Restart,
+                                });
+                            }
+                        });
                         ui.end_row();
                     }
                 });
         });
+
+        if let Some(action) = self.pending_service_action.take() {
+            let _ = services::send_service_control(&action.name, action.action);
+        }
     }
 }
 
