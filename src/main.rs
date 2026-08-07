@@ -26,6 +26,7 @@ mod updater;
 mod startup;
 mod privilege;
 mod processes;
+mod services;
 use startup::{StartupItem, ImpactTier, Recommendation, StartupSortColumn, BootDiagnostics, StartupOptimizationEntry};
 use processes::{ProcessInfo, ProcessSortColumn};
 use eframe::egui;
