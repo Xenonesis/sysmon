@@ -1,6 +1,6 @@
 [package]
 name = "system-monitor"
-version = "2.2.0"
+version = "2.3.0"
 edition = "2021"
 authors = ["System Monitor Contributors"]
 description = "A professional system monitoring application for Windows with GUI"
