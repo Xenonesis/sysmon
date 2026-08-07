@@ -1,5 +1,27 @@
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 use chrono::Local;
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "PascalCase")]
+struct Win32Battery {
+    design_capacity: Option<u32>,
+    full_charge_capacity: Option<u32>,
+    battery_status: Option<u16>,
+}
+
+pub fn get_battery_info(wmi_con: &wmi::WMIConnection) -> Option<BatteryInfo> {
+    let results: Result<Vec<Win32Battery>, _> = wmi_con.raw_query("SELECT DesignCapacity, FullChargeCapacity, BatteryStatus FROM Win32_Battery");
+    if let Ok(mut bats) = results {
+        if let Some(bat) = bats.pop() {
+            return Some(BatteryInfo {
+                design_capacity: bat.design_capacity.unwrap_or(0),
+                full_charge_capacity: bat.full_charge_capacity.unwrap_or(0),
+                status: bat.battery_status.unwrap_or(0),
+                present: true,
+            });
+        }
+    }
+    None
+}
 mod updater;
 mod startup;
 mod privilege;
@@ -177,12 +199,6 @@ struct SwapInfo {
 }
 
 // Battery info
-#[derive(Clone)]
-struct BatteryInfo {
-    percentage: f32,
-    is_charging: bool,
-    status_text: String,
-}
 
 // StartupItem is now in startup.rs module
 
@@ -571,52 +587,6 @@ impl SystemMonitor {
         }
     }
 
-    #[cfg(target_os = "windows")]
-    fn get_battery_info(&self) -> Option<BatteryInfo> {
-        // Use native Win32 API — no PowerShell process spawning
-        use windows::Win32::System::Power::{GetSystemPowerStatus, SYSTEM_POWER_STATUS};
-        let mut status: SYSTEM_POWER_STATUS = unsafe { std::mem::zeroed() };
-        let result = unsafe { GetSystemPowerStatus(&mut status) };
-        if result.is_err() {
-            return None;
-        }
-        // BatteryFlag 128 = no battery present
-        if status.BatteryFlag == 128 {
-            return None;
-        }
-        let percentage = if status.BatteryLifePercent <= 100 {
-            status.BatteryLifePercent as f32
-        } else {
-            0.0 // 255 means unknown
-        };
-        // ACLineStatus: 0=Offline, 1=Online
-        let is_charging = status.ACLineStatus == 1 && status.BatteryLifePercent < 100;
-        let status_text = if status.ACLineStatus == 1 {
-            if status.BatteryLifePercent >= 100 {
-                "Fully Charged".to_string()
-            } else {
-                "Charging".to_string()
-            }
-        } else {
-            if percentage <= 10.0 {
-                "Critical".to_string()
-            } else if percentage <= 25.0 {
-                "Low".to_string()
-            } else {
-                "Discharging".to_string()
-            }
-        };
-        Some(BatteryInfo {
-            percentage,
-            is_charging,
-            status_text,
-        })
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    fn get_battery_info(&self) -> Option<BatteryInfo> {
-        None
-    }
 
     #[cfg(target_os = "windows")]
     fn clean_ram(&mut self) -> u64 {
@@ -1136,7 +1106,15 @@ struct DataPoint {
 }
 
 // Shared state between threads
+#[derive(Debug, Clone, Default)]
+pub struct BatteryInfo {
+    pub design_capacity: u32,
+    pub full_charge_capacity: u32,
+    pub status: u16,
+    pub present: bool,
+}
 #[derive(Clone)]
+
 struct SystemData {
     memory_total: u64,
     memory_used: u64,
@@ -1603,11 +1581,15 @@ impl SystemMonitorApp {
 
                 // Get battery info every 15 ticks (~7.5s) — retain previous value if unavailable
                 if battery_check_counter % 15 == 0 {
-                    if let Some(bi) = monitor.get_battery_info() {
-                        {
-                            let mut data = data_clone.lock();
-                            data.battery_info = Some(bi);
+                    let mut bi = None;
+                    if let Ok(com) = wmi::COMLibrary::new() {
+                        if let Ok(wmi_con) = wmi::WMIConnection::new(std::rc::Rc::new(com)) {
+                            bi = get_battery_info(&wmi_con);
                         }
+                    }
+                    if let Some(bi) = bi {
+                        let mut data = data_clone.lock();
+                        data.battery_info = Some(bi);
                     }
                 }
                 battery_check_counter = battery_check_counter.wrapping_add(1);
@@ -2123,31 +2105,39 @@ impl eframe::App for SystemMonitorApp {
                 let info = self.update_info_share.lock();
                 info.as_ref().unwrap().clone()
             };
-            egui::TopBottomPanel::top("update_notification").show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    ui.colored_label(ThemePalette::STATUS_HEALTHY, "🎉");
-                    ui.label(format!(
-                        "New version {} is available! Current: {}",
-                        update_info.latest_version,
-                        update_info.current_version
-                    ));
-                    if ui.button("⬇️ Download & Install").clicked() {
-                        let download_url = update_info.download_url.clone();
-                        thread::Builder::new()
-                            .name("updater_downloader".to_string())
-                            .stack_size(8 * 1024 * 1024)
-                            .spawn(move || {
-                                if let Err(e) = updater::Updater::new().download_and_install_update(&download_url) {
-                                    eprintln!("Update failed: {}", e);
-                                }
-                            })
-                            .expect("failed to spawn updater downloader thread");
-                    }
-                    if ui.button("✖").clicked() {
-                        self.show_update_notification = false;
-                    }
+                let mut frame = egui::Frame::none().fill(ThemePalette::BG_SURFACE);
+                frame.inner_margin = egui::Margin::symmetric(16.0, 12.0);
+                
+                egui::TopBottomPanel::top("update_notification").frame(frame).show(ctx, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.colored_label(ThemePalette::ACCENT_PRIMARY, egui::RichText::new("UPDATE AVAILABLE").strong());
+                        ui.add_space(8.0);
+                        ui.label(format!(
+                            "Version {} is ready. You are currently on v{}.",
+                            update_info.latest_version,
+                            update_info.current_version
+                        ));
+                        
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.button("Dismiss").clicked() {
+                                self.show_update_notification = false;
+                            }
+                            ui.add_space(8.0);
+                            if ui.button(egui::RichText::new("Install Update").strong()).clicked() {
+                                let download_url = update_info.download_url.clone();
+                                thread::Builder::new()
+                                    .name("updater_downloader".to_string())
+                                    .stack_size(8 * 1024 * 1024)
+                                    .spawn(move || {
+                                        if let Err(e) = updater::Updater::new().download_and_install_update(&download_url) {
+                                            eprintln!("Update failed: {}", e);
+                                        }
+                                    })
+                                    .expect("failed to spawn updater downloader thread");
+                            }
+                        });
+                    });
                 });
-            });
         }
 
         // Keyboard shortcuts
@@ -3969,39 +3959,29 @@ impl SystemMonitorApp {
 
             ui.add_space(10.0);
 
-            // Battery info
-            if let Some(ref battery) = data.battery_info {
-                ui.group(|ui| {
-                    ui.heading("Battery");
-                    ui.separator();
-
-                    ui.horizontal(|ui| {
-                        ui.label("Charge:");
-                        let color = if battery.percentage > 50.0 {
-                            ThemePalette::STATUS_HEALTHY
-                        } else if battery.percentage > 20.0 {
-                            ThemePalette::STATUS_WARNING
-                        } else {
-                            ThemePalette::STATUS_CRITICAL
-                        };
-                        let icon = if battery.is_charging { "AC" } else { "BAT" };
-                        ui.colored_label(color, format!("{} {:.0}%", icon, battery.percentage));
+            if let Some(bat) = &data.battery_info {
+                if bat.present {
+                    ui.group(|ui| {
+                        ui.heading("Battery Health");
+                        ui.separator();
+                        ui.horizontal(|ui| {
+                            ui.label("Design Capacity:");
+                            ui.strong(format!("{} mWh", bat.design_capacity));
+                        });
+                        ui.horizontal(|ui| {
+                            ui.label("Full Charge Capacity:");
+                            ui.strong(format!("{} mWh", bat.full_charge_capacity));
+                        });
+                        let wear = if bat.design_capacity > 0 {
+                            100.0 - ((bat.full_charge_capacity as f32 / bat.design_capacity as f32) * 100.0)
+                        } else { 0.0 };
+                        ui.horizontal(|ui| {
+                            ui.label("Battery Wear Level:");
+                            ui.strong(format!("{:.1}%", wear));
+                        });
                     });
-
-                    ui.horizontal(|ui| {
-                        ui.label("Status:");
-                        ui.strong(&battery.status_text);
-                    });
-
-                    let color = if battery.percentage > 50.0 {
-                        ThemePalette::STATUS_HEALTHY
-                    } else if battery.percentage > 20.0 {
-                        ThemePalette::STATUS_WARNING
-                    } else {
-                        ThemePalette::STATUS_CRITICAL
-                    };
-                    paint_progress_bar(ui, battery.percentage / 100.0, color, 5.0);
-                });
+                    ui.add_space(12.0);
+                }
             }
         });
     }
@@ -5413,5 +5393,18 @@ fn main() {
 
             std::process::exit(1);
         }
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_battery_info_default() {
+        let b = BatteryInfo::default();
+        assert_eq!(b.design_capacity, 0);
+        assert_eq!(b.present, false);
     }
 }
