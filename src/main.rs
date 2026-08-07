@@ -78,7 +78,7 @@ use sysinfo::{Disks, Networks, Pid, System};
 #[cfg(target_os = "windows")]
 use nvml_wrapper::Nvml;
 #[cfg(target_os = "windows")]
-use tray_icon::{TrayIconBuilder, menu::{Menu, MenuItem, MenuEvent}};
+use tray_icon::{TrayIconBuilder, menu::{Menu, MenuItem, CheckMenuItem, MenuEvent}};
 
 #[cfg(target_os = "windows")]
 fn play_alert_sound() {
@@ -1217,6 +1217,16 @@ struct SystemMonitorApp {
     tray_menu_show_id: Option<tray_icon::menu::MenuId>,
     #[cfg(target_os = "windows")]
     tray_menu_quit_id: Option<tray_icon::menu::MenuId>,
+    #[cfg(target_os = "windows")]
+    tray_menu_clean_id: Option<tray_icon::menu::MenuId>,
+    #[cfg(target_os = "windows")]
+    tray_menu_procman_id: Option<tray_icon::menu::MenuId>,
+    #[cfg(target_os = "windows")]
+    tray_menu_pause_id: Option<tray_icon::menu::MenuId>,
+    #[cfg(target_os = "windows")]
+    tray_menu_pause_item: Option<tray_icon::menu::CheckMenuItem>,
+    #[cfg(target_os = "windows")]
+    tray_menu_handle: Option<tray_icon::menu::Menu>,
     is_hidden: bool,
     /// Whether we have already applied the start_minimized setting on the first frame.
     start_minimized_applied: bool,
@@ -1429,10 +1439,10 @@ impl SystemMonitorApp {
                 eprintln!("DBG: background thread loop iteration starting");
                 thread::sleep(Duration::from_millis(500));
 
-                // Read hidden status and current tab
-                let (is_hidden, selected_tab) = {
+                // Read hidden status, current tab, and pause state
+                let (is_hidden, selected_tab, paused) = {
                     let data = data_clone.lock();
-                    (data.is_hidden, data.selected_tab)
+                    (data.is_hidden, data.selected_tab, data.monitoring_paused)
                 };
 
                 // Read current settings from shared state
@@ -1444,6 +1454,10 @@ impl SystemMonitorApp {
                 let is_minimized_tick = is_hidden && last_hidden_tick.elapsed().as_secs() < 10;
 
                 if is_minimized_tick {
+                    continue;
+                }
+
+                if paused {
                     continue;
                 }
 
@@ -1723,17 +1737,30 @@ impl SystemMonitorApp {
         let mut tray_icon = None;
         let mut tray_menu_show_id = None;
         let mut tray_menu_quit_id = None;
+        let mut tray_menu_clean_id = None;
+        let mut tray_menu_procman_id = None;
+        let mut tray_menu_pause_id = None;
+        let mut tray_menu_pause_item = None;
+        let mut tray_menu_handle = None;
 
         #[cfg(target_os = "windows")]
         if let Some(icon) = load_tray_icon() {
             let tray_menu = Menu::new();
             let show_i = MenuItem::new("Show Dashboard", true, None);
+            let clean_i = MenuItem::new("Clean RAM Now", true, None);
+            let procman_i = MenuItem::new("Open Process Manager", true, None);
+            let pause_i = CheckMenuItem::new("Pause Monitoring", true, false, None);
             let quit_i = MenuItem::new("Quit System Monitor", true, None);
-            
-            tray_menu_show_id = Some(show_i.id().clone());
-            tray_menu_quit_id = Some(quit_i.id().clone());
 
-            let _ = tray_menu.append_items(&[&show_i, &quit_i]);
+            tray_menu_show_id = Some(show_i.id().clone());
+            tray_menu_clean_id = Some(clean_i.id().clone());
+            tray_menu_procman_id = Some(procman_i.id().clone());
+            tray_menu_pause_id = Some(pause_i.id().clone());
+            tray_menu_quit_id = Some(quit_i.id().clone());
+            let pause_item = pause_i.clone();
+            let menu_handle = tray_menu.clone();
+
+            let _ = tray_menu.append_items(&[&show_i, &clean_i, &procman_i, &pause_i, &quit_i]);
 
             if let Ok(tray) = TrayIconBuilder::new()
                 .with_menu(Box::new(tray_menu))
@@ -1743,6 +1770,8 @@ impl SystemMonitorApp {
             {
                 tray_icon = Some(tray);
             }
+            tray_menu_pause_item = Some(pause_item);
+            tray_menu_handle = Some(menu_handle);
         }
 
         Self {
@@ -1800,6 +1829,16 @@ impl SystemMonitorApp {
             tray_menu_show_id,
             #[cfg(target_os = "windows")]
             tray_menu_quit_id,
+            #[cfg(target_os = "windows")]
+            tray_menu_clean_id,
+            #[cfg(target_os = "windows")]
+            tray_menu_procman_id,
+            #[cfg(target_os = "windows")]
+            tray_menu_pause_id,
+            #[cfg(target_os = "windows")]
+            tray_menu_pause_item,
+            #[cfg(target_os = "windows")]
+            tray_menu_handle,
             is_hidden: false,
             start_minimized_applied: false,
         }
@@ -1941,6 +1980,19 @@ impl eframe::App for SystemMonitorApp {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
                 ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
                 self.is_hidden = false;
+            } else if Some(&event.id) == self.tray_menu_clean_id.as_ref() {
+                self.start_ram_clean(ctx);
+            } else if Some(&event.id) == self.tray_menu_procman_id.as_ref() {
+                self.show_process_manager = true;
+            } else if Some(&event.id) == self.tray_menu_pause_id.as_ref() {
+                let paused = {
+                    let mut d = self.data.lock();
+                    d.monitoring_paused = !d.monitoring_paused;
+                    d.monitoring_paused
+                };
+                if let Some(item) = &self.tray_menu_pause_item {
+                    item.set_checked(paused);
+                }
             }
         }
 
@@ -1956,7 +2008,11 @@ impl eframe::App for SystemMonitorApp {
         #[cfg(target_os = "windows")]
         if let Some(tray) = &mut self.tray_icon {
             let data = self.data.lock();
-            let tooltip = format!("SysMon: CPU {:.0}% | RAM {:.0}%", data.cpu_usage, data.memory_percentage);
+            let tooltip = if data.monitoring_paused {
+                format!("⏸ SysMon Paused — CPU {:.0}% | RAM {:.0}%", data.cpu_usage, data.memory_percentage)
+            } else {
+                format!("SysMon: CPU {:.0}% | RAM {:.0}%", data.cpu_usage, data.memory_percentage)
+            };
             let _ = tray.set_tooltip(Some(tooltip));
         }
 
@@ -4027,6 +4083,37 @@ impl SystemMonitorApp {
         self.show_process_manager = show;
     }
 
+    fn start_ram_clean(&mut self, ctx: &egui::Context) {
+        self.ram_cleaner_state.is_cleaning = true;
+        self.ram_cleaner_state.last_cleaned = Some(Instant::now());
+        self.ram_cleaner_state.last_cleaned_display = Local::now().format("%H:%M:%S").to_string();
+        self.ram_cleaner_state.clean_count += 1;
+        let data_arc = Arc::clone(&self.data);
+        let ctx_clone = ctx.clone();
+        let enable_sounds = self.settings.enable_sounds;
+        thread::Builder::new()
+            .name("ram_cleaner_manual".to_string())
+            .stack_size(8 * 1024 * 1024)
+            .spawn(move || {
+                let mut monitor = SystemMonitor::new();
+                let freed = monitor.clean_ram();
+                if enable_sounds {
+                    play_success_sound();
+                }
+                {
+                    let mut data = data_arc.lock();
+                    data.ram_clean_freed_bytes += freed;
+                    data.ram_clean_is_cleaning = false;
+                }
+                ctx_clone.request_repaint();
+            })
+            .expect("failed to spawn ram cleaner thread");
+        {
+            let mut d = self.data.lock();
+            d.ram_clean_is_cleaning = true;
+        }
+    }
+
     fn show_ram_cleaner_tab(&mut self, ui: &mut egui::Ui, data: &SystemData) {
         paint_section_header(ui, "RAM Cleaner");
 
@@ -4083,34 +4170,10 @@ impl SystemMonitorApp {
                 ui.add_enabled_ui(!is_cleaning, |ui| {
                     if ui
                         .button(egui::RichText::new("🧹 Clean RAM Now").size(16.0).strong())
+                        .on_hover_text("Free working sets of all running processes")
                         .clicked()
                     {
-                        self.ram_cleaner_state.is_cleaning = true;
-                        self.ram_cleaner_state.last_cleaned = Some(Instant::now());
-                        self.ram_cleaner_state.last_cleaned_display = Local::now().format("%H:%M:%S").to_string();
-                        self.ram_cleaner_state.clean_count += 1;
-                        let data_arc = Arc::clone(&self.data);
-                        let ctx_clone = ui.ctx().clone();
-                        let enable_sounds = self.settings.enable_sounds;
-                        thread::Builder::new()
-                            .name("ram_cleaner_manual".to_string())
-                            .stack_size(8 * 1024 * 1024)
-                            .spawn(move || {
-                                let mut monitor = SystemMonitor::new();
-                                let freed = monitor.clean_ram();
-                                if enable_sounds { play_success_sound(); }
-                                {
-                                    let mut data = data_arc.lock();
-                                    data.ram_clean_freed_bytes += freed;
-                                    data.ram_clean_is_cleaning = false;
-                                }
-                                ctx_clone.request_repaint();
-                            })
-                            .expect("failed to spawn manual ram cleaner thread");
-                        {
-                            let mut d = self.data.lock();
-                            d.ram_clean_is_cleaning = true;
-                        }
+                        self.start_ram_clean(ui.ctx());
                     }
                 });
 
