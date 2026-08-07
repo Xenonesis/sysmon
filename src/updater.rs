@@ -65,12 +65,23 @@ impl Updater {
                 self.update_info.update_available =
                     self.is_newer_version(current_version, latest_version);
 
-                // Find the installer asset
+                // Prefer the installer asset (SystemMonitor-<ver>-setup.exe);
+                // fall back to the first portable exe/zip.
+                let mut fallback_url = String::new();
                 for asset in release.assets {
-                    if asset.name.ends_with(".zip") || asset.name.ends_with(".exe") {
+                    let name = asset.name.to_lowercase();
+                    if name.contains("setup") && name.ends_with(".exe") {
                         self.update_info.download_url = asset.browser_download_url;
                         break;
                     }
+                    if fallback_url.is_empty()
+                        && (name.ends_with(".zip") || name.ends_with(".exe"))
+                    {
+                        fallback_url = asset.browser_download_url;
+                    }
+                }
+                if self.update_info.download_url.is_empty() {
+                    self.update_info.download_url = fallback_url;
                 }
 
                 Ok(self.update_info.clone())
