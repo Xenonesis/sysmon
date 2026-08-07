@@ -5,6 +5,7 @@ mod startup;
 mod privilege;
 mod processes;
 mod services;
+mod power;
 use startup::{StartupItem, ImpactTier, Recommendation, StartupSortColumn, BootDiagnostics, StartupOptimizationEntry};
 use processes::{ProcessInfo, ProcessSortColumn};
 use eframe::egui;
@@ -125,10 +126,11 @@ use std::thread;
 use std::time::{Duration, Instant};
 use sysinfo::{Disks, Networks, Pid, System};
 
+
 #[cfg(target_os = "windows")]
 use nvml_wrapper::Nvml;
 #[cfg(target_os = "windows")]
-use tray_icon::{TrayIconBuilder, menu::{Menu, MenuItem, CheckMenuItem, MenuEvent}};
+use tray_icon::{TrayIconBuilder, menu::{Menu, MenuItem, CheckMenuItem, MenuEvent, Submenu}};
 #[cfg(target_os = "windows")]
 use wmi::COMLibrary;
 
@@ -279,6 +281,8 @@ struct AppSettings {
     start_minimized: bool,
     #[serde(default = "default_show_cpu_cores")]
     show_cpu_cores: bool,
+    #[serde(default = "default_show_widget")]
+    show_widget: bool,
     minimize_to_tray: bool,
     #[serde(default = "default_auto_ram_clean")]
     auto_ram_clean: bool,
@@ -305,6 +309,9 @@ fn default_enable_sounds() -> bool {
 
 fn default_show_cpu_cores() -> bool {
     true
+}
+fn default_show_widget() -> bool {
+    false
 }
 fn default_auto_ram_clean() -> bool {
     false
@@ -354,6 +361,7 @@ impl Default for AppSettings {
             last_boot_diagnostics: None,
             auto_clean_interval: 300,
             show_cpu_cores: true,
+            show_widget: false,
         }
     }
 }
@@ -1326,7 +1334,14 @@ struct SystemMonitorApp {
     tray_menu_pause_item: Option<tray_icon::menu::CheckMenuItem>,
     #[cfg(target_os = "windows")]
     tray_menu_handle: Option<tray_icon::menu::Menu>,
+    #[cfg(target_os = "windows")]
+    tray_menu_power_item: Option<tray_icon::menu::Submenu>,
+    #[cfg(target_os = "windows")]
+    tray_menu_power_items: std::collections::HashMap<tray_icon::menu::MenuId, tray_icon::menu::CheckMenuItem>,
+    #[cfg(target_os = "windows")]
+    tray_menu_power_guids: std::collections::HashMap<tray_icon::menu::MenuId, String>,
     is_hidden: bool,
+    widget_open: bool,
     /// Whether we have already applied the start_minimized setting on the first frame.
     start_minimized_applied: bool,
 }
@@ -1872,6 +1887,9 @@ impl SystemMonitorApp {
         let mut tray_menu_pause_id = None;
         let mut tray_menu_pause_item = None;
         let mut tray_menu_handle = None;
+        let mut tray_menu_power_item = None;
+        let mut tray_menu_power_items: std::collections::HashMap<_, _> = Default::default();
+        let mut tray_menu_power_guids: std::collections::HashMap<_, _> = Default::default();
 
         #[cfg(target_os = "windows")]
         if let Some(icon) = load_tray_icon() {
@@ -1889,6 +1907,29 @@ impl SystemMonitorApp {
             tray_menu_quit_id = Some(quit_i.id().clone());
             let pause_item = pause_i.clone();
             let menu_handle = tray_menu.clone();
+
+            let power_plans = power::get_power_plans();
+            if !power_plans.is_empty() {
+                let mut owned_power_items: Vec<CheckMenuItem> = Vec::new();
+                for plan in &power_plans {
+                    let item = CheckMenuItem::new(plan.name.clone(), true, plan.is_active, None);
+                    tray_menu_power_guids.insert(item.id().clone(), plan.guid.clone());
+                    owned_power_items.push(item);
+                }
+                let power_submenu = {
+                    let refs: Vec<&dyn tray_icon::menu::IsMenuItem> = owned_power_items
+                        .iter()
+                        .map(|item| item as &dyn tray_icon::menu::IsMenuItem)
+                        .collect();
+                    Submenu::with_items("Power Plan", true, &refs)
+                        .expect("failed to build power plan submenu")
+                };
+                tray_menu_power_item = Some(power_submenu);
+                for item in owned_power_items {
+                    tray_menu_power_items.insert(item.id().clone(), item);
+                }
+                let _ = tray_menu.append(tray_menu_power_item.as_ref().expect("power submenu built"));
+            }
 
             let _ = tray_menu.append_items(&[&show_i, &clean_i, &procman_i, &pause_i, &quit_i]);
 
@@ -1970,7 +2011,14 @@ impl SystemMonitorApp {
             tray_menu_pause_item,
             #[cfg(target_os = "windows")]
             tray_menu_handle,
+            #[cfg(target_os = "windows")]
+            tray_menu_power_item,
+            #[cfg(target_os = "windows")]
+            tray_menu_power_items,
+            #[cfg(target_os = "windows")]
+            tray_menu_power_guids,
             is_hidden: false,
+            widget_open: settings.show_widget,
             start_minimized_applied: false,
         }
     }
@@ -2136,6 +2184,9 @@ impl eframe::App for SystemMonitorApp {
                 if let Some(item) = &self.tray_menu_pause_item {
                     item.set_checked(paused);
                 }
+            } else if let Some(plan_guid) = self.tray_menu_power_guids.get(&event.id) {
+                let _ = power::set_active_power_plan(plan_guid);
+                let _ = power::get_power_plans();
             }
         }
 
@@ -2732,6 +2783,18 @@ impl eframe::App for SystemMonitorApp {
                     self.show_settings_tab(ui);
                 });
             self.show_settings = show_settings;
+        }
+
+        // Desktop mini-widget: a compact always-visible telemetry window
+        if self.widget_open {
+            egui::Window::new("SysMon Widget")
+                .anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(0.0, 0.0))
+                .resizable(false)
+                .title_bar(true)
+                .collapsible(false)
+                .show(ctx, |ui| {
+                    self.render_widget(ui, &data);
+                });
         }
 
         // Global always-visible status bar header
@@ -4951,6 +5014,69 @@ impl SystemMonitorApp {
         });
     }
 
+    /// Render the compact desktop mini-widget telemetry panel.
+    fn render_widget(&mut self, ui: &mut egui::Ui, data: &SystemData) {
+        ui.spacing_mut().item_spacing = egui::vec2(8.0, 6.0);
+        ui.set_width(220.0);
+
+        ui.vertical(|ui| {
+            ui.horizontal(|ui| {
+                let cpu_c = get_usage_color(data.cpu_usage);
+                ui.label("CPU");
+                ui.colored_label(cpu_c, egui::RichText::new(format!("{:.1}%", data.cpu_usage)).strong());
+                ui.weak(format!("{} cores", data.cpu_cores.len()));
+            });
+            ui.horizontal(|ui| {
+                let mem_c = get_usage_color(data.memory_percentage);
+                ui.label("RAM");
+                ui.colored_label(mem_c, egui::RichText::new(format!("{:.1}%", data.memory_percentage)).strong());
+                ui.weak(format!(
+                    "{:.1} / {:.1} GB",
+                    data.memory_used as f64 / 1024.0 / 1024.0 / 1024.0,
+                    data.memory_total as f64 / 1024.0 / 1024.0 / 1024.0
+                ));
+            });
+
+            if let Some(gpu) = data.gpu_info.first() {
+                ui.horizontal(|ui| {
+                    let gpu_c = get_usage_color(gpu.utilization);
+                    ui.label("GPU");
+                    ui.colored_label(gpu_c, egui::RichText::new(format!("{:.1}%", gpu.utilization)).strong());
+                });
+            }
+
+            ui.separator();
+            let dl: f64 = data.network_info.iter().map(|n| n.received_rate).sum();
+            let ul: f64 = data.network_info.iter().map(|n| n.transmitted_rate).sum();
+            ui.horizontal(|ui| {
+                ui.colored_label(ThemePalette::ACCENT_PRIMARY, format!("↓ {:.0} K/s", dl));
+                ui.add_space(8.0);
+                ui.colored_label(ThemePalette::ACCENT_ACTIVE, format!("↑ {:.0} K/s", ul));
+            });
+
+            if let Some(temp) = data.cpu_temperature {
+                ui.horizontal(|ui| {
+                    ui.label("CPU Temp");
+                    ui.strong(format!("{temp:.0}°C"));
+                });
+            }
+        });
+
+        ui.separator();
+        ui.horizontal(|ui| {
+            if ui.small_button("Hide").clicked() {
+                self.widget_open = false;
+                self.settings.show_widget = false;
+                let _ = self.settings.save();
+                {
+                    let mut shared = self.shared_settings.lock();
+                    *shared = self.settings.clone();
+                }
+            }
+            ui.weak(&data.last_update);
+        });
+    }
+
     fn show_settings_tab(&mut self, ui: &mut egui::Ui) {
         paint_section_header(ui, "Application Settings");
 
@@ -4983,6 +5109,10 @@ impl SystemMonitorApp {
                         changed |= ui
                             .checkbox(&mut self.settings.show_cpu_cores, "Show CPU Cores Tab")
                             .changed();
+                        changed |= ui
+                            .checkbox(&mut self.settings.show_widget, "Show desktop mini-widget")
+                            .changed();
+                        self.widget_open = self.settings.show_widget;
                     });
 
                     cols[1].vertical(|ui| {
