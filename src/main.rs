@@ -1372,10 +1372,11 @@ impl SystemMonitorApp {
         let mut style = (*cc.egui_ctx.style()).clone();
 
         // Premium spacing
-        style.spacing.item_spacing = egui::vec2(12.0, 10.0);
-        style.spacing.button_padding = egui::vec2(16.0, 8.0);
-        style.spacing.window_margin = egui::Margin::same(16.0);
-        style.spacing.menu_margin = egui::Margin::same(10.0);
+        style.spacing.item_spacing = egui::vec2(16.0, 12.0);
+        style.spacing.button_padding = egui::vec2(16.0, 10.0);
+        style.spacing.interact_size = egui::vec2(32.0, 32.0); // Touch target minimums
+        style.spacing.window_margin = egui::Margin::same(20.0);
+        style.spacing.menu_margin = egui::Margin::same(12.0);
 
         // Typographic hierarchy (slightly larger for premium feel)
         use egui::{FontFamily, FontId, TextStyle};
@@ -1425,13 +1426,13 @@ impl SystemMonitorApp {
             visuals.widgets.active.bg_stroke = egui::Stroke::NONE;
             visuals.widgets.active.fg_stroke = egui::Stroke::new(1.0, ThemePalette::TEXT_SELECTED);
 
-            // Rounding (Sharp minimal 4px)
-            visuals.window_rounding = egui::Rounding::same(4.0);
-            visuals.menu_rounding = egui::Rounding::same(4.0);
-            visuals.widgets.noninteractive.rounding = egui::Rounding::same(4.0);
-            visuals.widgets.inactive.rounding = egui::Rounding::same(4.0);
-            visuals.widgets.hovered.rounding = egui::Rounding::same(4.0);
-            visuals.widgets.active.rounding = egui::Rounding::same(4.0);
+            // Rounding (Premium 8px)
+            visuals.window_rounding = egui::Rounding::same(8.0);
+            visuals.menu_rounding = egui::Rounding::same(8.0);
+            visuals.widgets.noninteractive.rounding = egui::Rounding::same(8.0);
+            visuals.widgets.inactive.rounding = egui::Rounding::same(8.0);
+            visuals.widgets.hovered.rounding = egui::Rounding::same(8.0);
+            visuals.widgets.active.rounding = egui::Rounding::same(8.0);
 
             // Window chrome and depth
             visuals.window_stroke = egui::Stroke::NONE;

@@ -1,210 +1,96 @@
-# System Monitor - Professional System Monitoring for Windows
+# SysMon
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)](https://www.rust-lang.org/)
-[![Platform](https://img.shields.io/badge/platform-Windows-blue.svg)](https://www.microsoft.com/windows)
-[![GitHub stars](https://img.shields.io/github/stars/Xenonesis/sysmon?style=social)](https://github.com/Xenonesis/sysmon/stargazers)
-[![Open Source](https://img.shields.io/badge/Type-Open%20Source-success.svg)](https://github.com/Xenonesis/sysmon)
+**Refined System Intelligence for Windows**
 
-> 🌟 **Open Source** - This project is open source and free to use. Star the repo to show your support!
+A comprehensive, professional system monitoring application built with Rust featuring a native, high-performance GUI. SysMon delivers real-time telemetry across CPU, memory, GPU, storage, network, and active processes with historical performance tracking.
 
-A comprehensive, professional system monitoring application built with Rust featuring a beautiful native Windows GUI. Monitor CPU, RAM, GPU, storage, network, and processes in real-time with historical performance graphs.
-
-![System Monitor](https://img.shields.io/badge/version-2.4.0-brightgreen)
+[![License: MIT](https://img.shields.io/badge/License-MIT-gray.svg?style=flat-square)](https://opensource.org/licenses/MIT)
+[![Rust](https://img.shields.io/badge/Rust-1.70%2B-gray.svg?style=flat-square)](https://www.rust-lang.org/)
+[![Platform](https://img.shields.io/badge/Platform-Windows-gray.svg?style=flat-square)](https://www.microsoft.com/windows)
+[![Version](https://img.shields.io/badge/Version-2.4.0-gray.svg?style=flat-square)](https://github.com/Xenonesis/sysmon/releases/latest)
 
 ---
 
-## 🚀 Quick Download
+## Download & Installation
 
-**Visit our website for easy installation:** [systemmonitor.xenonesis.dev](https://systemmonitor.xenonesis.dev)
+The recommended distribution is our standalone Windows installer, providing automatic updates and seamless system integration.
 
-Or download directly from [GitHub Releases](https://github.com/Xenonesis/sysmon/releases)
+**[Download SysMon Installer (v2.4.0)](https://systemmonitor.xenonesis.dev)**
 
-### ⚡ Installer Download (Recommended)
-
-- **Proper Windows install** - Installs to Program Files with Start Menu entry
-- **Searchable** - Find it from Windows search / Start Menu
-- **Clean uninstall** - Listed in Settings → Apps
-- **Auto-updates** - App automatically checks for updates every 24 hours
-- **Size:** ~5 MB - Lightweight and fast
+**Installer Features:**
+* **Native Integration:** Installs to `Program Files` with a searchable Start Menu entry.
+* **Maintenance:** Clean uninstallation via Windows Settings → Apps.
+* **Auto-updates:** Silent, background update checking every 24 hours.
+* **Footprint:** Extremely lightweight (~5 MB).
 
 ---
 
-## ✨ Screenshots
+## Core Capabilities
 
-> **Overview Tab** - Complete system dashboard
->
-> **Performance Tab** - Historical graphs with 2 minutes of data
->
-> **Storage Tab** - All drives with capacity and usage
->
-> **Network Tab** - Real-time network rates and statistics
+### Modern GUI Interface
+* **Premium Typography & Spacing:** Designed using a 4/8dp rhythm and clear visual hierarchies.
+* **Dual Themes:** Polished 'Terminal Noir' dark mode and an Apple-inspired minimal light mode.
+* **Adaptive Layout:** Resizable interface with a quick-stats sidebar and multi-tab structure.
+* **Visual States:** Color-coded usage indicators and smooth transition animations.
+
+### Real-Time Monitoring
+* **Processor (CPU):** Usage monitoring with per-core analysis and thermal tracking.
+* **Memory (RAM):** Comprehensive breakdown with threshold-based auto-cleaning.
+* **Graphics (GPU):** Full NVIDIA NVML integration (Utilization, VRAM, Temp, Clock Speed, Power Draw, Fan Speed).
+* **Network & Storage:** Live interface telemetry, capacities, and read/write rates.
+
+### Process Intelligence (Process Pro)
+* **Deep Process Details:** Executable paths, command-line arguments, start times, and parent process lineage.
+* **Task Management:** Granular control to Suspend, Resume, Change Priority, and Kill tasks.
+* **Kill Tree:** Graceful termination of a process and its entire descendant tree.
+* **Real-time Filtering:** Sort by memory/CPU and substring search by name or PID.
+
+### System Integration
+* **Tray Quick Actions:** Clean RAM, Open Process Manager, or Pause Monitoring directly from the system tray.
+* **System Information:** WMI-enriched motherboard, BIOS, GPU driver, and OS build telemetry.
+* **Data Export:** Snapshot current system state to CSV or JSON formats for analysis.
+* **Notifications:** Windows-native alerts for high CPU, memory, GPU temperatures, or heavy startup impact.
 
 ---
 
-## Features
+## Prerequisites & Building from Source
 
-### 🎨 Modern GUI Interface
+**Requirements:**
+* Windows 10/11 (64-bit)
+* Rust 1.70+ (for source compilation)
+* NVIDIA Drivers (optional, for GPU telemetry)
 
-- ✅ **Professional multi-tab layout** with sidebar navigation
-- ✅ **Menu bar** with View and Help options
-- ✅ **Resizable window** (1100x800 default, minimum 900x600)
-- ✅ **Quick Stats panel** in sidebar with color-coded metrics
-- ✅ **Multiple views**: Overview, Performance, Processes, About
-
-### 📊 Real-Time Monitoring
-
-- ✅ **CPU usage** monitoring with visual progress bars
-- ✅ **Memory (RAM)** usage with detailed breakdown
-- ✅ **GPU monitoring** (NVIDIA GPUs via NVML)
-  - GPU utilization percentage
-  - GPU memory (VRAM) usage
-  - GPU temperature with color-coded warnings (Green/Yellow/Red)
-  - clock speed, power draw, fan speed
-- ✅ **Process monitoring** - Top 15 processes by memory consumption
-- ✅ **Auto-refresh** every 2 seconds
-- ✅ **Process details** - Exe path, command line, working directory, start time, run time, parent process
-- ✅ **Kill tree** - Terminate a process together with all its children
-
-### 📈 Performance Graphs
-
-- ✅ **Historical graphs** - Last 2 minutes (60 data points)
-- ✅ **CPU usage history** - Real-time line chart
-- ✅ **Memory usage history** - Visual trend tracking
-- ✅ **GPU usage history** - Performance over time
-- ✅ **Smooth animations** and updates
-
-### 🎛️ Customization
-
-- ✅ **Toggle graphs** on/off via View menu
-- ✅ **Show/hide GPU section** based on preference
-- ✅ **Show/hide process list** to simplify view
-- ✅ **Color-coded indicators** (Green < 50%, Yellow 50-75%, Red > 75%)
-- ✅ **Professional styling** with proper spacing
-
-### 💻 Windows Integration
-
-- ✅ **Standalone executable** - No dependencies after build
-- ✅ **Desktop shortcut** - One-click installation
-- ✅ **Start Menu entry** - Searchable and accessible
-- ✅ **Native Windows app** - Full OS integration
-- ✅ **Auto-update system** - Automatic update checking and installation
-- ✅ **Installer** - Proper install with silent auto-updates
-- ✅ **Tray quick actions** - Clean RAM, open Process Manager, pause monitoring right from the tray menu
-
-## 🎯 Key Features at a Glance
-
-| Feature                   | Description                                                            |
-| ------------------------- | ---------------------------------------------------------------------- |
-| 💻 **7 Monitoring Tabs**  | Overview, Performance, Processes, Storage, Network, System Info, About |
-| 📊 **Historical Graphs**  | 2 minutes of CPU/Memory/GPU history with smooth animations             |
-| ⚙️ **Full Customization** | Settings panel with persistent configuration                           |
-| 🎨 **Dual Themes**        | Dark mode and Light mode support                                       |
-| 🚀 **High Performance**   | < 1% CPU usage, ~35-40 MB RAM                                          |
-| 💾 **Storage Monitor**    | All drives with capacity, usage, and progress bars                     |
-| 🌐 **Network Monitor**    | Real-time download/upload rates per interface                          |
-| 💻 **System Info**        | Complete system specifications and uptime                              |
-| 🎮 **GPU Support**        | NVIDIA GPU monitoring (utilization, temp, VRAM)                        |
-| 📈 **Real-time Updates**  | Configurable refresh interval (1-10 seconds)                           |
-| 🔄 **Auto-Update**        | Automatic update checking every 24 hours with one-click install        |
-| ⬇️ **Installer**          | Proper Windows install with silent auto-updates                        |
-
-## 📋 Prerequisites
-
-- **Windows 10/11** (64-bit)
-- **Rust 1.70+** (for building from source)
-- **NVIDIA GPU** (optional, for GPU monitoring)
-- **NVIDIA Drivers** (if you have NVIDIA GPU)
-
-## Installation
-
-### Installer (Recommended)
-
-Download `SystemMonitor-<version>-setup.exe` from the [Releases page](https://github.com/Xenonesis/sysmon/releases).
-
-The installer:
-
-- Installs to `C:\Program Files\System Monitor`
-- Adds a Start Menu entry (searchable from Windows search)
-- Optionally creates a Desktop shortcut
-- Registers the app in Settings → Apps for clean uninstall
-- Requires administrator privileges (the app needs elevated rights for RAM cleaning, process management, and startup optimization)
-
-### Building from source
-
-1. Install [Rust](https://rustup.rs) 1.70+
-2. `cargo build --release`
-3. The executable is at `target\release\system-monitor.exe`
-
-## Usage
-
-Simply run the application and it will open a GUI window displaying:
-
-- Real-time system statistics with auto-refresh
-- Memory usage with visual progress bars
-- CPU utilization with color-coded bars
-- GPU stats (if NVIDIA GPU detected)
-- Top 15 memory-consuming processes in a scrollable table
-
-### Auto-Update Feature
-
-- App automatically checks for updates every 24 hours
-- Green notification banner appears when update available
-- Click "Download & Install" for one-click update
-- Or press `Ctrl+U` to manually check for updates
-
-Close the window to exit.
-
-## Color Coding
-
-- 🟢 **Green**: < 50% usage (healthy)
-- 🟡 **Yellow**: 50-75% usage (moderate)
-- 🔴 **Red**: > 75% usage (high)
-
-## Building Standalone Executable
-
-To create a standalone executable:
-
+**Build Instructions:**
 ```powershell
 cargo build --release
 ```
+The compiled executable will be located at: `target/release/system-monitor.exe`. 
+*Note: The application requires administrator privileges for advanced process management and RAM cleaning.*
 
-The executable will be at: `target/release/system-monitor.exe`
+---
 
-## Dependencies
+## Changelog
 
-- `sysinfo` - Cross-platform system information
-- `nvml-wrapper` - NVIDIA GPU monitoring
-- `chrono` - Timestamp formatting
-- `eframe` - GUI framework (egui backend)
-- `egui` - Immediate mode GUI library
-- `egui_plot` - Plotting widgets for egui
+### [2.4.0] — Feature Expansion
+* **Process Pro:** Added an exhaustive details panel (path, command line, threads, start time) and a Deep Kill Tree action.
+* **Tray Quick Actions:** Upgraded system tray menu with actions to Clean RAM, pause monitoring, and open the process manager.
+* **Advanced GPU Metrics:** Added real-time Clock Speed, Power Draw, and Fan Speed metrics via NVML.
+* **System Info Enrichment:** Deeper system insights using WMI (Motherboard, BIOS, GPU Driver, OS Build).
+* **UI/UX Polish:** Refined application spacing, corner radiuses, and shadow elevations across themes for a premium feel.
 
-## Troubleshooting
+### [2.3.0] — Deployment & Quality
+* **Installer-First Distribution:** Fully transitioned to automated, installer-based updates.
+* **Silent Updates:** Background installer routines for seamless upgrades.
+* **Notification Enhancements:** In-app banners for available updates.
 
-**GPU stats not showing?**
+---
 
-- Ensure you have an NVIDIA GPU
-- Make sure NVIDIA drivers are installed
-- The app will gracefully fall back if GPU monitoring isn't available
+## Roadmap
 
-**High CPU usage from monitor itself?**
+* [ ] Code signing certificate for trusted execution.
 
-- This is normal for real-time monitoring
-- Adjust refresh rate in code if needed (change `Duration::from_secs(2)`)
-
-## Recent Updates
-
-- ✅ **v2.4.0** - Process details & kill tree, tray quick actions, GPU clocks/power/fan, system info depth
-- ✅ **Auto-update system** - Automatic update checking and one-click installation
-- ✅ **Installer** - Proper Windows install with silent auto-updates
-- ✅ **Automated releases** - CI publishes the installer to GitHub Releases
-- ✅ **Update notifications** - In-app banner when new version available
-
-## Future Enhancements
-
-- [ ] Code signing certificate for executable
+---
 
 ## License
 
-MIT License - Feel free to modify and use as needed!
+Released under the [MIT License](LICENSE).
