@@ -4,6 +4,7 @@ mod updater;
 mod startup;
 mod privilege;
 mod processes;
+mod services;
 use startup::{StartupItem, ImpactTier, Recommendation, StartupSortColumn, BootDiagnostics, StartupOptimizationEntry};
 use processes::{ProcessInfo, ProcessSortColumn};
 use eframe::egui;
@@ -12,6 +13,55 @@ use tracing::{error, info, warn};
 use rfd::FileDialog;
 
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+#[cfg(target_os = "windows")]
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "PascalCase")]
+struct Win32Battery {
+    design_capacity: Option<u32>,
+    full_charge_capacity: Option<u32>,
+    battery_status: Option<u16>,
+    discharge_state: Option<String>,
+}
+
+#[cfg(target_os = "windows")]
+fn battery_status_label(status: u16) -> Option<&'static str> {
+    match status {
+        1 => Some("Discharging"),
+        2 => Some("AC Power"),
+        3 => Some("Fully Charged"),
+        4 => Some("Low"),
+        5 => Some("Critical"),
+        6 => Some("Charging"),
+        7 => Some("Charging and High"),
+        8 => Some("Charging and Low"),
+        9 => Some("Charging and Critical"),
+        10 => Some("Undefined"),
+        11 => Some("Partially Charged"),
+        _ => None,
+    }
+}
+
+#[cfg(target_os = "windows")]
+pub fn get_battery_info(wmi_con: &wmi::WMIConnection) -> Option<BatteryInfo> {
+    let results: Result<Vec<Win32Battery>, _> = wmi_con.raw_query("SELECT DesignCapacity, FullChargeCapacity, BatteryStatus, DischargeRate FROM Win32_Battery");
+    if let Ok(mut bats) = results {
+        if let Some(bat) = bats.pop() {
+            let discharge_state = bat
+                .battery_status
+                .and_then(battery_status_label)
+                .map(|s| s.to_string());
+            return Some(BatteryInfo {
+                design_capacity: bat.design_capacity.unwrap_or(0),
+                full_charge_capacity: bat.full_charge_capacity.unwrap_or(0),
+                status: bat.battery_status.unwrap_or(0),
+                discharge_state,
+                present: true,
+            });
+        }
+    }
+    None
+}
 
 macro_rules! eprintln {
     ($($arg:tt)*) => {{
@@ -79,6 +129,8 @@ use sysinfo::{Disks, Networks, Pid, System};
 use nvml_wrapper::Nvml;
 #[cfg(target_os = "windows")]
 use tray_icon::{TrayIconBuilder, menu::{Menu, MenuItem, CheckMenuItem, MenuEvent}};
+#[cfg(target_os = "windows")]
+use wmi::COMLibrary;
 
 #[cfg(target_os = "windows")]
 fn play_alert_sound() {
@@ -177,12 +229,6 @@ struct SwapInfo {
 }
 
 // Battery info
-#[derive(Clone)]
-struct BatteryInfo {
-    percentage: f32,
-    is_charging: bool,
-    status_text: String,
-}
 
 // StartupItem is now in startup.rs module
 
@@ -273,6 +319,8 @@ struct SystemMonitor {
     networks: Networks,
     #[cfg(target_os = "windows")]
     nvml: Option<Nvml>,
+    #[cfg(target_os = "windows")]
+    wmi_com: Option<std::rc::Rc<wmi::COMLibrary>>,
     #[cfg(target_os = "windows")]
     wmi_gpu_engine_class: Option<String>,
     #[cfg(target_os = "windows")]
@@ -385,31 +433,45 @@ impl SystemMonitor {
         // Probe which WMI GPU performance counter class name is available on this system.
         // Windows versions differ: some use "GPUPerformanceMonitors", others use "GPUPerformanceCounters".
         #[cfg(target_os = "windows")]
-        let (wmi_gpu_engine_class, wmi_gpu_memory_class) = {
-            use wmi::{COMLibrary, WMIConnection, Variant};
-            use std::rc::Rc;
+        let (wmi_com, wmi_gpu_engine_class, wmi_gpu_memory_class) = {
+            let com = COMLibrary::new().ok().map(std::rc::Rc::new);
             let mut engine_class = None;
             let mut memory_class = None;
-            if let Some(com) = COMLibrary::new().ok() {
-                if let Ok(wmi) = WMIConnection::new(Rc::new(com)) {
-                    // Try GPUPerformanceCounters first (more common on modern Windows)
+            if let Some(com_lib) = com.as_ref() {
+                if let Ok(wmi) = wmi::WMIConnection::new(com_lib.clone()) {
                     for prefix in &["GPUPerformanceCounters", "GPUPerformanceMonitors"] {
                         if engine_class.is_none() {
-                            let q = format!("SELECT UtilizationPercentage FROM Win32_PerfFormattedData_{}_GPUEngine", prefix);
-                            if wmi.raw_query::<std::collections::HashMap<String, Variant>>(&q).is_ok() {
-                                engine_class = Some(format!("Win32_PerfFormattedData_{}_GPUEngine", prefix));
+                            let q = format!(
+                                "SELECT UtilizationPercentage FROM Win32_PerfFormattedData_{}_GPUEngine",
+                                prefix
+                            );
+                            if wmi
+                                .raw_query::<std::collections::HashMap<String, wmi::Variant>>(&q)
+                                .is_ok()
+                            {
+                                engine_class =
+                                    Some(format!("Win32_PerfFormattedData_{}_GPUEngine", prefix));
                             }
                         }
                         if memory_class.is_none() {
-                            let q = format!("SELECT LocalUsage FROM Win32_PerfFormattedData_{}_GPULocalAdapterMemory", prefix);
-                            if wmi.raw_query::<std::collections::HashMap<String, Variant>>(&q).is_ok() {
-                                memory_class = Some(format!("Win32_PerfFormattedData_{}_GPULocalAdapterMemory", prefix));
+                            let q = format!(
+                                "SELECT LocalUsage FROM Win32_PerfFormattedData_{}_GPULocalAdapterMemory",
+                                prefix
+                            );
+                            if wmi
+                                .raw_query::<std::collections::HashMap<String, wmi::Variant>>(&q)
+                                .is_ok()
+                            {
+                                memory_class = Some(format!(
+                                    "Win32_PerfFormattedData_{}_GPULocalAdapterMemory",
+                                    prefix
+                                ));
                             }
                         }
                     }
                 }
             }
-            (engine_class, memory_class)
+            (com, engine_class, memory_class)
         };
 
         SystemMonitor {
@@ -418,6 +480,8 @@ impl SystemMonitor {
             networks,
             #[cfg(target_os = "windows")]
             nvml,
+            #[cfg(target_os = "windows")]
+            wmi_com,
             #[cfg(target_os = "windows")]
             wmi_gpu_engine_class,
             #[cfg(target_os = "windows")]
@@ -466,6 +530,8 @@ impl SystemMonitor {
                     cpu_usage: process.cpu_usage(),
                     memory: process.memory(),
                     status: format!("{:?}", process.status()),
+                    disk_read_bytes: process.disk_usage().read_bytes,
+                    disk_written_bytes: process.disk_usage().written_bytes,
                 }
             })
             .collect();
@@ -571,52 +637,6 @@ impl SystemMonitor {
         }
     }
 
-    #[cfg(target_os = "windows")]
-    fn get_battery_info(&self) -> Option<BatteryInfo> {
-        // Use native Win32 API — no PowerShell process spawning
-        use windows::Win32::System::Power::{GetSystemPowerStatus, SYSTEM_POWER_STATUS};
-        let mut status: SYSTEM_POWER_STATUS = unsafe { std::mem::zeroed() };
-        let result = unsafe { GetSystemPowerStatus(&mut status) };
-        if result.is_err() {
-            return None;
-        }
-        // BatteryFlag 128 = no battery present
-        if status.BatteryFlag == 128 {
-            return None;
-        }
-        let percentage = if status.BatteryLifePercent <= 100 {
-            status.BatteryLifePercent as f32
-        } else {
-            0.0 // 255 means unknown
-        };
-        // ACLineStatus: 0=Offline, 1=Online
-        let is_charging = status.ACLineStatus == 1 && status.BatteryLifePercent < 100;
-        let status_text = if status.ACLineStatus == 1 {
-            if status.BatteryLifePercent >= 100 {
-                "Fully Charged".to_string()
-            } else {
-                "Charging".to_string()
-            }
-        } else {
-            if percentage <= 10.0 {
-                "Critical".to_string()
-            } else if percentage <= 25.0 {
-                "Low".to_string()
-            } else {
-                "Discharging".to_string()
-            }
-        };
-        Some(BatteryInfo {
-            percentage,
-            is_charging,
-            status_text,
-        })
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    fn get_battery_info(&self) -> Option<BatteryInfo> {
-        None
-    }
 
     #[cfg(target_os = "windows")]
     fn clean_ram(&mut self) -> u64 {
@@ -768,60 +788,59 @@ impl SystemMonitor {
     }
 
     #[cfg(target_os = "windows")]
+    fn get_battery_wmi(&self) -> Option<wmi::WMIConnection> {
+        let com = self.wmi_com.as_ref()?;
+        wmi::WMIConnection::new(com.clone()).ok()
+    }
+
+    #[cfg(target_os = "windows")]
     fn get_gpu_info_wmi(&self) -> Option<Vec<GpuInfo>> {
-        use wmi::{COMLibrary, WMIConnection, Variant};
-        use std::rc::Rc;
-        
-        let com = Rc::new(COMLibrary::new().ok()?);
-        let wmi = WMIConnection::new(com).ok()?;
-        
-        // Query all GPU controllers
-        let results: Vec<std::collections::HashMap<String, Variant>> = wmi
+        let com = self.wmi_com.as_ref()?;
+        let wmi = wmi::WMIConnection::new(com.clone()).ok()?;
+
+        let results: Vec<std::collections::HashMap<String, wmi::Variant>> = wmi
             .raw_query("SELECT Name, DriverVersion, VideoProcessor, AdapterRAM FROM Win32_VideoController")
             .ok()?;
-        
+
         if results.is_empty() {
             return None;
         }
-        
+
         let mut gpus = Vec::new();
 
         for gpu_entry in &results {
             let name = gpu_entry.get("Name")
-                .and_then(|v| match v { Variant::String(s) => Some(s.clone()), _ => None })
+                .and_then(|v| match v { wmi::Variant::String(s) => Some(s.clone()), _ => None })
                 .unwrap_or_else(|| "Unknown GPU".to_string());
-            
-            // Filter out generic/virtual adapters
+
             if name.contains("Microsoft Basic Display Adapter") || name.contains("Standard VGA") {
                 continue;
             }
 
-            // Get adapter RAM for this entry
             let adapter_ram = gpu_entry.get("AdapterRAM").and_then(|v| match v {
-                Variant::UI4(n) => Some(*n as u64),
-                Variant::UI8(n) => Some(*n),
-                Variant::I4(n) => Some(*n as u64),
+                wmi::Variant::UI4(n) => Some(*n as u64),
+                wmi::Variant::UI8(n) => Some(*n),
+                wmi::Variant::I4(n) => Some(*n as u64),
                 _ => None,
             });
-            
-            // Query real-time GPU utilization using cached class name
+
             let mut utilization = 0.0;
             if let Some(ref engine_class) = self.wmi_gpu_engine_class {
                 let q = format!("SELECT Name, UtilizationPercentage FROM {}", engine_class);
-                if let Ok(perf_results) = wmi.raw_query::<std::collections::HashMap<String, Variant>>(&q) {
+                if let Ok(perf_results) = wmi.raw_query::<std::collections::HashMap<String, wmi::Variant>>(&q) {
                     let mut max_util = 0u64;
                     for engine in perf_results {
                         if let Some(val) = engine.get("UtilizationPercentage") {
                             let u = match val {
-                                Variant::UI1(n) => *n as u64,
-                                Variant::UI2(n) => *n as u64,
-                                Variant::UI4(n) => *n as u64,
-                                Variant::UI8(n) => *n,
-                                Variant::I1(n) => *n as u64,
-                                Variant::I2(n) => *n as u64,
-                                Variant::I4(n) => *n as u64,
-                                Variant::I8(n) => *n as u64,
-                                Variant::String(s) => s.parse().unwrap_or(0),
+                                wmi::Variant::UI1(n) => *n as u64,
+                                wmi::Variant::UI2(n) => *n as u64,
+                                wmi::Variant::UI4(n) => *n as u64,
+                                wmi::Variant::UI8(n) => *n,
+                                wmi::Variant::I1(n) => *n as u64,
+                                wmi::Variant::I2(n) => *n as u64,
+                                wmi::Variant::I4(n) => *n as u64,
+                                wmi::Variant::I8(n) => *n as u64,
+                                wmi::Variant::String(s) => s.parse().unwrap_or(0),
                                 _ => 0,
                             };
                             if u > max_util {
@@ -833,24 +852,23 @@ impl SystemMonitor {
                 }
             }
 
-            // Query real-time VRAM usage using cached class name
             let mut memory_used = None;
             if let Some(ref mem_class) = self.wmi_gpu_memory_class {
                 let q = format!("SELECT LocalUsage FROM {}", mem_class);
-                if let Ok(mem_results) = wmi.raw_query::<std::collections::HashMap<String, Variant>>(&q) {
+                if let Ok(mem_results) = wmi.raw_query::<std::collections::HashMap<String, wmi::Variant>>(&q) {
                     let mut total_used = 0u64;
                     for instance in mem_results {
                         if let Some(val) = instance.get("LocalUsage") {
                             let u = match val {
-                                Variant::UI1(n) => *n as u64,
-                                Variant::UI2(n) => *n as u64,
-                                Variant::UI4(n) => *n as u64,
-                                Variant::UI8(n) => *n,
-                                Variant::I1(n) => *n as u64,
-                                Variant::I2(n) => *n as u64,
-                                Variant::I4(n) => *n as u64,
-                                Variant::I8(n) => *n as u64,
-                                Variant::String(s) => s.parse().unwrap_or(0),
+                                wmi::Variant::UI1(n) => *n as u64,
+                                wmi::Variant::UI2(n) => *n as u64,
+                                wmi::Variant::UI4(n) => *n as u64,
+                                wmi::Variant::UI8(n) => *n,
+                                wmi::Variant::I1(n) => *n as u64,
+                                wmi::Variant::I2(n) => *n as u64,
+                                wmi::Variant::I4(n) => *n as u64,
+                                wmi::Variant::I8(n) => *n as u64,
+                                wmi::Variant::String(s) => s.parse().unwrap_or(0),
                                 _ => 0,
                             };
                             total_used = total_used.saturating_add(u);
@@ -861,7 +879,7 @@ impl SystemMonitor {
                     }
                 }
             }
-            
+
             gpus.push(GpuInfo {
                 name,
                 utilization,
@@ -873,7 +891,7 @@ impl SystemMonitor {
                 fan_percent: None,
             });
         }
-        
+
         if gpus.is_empty() { None } else { Some(gpus) }
     }
 
@@ -884,16 +902,21 @@ impl SystemMonitor {
 
     #[cfg(target_os = "windows")]
     fn get_cpu_temperature_wmi() -> Option<f32> {
-        use wmi::{COMLibrary, WMIConnection, Variant};
-        use std::rc::Rc;
-        
-        let com = Rc::new(COMLibrary::new().ok()?);
+        let com = match wmi::COMLibrary::new() {
+            Ok(c) => std::rc::Rc::new(c),
+            Err(_) => return None,
+        };
         // The MSAcpi_ThermalZoneTemperature class is in the \root\wmi namespace
-        let wmi = WMIConnection::with_namespace_path("ROOT\\WMI", com).ok()?;
-        
-        let results = wmi.raw_query::<std::collections::HashMap<String, Variant>>(
-            "SELECT CurrentTemperature FROM MSAcpi_ThermalZoneTemperature"
-        ).ok()?;
+        let wmi = match wmi::WMIConnection::with_namespace_path("ROOT\\WMI", com) {
+            Ok(w) => w,
+            Err(_) => return None,
+        };
+
+        let results = wmi
+            .raw_query::<std::collections::HashMap<String, wmi::Variant>>(
+                "SELECT CurrentTemperature FROM MSAcpi_ThermalZoneTemperature",
+            )
+            .ok()?;
 
         if results.is_empty() {
             return None;
@@ -902,17 +925,17 @@ impl SystemMonitor {
         // Temperature is in tenths of degrees Kelvin
         if let Some(val) = results[0].get("CurrentTemperature") {
             let temp_k_tenths = match val {
-                Variant::UI4(n) => *n as f32,
-                Variant::I4(n) => *n as f32,
-                Variant::UI8(n) => *n as f32,
+                wmi::Variant::UI4(n) => *n as f32,
+                wmi::Variant::I4(n) => *n as f32,
+                wmi::Variant::UI8(n) => *n as f32,
                 _ => return None,
             };
-            
+
             // Convert to Celsius: (K / 10) - 273.15
             let temp_c = (temp_k_tenths / 10.0) - 273.15;
             return Some(temp_c.round());
         }
-        
+
         None
     }
 
@@ -980,7 +1003,7 @@ impl SystemMonitor {
             .collect()
     }
 
-    fn get_disk_io(&mut self) -> (f64, f64) {
+    fn get_disk_io(&mut self, refresh_interval: u64) -> (f64, f64) {
         let elapsed = self.last_disk_update.elapsed().as_secs_f64();
         let mut total_read = 0;
         let mut total_written = 0;
@@ -993,17 +1016,20 @@ impl SystemMonitor {
 
         self.last_disk_update = Instant::now();
 
-        let read_rate = if elapsed > 0.0 {
-            total_read as f64 / elapsed / 1024.0 / 1024.0 // MB/s
+        let min_window = 0.25;
+        let effective_elapsed = if elapsed > min_window {
+            elapsed
         } else {
-            0.0
+            let fallback = if refresh_interval > 0 {
+                refresh_interval as f64
+            } else {
+                min_window
+            };
+            fallback.max(min_window)
         };
 
-        let write_rate = if elapsed > 0.0 {
-            total_written as f64 / elapsed / 1024.0 / 1024.0 // MB/s
-        } else {
-            0.0
-        };
+        let read_rate = total_read as f64 / effective_elapsed / 1024.0 / 1024.0; // MB/s
+        let write_rate = total_written as f64 / effective_elapsed / 1024.0 / 1024.0; // MB/s
 
         (read_rate, write_rate)
     }
@@ -1136,7 +1162,16 @@ struct DataPoint {
 }
 
 // Shared state between threads
+#[derive(Debug, Clone, Default)]
+pub struct BatteryInfo {
+    pub design_capacity: u32,
+    pub full_charge_capacity: u32,
+    pub status: u16,
+    pub discharge_state: Option<String>,
+    pub present: bool,
+}
 #[derive(Clone)]
+
 struct SystemData {
     memory_total: u64,
     memory_used: u64,
@@ -1172,6 +1207,7 @@ struct SystemData {
     disk_write_history: VecDeque<DataPoint>,
     is_hidden: bool,
     selected_tab: Tab,
+    services: Vec<services::ServiceInfo>,
 }
 
 impl Default for SystemData {
@@ -1227,6 +1263,7 @@ impl Default for SystemData {
             disk_write_history: VecDeque::new(),
             is_hidden: false,
             selected_tab: Tab::Overview,
+            services: Vec::new(),
         }
     }
 }
@@ -1243,6 +1280,7 @@ struct SystemMonitorApp {
     selected_process_pid: Option<u32>,
     details_pid: Option<u32>,
     kill_tree_pid: Option<u32>,
+    pending_service_action: Option<services::ServiceAction>,
     process_search: String,
     process_sort_column: ProcessSortColumn,
     process_sort_ascending: bool,
@@ -1305,6 +1343,7 @@ enum Tab {
     Alerts,
     RamCleaner,
     StartupManager,
+    Services,
     About,
 }
 
@@ -1494,8 +1533,10 @@ impl SystemMonitorApp {
             let system_info = monitor.get_system_info();
             eprintln!("DBG: monitor.get_system_info() completed");
             let mut battery_check_counter: u32 = 0;
+            let mut service_check_counter: u32 = 0;
             let mut last_alert_time: std::collections::HashMap<AlertType, Instant> = std::collections::HashMap::new();
             let mut last_hidden_tick = Instant::now();
+            let mut last_selected_tab = data_clone.lock().selected_tab;
 
             loop {
                 eprintln!("DBG: background thread loop iteration starting");
@@ -1594,7 +1635,7 @@ impl SystemMonitorApp {
                 let swap_info = monitor.get_swap_info();
                 
                 let (disk_read_rate, disk_write_rate) = if !is_hidden {
-                    monitor.get_disk_io()
+                    monitor.get_disk_io(refresh_interval)
                 } else {
                     (0.0, 0.0)
                 };
@@ -1603,14 +1644,41 @@ impl SystemMonitorApp {
 
                 // Get battery info every 15 ticks (~7.5s) — retain previous value if unavailable
                 if battery_check_counter % 15 == 0 {
-                    if let Some(bi) = monitor.get_battery_info() {
-                        {
-                            let mut data = data_clone.lock();
-                            data.battery_info = Some(bi);
-                        }
+                    let mut bi = None;
+                    if let Some(wmi_con) = monitor.get_battery_wmi() {
+                        bi = get_battery_info(&wmi_con);
+                    }
+                    if let Some(bi) = bi {
+                        let mut data = data_clone.lock();
+                        data.battery_info = Some(bi);
                     }
                 }
                 battery_check_counter = battery_check_counter.wrapping_add(1);
+
+                // Poll services every 60 ticks (~30s) — WMI queries are expensive
+                if !is_hidden && selected_tab == Tab::Services {
+                    let services_list = if last_selected_tab != Tab::Services || data_clone.lock().services.is_empty() {
+                        if let Some(ref com) = monitor.wmi_com {
+                            services::get_services_with_com(Some(com))
+                        } else {
+                            services::get_services()
+                        }
+                    } else if service_check_counter % 60 == 0 {
+                        if let Some(ref com) = monitor.wmi_com {
+                            services::get_services_with_com(Some(com))
+                        } else {
+                            services::get_services()
+                        }
+                    } else {
+                        Vec::new()
+                    };
+                    if !services_list.is_empty() {
+                        let mut data = data_clone.lock();
+                        data.services = services_list;
+                    }
+                }
+                service_check_counter = service_check_counter.wrapping_add(1);
+                last_selected_tab = selected_tab;
 
                 // Calculate total network rates
                 let total_download_rate: f64 = network_info.iter().map(|n| n.received_rate).sum();
@@ -1885,6 +1953,7 @@ impl SystemMonitorApp {
             resume_process_pid: None,
             suspended_pids: std::collections::HashSet::new(),
             priority_change: None,
+            pending_service_action: None,
             #[cfg(target_os = "windows")]
             tray_icon,
             #[cfg(target_os = "windows")]
@@ -2123,31 +2192,39 @@ impl eframe::App for SystemMonitorApp {
                 let info = self.update_info_share.lock();
                 info.as_ref().unwrap().clone()
             };
-            egui::TopBottomPanel::top("update_notification").show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    ui.colored_label(ThemePalette::STATUS_HEALTHY, "🎉");
-                    ui.label(format!(
-                        "New version {} is available! Current: {}",
-                        update_info.latest_version,
-                        update_info.current_version
-                    ));
-                    if ui.button("⬇️ Download & Install").clicked() {
-                        let download_url = update_info.download_url.clone();
-                        thread::Builder::new()
-                            .name("updater_downloader".to_string())
-                            .stack_size(8 * 1024 * 1024)
-                            .spawn(move || {
-                                if let Err(e) = updater::Updater::new().download_and_install_update(&download_url) {
-                                    eprintln!("Update failed: {}", e);
-                                }
-                            })
-                            .expect("failed to spawn updater downloader thread");
-                    }
-                    if ui.button("✖").clicked() {
-                        self.show_update_notification = false;
-                    }
+                let mut frame = egui::Frame::none().fill(ThemePalette::BG_SURFACE);
+                frame.inner_margin = egui::Margin::symmetric(16.0, 12.0);
+                
+                egui::TopBottomPanel::top("update_notification").frame(frame).show(ctx, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.colored_label(ThemePalette::ACCENT_PRIMARY, egui::RichText::new("UPDATE AVAILABLE").strong());
+                        ui.add_space(8.0);
+                        ui.label(format!(
+                            "Version {} is ready. You are currently on v{}.",
+                            update_info.latest_version,
+                            update_info.current_version
+                        ));
+                        
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.button("Dismiss").clicked() {
+                                self.show_update_notification = false;
+                            }
+                            ui.add_space(8.0);
+                            if ui.button(egui::RichText::new("Install Update").strong()).clicked() {
+                                let download_url = update_info.download_url.clone();
+                                thread::Builder::new()
+                                    .name("updater_downloader".to_string())
+                                    .stack_size(8 * 1024 * 1024)
+                                    .spawn(move || {
+                                        if let Err(e) = updater::Updater::new().download_and_install_update(&download_url) {
+                                            eprintln!("Update failed: {}", e);
+                                        }
+                                    })
+                                    .expect("failed to spawn updater downloader thread");
+                            }
+                        });
+                    });
                 });
-            });
         }
 
         // Keyboard shortcuts
@@ -2575,6 +2652,7 @@ impl eframe::App for SystemMonitorApp {
                     (Tab::SystemInfo, "System Info"),
                     (Tab::RamCleaner, "RAM Cleaner"),
                     (Tab::StartupManager, "Startup Apps"),
+                    (Tab::Services, "Services"),
                 ];
 
                 ui.spacing_mut().item_spacing.y = 4.0;
@@ -2719,6 +2797,7 @@ impl eframe::App for SystemMonitorApp {
             Tab::Alerts => self.show_alerts_tab(ui, &data),
             Tab::RamCleaner => self.show_ram_cleaner_tab(ui, &data),
             Tab::StartupManager => self.show_startup_manager_tab(ui),
+            Tab::Services => self.show_services_tab(ui, &data),
             Tab::About => self.show_about_tab(ui, &data),
         });
     }
@@ -3378,6 +3457,8 @@ impl SystemMonitorApp {
                             self.process_sort_ascending = false; // default descending for CPU
                         }
                     }
+                    ui.strong("Disk Read");
+                    ui.strong("Disk Write");
                     ui.strong("Actions");
                     ui.end_row();
 
@@ -3411,6 +3492,13 @@ impl SystemMonitorApp {
 
                         ui.label(egui::RichText::new(format!("{:.2} MB", memory_mb)).color(text_color));
                         ui.label(egui::RichText::new(format!("{:.1}%", process.cpu_usage)).color(text_color));
+
+                        let refresh_interval = self.settings.refresh_interval.max(1);
+                        let effective_elapsed = if refresh_interval > 0 { refresh_interval as f64 } else { 1.0 };
+                        let read_rate_mb = process.disk_read_bytes as f64 / effective_elapsed / 1024.0 / 1024.0;
+                        let write_rate_mb = process.disk_written_bytes as f64 / effective_elapsed / 1024.0 / 1024.0;
+                        ui.label(egui::RichText::new(format!("{:.2} MB/s", read_rate_mb)).color(text_color));
+                        ui.label(egui::RichText::new(format!("{:.2} MB/s", write_rate_mb)).color(text_color));
 
                         // Action buttons: Tree, Kill, Suspend/Resume, Priority, Copy PID
                         ui.horizontal(|ui| {
@@ -3969,39 +4057,37 @@ impl SystemMonitorApp {
 
             ui.add_space(10.0);
 
-            // Battery info
-            if let Some(ref battery) = data.battery_info {
-                ui.group(|ui| {
-                    ui.heading("Battery");
-                    ui.separator();
-
-                    ui.horizontal(|ui| {
-                        ui.label("Charge:");
-                        let color = if battery.percentage > 50.0 {
-                            ThemePalette::STATUS_HEALTHY
-                        } else if battery.percentage > 20.0 {
-                            ThemePalette::STATUS_WARNING
-                        } else {
-                            ThemePalette::STATUS_CRITICAL
-                        };
-                        let icon = if battery.is_charging { "AC" } else { "BAT" };
-                        ui.colored_label(color, format!("{} {:.0}%", icon, battery.percentage));
+            if let Some(bat) = &data.battery_info {
+                if bat.present {
+                    ui.group(|ui| {
+                        ui.heading("Battery Health");
+                        ui.separator();
+                        ui.horizontal(|ui| {
+                            ui.label("Design Capacity:");
+                            ui.strong(format!("{} mWh", bat.design_capacity));
+                        });
+                        ui.horizontal(|ui| {
+                            ui.label("Full Charge Capacity:");
+                            ui.strong(format!("{} mWh", bat.full_charge_capacity));
+                        });
+                        let wear = if bat.design_capacity > 0 {
+                            100.0 - ((bat.full_charge_capacity as f32 / bat.design_capacity as f32) * 100.0)
+                        } else { 0.0 };
+                        ui.horizontal(|ui| {
+                            ui.label("Battery Wear Level:");
+                            ui.strong(format!("{:.1}%", wear));
+                        });
+                        ui.horizontal(|ui| {
+                            ui.label("Discharge/Charge State:");
+                            ui.strong(bat.discharge_state.as_deref().unwrap_or("N/A").to_string());
+                        });
+                        ui.horizontal(|ui| {
+                            ui.label("Discharge/Charge State:");
+                            ui.strong(bat.discharge_state.as_deref().unwrap_or("N/A").to_string());
+                        });
                     });
-
-                    ui.horizontal(|ui| {
-                        ui.label("Status:");
-                        ui.strong(&battery.status_text);
-                    });
-
-                    let color = if battery.percentage > 50.0 {
-                        ThemePalette::STATUS_HEALTHY
-                    } else if battery.percentage > 20.0 {
-                        ThemePalette::STATUS_WARNING
-                    } else {
-                        ThemePalette::STATUS_CRITICAL
-                    };
-                    paint_progress_bar(ui, battery.percentage / 100.0, color, 5.0);
-                });
+                    ui.add_space(12.0);
+                }
             }
         });
     }
@@ -5197,6 +5283,69 @@ impl SystemMonitorApp {
             });
         });
     }
+
+    fn show_services_tab(&mut self, ui: &mut egui::Ui, data: &SystemData) {
+        paint_section_header(ui, "Windows Services");
+
+        if data.services.is_empty() {
+            ui.add_space(16.0);
+            ui.label(egui::RichText::new("Loading services…").color(ThemePalette::TEXT_SECONDARY));
+            return;
+        }
+
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            egui::Grid::new("services_grid")
+                .striped(true)
+                .min_col_width(200.0)
+                .show(ui, |ui| {
+                    ui.strong("Display Name");
+                    ui.strong("Service Name");
+                    ui.strong("State");
+                    ui.strong("Actions");
+                    ui.end_row();
+
+                    for svc in &data.services {
+                        ui.label(&svc.display_name);
+                        ui.label(&svc.name);
+                        let color = if svc.state == "Running" {
+                            egui::Color32::from_rgb(0, 200, 100)
+                        } else {
+                            ThemePalette::TEXT_SECONDARY
+                        };
+                        ui.colored_label(color, &svc.state);
+
+                        ui.horizontal(|ui| {
+                            let start_btn = ui.small_button("Start");
+                            let stop_btn = ui.small_button("Stop");
+                            let restart_btn = ui.small_button("Restart");
+                            if start_btn.clicked() {
+                                self.pending_service_action = Some(services::ServiceAction {
+                                    name: svc.name.clone(),
+                                    action: services::ServiceControlAction::Start,
+                                });
+                            }
+                            if stop_btn.clicked() {
+                                self.pending_service_action = Some(services::ServiceAction {
+                                    name: svc.name.clone(),
+                                    action: services::ServiceControlAction::Stop,
+                                });
+                            }
+                            if restart_btn.clicked() {
+                                self.pending_service_action = Some(services::ServiceAction {
+                                    name: svc.name.clone(),
+                                    action: services::ServiceControlAction::Restart,
+                                });
+                            }
+                        });
+                        ui.end_row();
+                    }
+                });
+        });
+
+        if let Some(action) = self.pending_service_action.take() {
+            let _ = services::send_service_control(&action.name, action.action);
+        }
+    }
 }
 
 fn load_icon() -> Option<egui::IconData> {
@@ -5413,5 +5562,18 @@ fn main() {
 
             std::process::exit(1);
         }
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_battery_info_default() {
+        let b = BatteryInfo::default();
+        assert_eq!(b.design_capacity, 0);
+        assert_eq!(b.present, false);
     }
 }
