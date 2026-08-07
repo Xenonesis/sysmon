@@ -12,6 +12,7 @@
 
 - Single version source: `Cargo.toml` `CARGO_PKG_VERSION` (2.2.0). CI passes it to ISCC as `/DAppVersion=` from the git tag (leading `v` stripped).
 - Fixed installer `AppId`: `{{3F2A9C41-8E7D-4B6A-9C21-5D8E4F1A7B62}` (keeps updates installing over the same entry).
+- **ADAPTED (user decision 2026-08-07):** the repo already has a working root `installer.iss` (tracked since `650b346`). The plan modifies it in place. Do NOT create an `installer/` directory or a second script. `assets/icon.ico` already exists and is tracked — no new icon work.
 - App keeps `requireAdministrator` manifest — do NOT touch `build.rs` manifest.
 - Release keeps BOTH assets: installer (`SystemMonitor-<ver>-setup.exe`) and portable exe.
 - Settings already live in `%APPDATA%\Xenonesis\SystemMonitor\settings.json` — no change.
@@ -20,52 +21,23 @@
 
 ---
 
-### Task 1: Commit `assets/icon.ico`
+### Task 1: (SKIPPED) `assets/icon.ico`
 
-**Files:**
-- Create: `assets/icon.ico` (generated from `assets/icon.png` via the existing build.rs conversion)
-
-**Interfaces:**
-- Produces: `assets/icon.ico` — referenced by `SetupIconFile` in Task 2.
-
-- [ ] **Step 1: Generate the icon**
-
-Run (PowerShell, repo root):
-
-```powershell
-cargo build
-$ico = Get-ChildItem -Path target\debug\build\system-monitor-*\out\icon.ico -ErrorAction SilentlyContinue | Select-Object -First 1
-if (-not $ico) { throw "icon.ico not found in build output" }
-Copy-Item $ico.FullName assets\icon.ico
-```
-
-Expected: `assets/icon.ico` exists and is non-empty.
-
-- [ ] **Step 2: Verify it is a valid ICO**
-
-Run: `git status --short`
-Expected: `assets/icon.ico` listed as untracked (not ignored).
-
-- [ ] **Step 3: Commit**
-
-```bash
-git add assets/icon.ico
-git commit -m "build: add installer icon asset"
-```
+**Status:** Skipped — `assets/icon.ico` already exists and is tracked in git (committed with the original installer work). Nothing to do. Task 2's `SetupIconFile` uses this existing file.
 
 ---
 
-### Task 2: Create `installer/installer.iss`
+### Task 2: Upgrade the existing root `installer.iss`
 
 **Files:**
-- Create: `installer/installer.iss`
+- Modify: `installer.iss` (repo root — already tracked, do not move it)
 
 **Interfaces:**
-- Produces: `installer/installer.iss` — compiled by `ISCC.exe` in Task 3 and Task 4. Sources `../target/release/system-monitor.exe` and `../assets/icon.ico`. Output lands in `installer/output/`.
+- Produces: upgraded `installer.iss` — compiled by `ISCC.exe` in Task 3 and Task 4. Sources `target/release/system-monitor.exe` and `assets/icon.ico`. Output lands in `downloads/` (gitignored via `downloads/*`).
 
-- [ ] **Step 1: Write the script**
+- [ ] **Step 1: Replace the script content**
 
-Create `installer/installer.iss` with exactly this content:
+Overwrite `installer.iss` (repo root) with exactly this content:
 
 ```ini
 ; System Monitor installer - Inno Setup 6
@@ -82,18 +54,20 @@ AppId={#MyAppId}
 AppName={#MyAppName}
 AppVersion={#AppVersion}
 AppPublisher={#MyAppPublisher}
+AppPublisherURL=https://github.com/Xenonesis/sysmon
 DefaultDirName={autopf}\System Monitor
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 PrivilegesRequired=admin
-OutputDir=output
+OutputDir=downloads
 OutputBaseFilename=SystemMonitor-{#AppVersion}-setup
-SetupIconFile=..\assets\icon.ico
+SetupIconFile=assets\icon.ico
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
 UninstallDisplayIcon={app}\{#MyAppExeName}
 UninstallDisplayName={#MyAppName}
+ArchitecturesInstallIn64BitMode=x64
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -102,20 +76,23 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
-Source: "..\target\release\system-monitor.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "target\release\system-monitor.exe"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
+Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#MyAppName}}"; Flags: nowait postinstall skipifsilent
 ```
 
+Changes vs the old script: fixed `AppId` (stable upgrades), `/DAppVersion` preprocessor support (falls back to 2.2.0), versioned `OutputBaseFilename`, explicit `PrivilegesRequired=admin`, removed the `assets\*` copy (icon is embedded in the exe — `assets` dir is not needed at runtime).
+
 - [ ] **Step 2: Sanity-check the file**
 
-Run: `git status --short`
-Expected: `installer/installer.iss` untracked. No commit yet — Task 3 verifies it compiles first.
+Run: `git diff --stat`
+Expected: `installer.iss` modified, no other files. No commit yet — Task 3 verifies it compiles first.
 
 ---
 
@@ -125,8 +102,8 @@ Expected: `installer/installer.iss` untracked. No commit yet — Task 3 verifies
 - Modify: none (verification only)
 
 **Interfaces:**
-- Consumes: `installer/installer.iss` (Task 2), `target/release/system-monitor.exe` (this task).
-- Produces: `installer/output/SystemMonitor-2.2.0-setup.exe` — the local artifact to inspect.
+- Consumes: `installer.iss` (Task 2), `target/release/system-monitor.exe` (this task).
+- Produces: `downloads/SystemMonitor-2.2.0-setup.exe` — the local artifact to inspect.
 
 - [ ] **Step 1: Build the release exe**
 
@@ -148,21 +125,21 @@ If choco needs elevation and fails, verify the compile in CI instead (Task 4) an
 - [ ] **Step 3: Compile the installer**
 
 ```powershell
-& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\installer.iss
+& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer.iss
 ```
 
 Expected: exit code 0, no errors. Default `AppVersion` 2.2.0 applies (no `/DAppVersion` locally).
 
 - [ ] **Step 4: Inspect the output**
 
-Run: `Get-ChildItem installer\output\SystemMonitor-*-setup.exe | Select-Object Name, Length`
-Expected: `SystemMonitor-2.2.0-setup.exe`, non-trivial size (> 500 KB).
+Run: `Get-ChildItem downloads\SystemMonitor-*-setup.exe | Select-Object Name, Length`
+Expected: `SystemMonitor-2.2.0-setup.exe`, non-trivial size (> 500 KB). (`downloads/` is gitignored.)
 
 - [ ] **Step 5: Commit the script**
 
 ```bash
-git add installer/installer.iss
-git commit -m "build: add Inno Setup installer script"
+git add installer.iss
+git commit -m "build: upgrade installer script with versioned output and fixed AppId"
 ```
 
 ---
@@ -173,7 +150,7 @@ git commit -m "build: add Inno Setup installer script"
 - Modify: `.github/workflows/windows-release.yml`
 
 **Interfaces:**
-- Consumes: `installer/installer.iss`, `installer/output/SystemMonitor-<ver>-setup.exe` from Task 3's steps.
+- Consumes: `installer.iss`, `downloads/SystemMonitor-<ver>-setup.exe` from Task 3's steps.
 - Produces: two new CI steps that upload `SystemMonitor-<ver>-setup.exe` as a workflow artifact AND a GitHub Release asset (tag pushes only). Later tasks rely on the release asset being named `SystemMonitor-<version>-setup.exe`.
 
 - [ ] **Step 1: Insert a version step**
@@ -201,13 +178,13 @@ Directly after the Compute version step, insert:
       - name: Build installer
         shell: pwsh
         run: |
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\installer.iss /DAppVersion=${{ steps.version.outputs.version }}
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer.iss /DAppVersion=${{ steps.version.outputs.version }}
 
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
           name: system-monitor-installer
-          path: installer\output\SystemMonitor-*-setup.exe
+          path: downloads\SystemMonitor-*-setup.exe
 ```
 
 - [ ] **Step 3: Insert installer release asset upload**
@@ -220,7 +197,7 @@ After the existing `Upload release asset (only on tag push)` step, insert:
         uses: actions/upload-release-asset@v1
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: installer\output\SystemMonitor-${{ steps.version.outputs.version }}-setup.exe
+          asset_path: downloads\SystemMonitor-${{ steps.version.outputs.version }}-setup.exe
           asset_name: SystemMonitor-${{ steps.version.outputs.version }}-setup.exe
           asset_content_type: application/octet-stream
 ```
@@ -413,7 +390,7 @@ Expected: exit 0, `target\release\system-monitor.exe` refreshed with Task 5/6 ch
 
 - [ ] **Step 2: Recompile the installer with the fresh exe**
 
-Run: `& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\installer.iss`
+Run: `& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer.iss`
 Expected: exit 0.
 
 - [ ] **Step 3: Grep for leftovers**
