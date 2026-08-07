@@ -19,6 +19,7 @@ exclude:
   - .sass-cache/
   - .jekyll-cache/
   - gemfiles/
+  - superpowers/
   - .bundle
 
 # Include files
