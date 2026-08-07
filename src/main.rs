@@ -3492,8 +3492,13 @@ impl SystemMonitorApp {
 
                         ui.label(egui::RichText::new(format!("{:.2} MB", memory_mb)).color(text_color));
                         ui.label(egui::RichText::new(format!("{:.1}%", process.cpu_usage)).color(text_color));
-                        ui.label(egui::RichText::new(format!("{:.1} KB", process.disk_read_bytes as f64 / 1024.0)).color(text_color));
-                        ui.label(egui::RichText::new(format!("{:.1} KB", process.disk_written_bytes as f64 / 1024.0)).color(text_color));
+
+                        let refresh_interval = self.settings.refresh_interval.max(1);
+                        let effective_elapsed = if refresh_interval > 0 { refresh_interval as f64 } else { 1.0 };
+                        let read_rate_mb = process.disk_read_bytes as f64 / effective_elapsed / 1024.0 / 1024.0;
+                        let write_rate_mb = process.disk_written_bytes as f64 / effective_elapsed / 1024.0 / 1024.0;
+                        ui.label(egui::RichText::new(format!("{:.2} MB/s", read_rate_mb)).color(text_color));
+                        ui.label(egui::RichText::new(format!("{:.2} MB/s", write_rate_mb)).color(text_color));
 
                         // Action buttons: Tree, Kill, Suspend/Resume, Priority, Copy PID
                         ui.horizontal(|ui| {
