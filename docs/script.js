@@ -230,7 +230,7 @@ async function resolveDownload() {
     const REPO = 'Xenonesis/sysmon';
     const API_URL = `https://api.github.com/repos/${REPO}/releases/latest`;
     const RELEASES_PAGE = `https://github.com/${REPO}/releases/latest`;
-    const CACHE_KEY = 'sysmon_release_cache';
+    const CACHE_KEY = 'sysmon_release_cache_v2';
     const CACHE_TTL = 3600000; // 1 hour
     
     const heroBtn = document.getElementById('downloadNow');
@@ -241,16 +241,30 @@ async function resolveDownload() {
     /**
      * Apply download URL and info
      */
-    function applyDownload(url, name, sizeMB, version) {
+    function applyDownload(data) {
+        const { url, name, sizeMB, version, portableUrl, portableName, portableSizeMB } = data;
         buttons.forEach(btn => {
             btn.href = url;
             btn.removeAttribute('target');
         });
-        
+
+        const portableLink = document.getElementById('downloadPortable');
+        if (portableLink) {
+            if (portableUrl) {
+                portableLink.href = portableUrl;
+                portableLink.removeAttribute('target');
+                if (portableName && portableSizeMB) {
+                    portableLink.textContent = `Portable .exe · ${portableName} · ${portableSizeMB} MB`;
+                }
+            } else {
+                portableLink.textContent = 'Prefer portable? Get the .exe instead';
+            }
+        }
+
         const parts = [name];
         if (sizeMB) parts.push(`${sizeMB} MB`);
         if (version) parts.push(`v${version}`);
-        
+
         if (info) {
             info.textContent = parts.join(' · ') + ' — Ready to download';
         }
@@ -265,7 +279,12 @@ async function resolveDownload() {
             btn.target = '_blank';
             btn.rel = 'noopener';
         });
-        
+
+        const portableLink = document.getElementById('downloadPortable');
+        if (portableLink) {
+            portableLink.href = RELEASES_PAGE;
+        }
+
         if (info) {
             info.textContent = 'Visit GitHub Releases for latest version';
         }
@@ -308,7 +327,7 @@ async function resolveDownload() {
     // Check cache first
     const cached = getCachedRelease();
     if (cached) {
-        applyDownload(cached.url, cached.name, cached.sizeMB, cached.version);
+        applyDownload(cached);
         return;
     }
     
@@ -334,24 +353,32 @@ async function resolveDownload() {
         const release = await response.json();
         const version = release.tag_name?.replace(/^v/, '') || release.tag_name;
         
-        // Find Windows executable
-        const exeAsset = release.assets?.find(asset =>
-            asset.name?.endsWith('.exe') &&
-            !asset.name?.toLowerCase().includes('installer')
+        // Find installer (recommended) and portable assets
+        const installerAsset = release.assets?.find(asset =>
+            asset.name?.toLowerCase().includes('setup') &&
+            asset.name?.toLowerCase().endsWith('.exe')
+        );
+        const portableAsset = release.assets?.find(asset =>
+            asset.name?.toLowerCase().endsWith('.exe') &&
+            !asset.name?.toLowerCase().includes('setup')
         );
         
-        if (exeAsset?.browser_download_url) {
-            const sizeMB = exeAsset.size ? (exeAsset.size / (1024 * 1024)).toFixed(1) : null;
+        if (installerAsset?.browser_download_url || portableAsset?.browser_download_url) {
+            const installerSize = installerAsset ? (installerAsset.size / (1024 * 1024)).toFixed(1) : null;
+            const portableSize = portableAsset ? (portableAsset.size / (1024 * 1024)).toFixed(1) : null;
             
             const data = {
-                url: exeAsset.browser_download_url,
-                name: exeAsset.name,
-                sizeMB,
-                version
+                url: installerAsset?.browser_download_url || portableAsset.browser_download_url,
+                name: installerAsset?.name || portableAsset.name,
+                sizeMB: installerSize || portableSize,
+                version,
+                portableUrl: portableAsset?.browser_download_url,
+                portableName: portableAsset?.name,
+                portableSizeMB: portableSize
             };
             
             cacheRelease(data);
-            applyDownload(data.url, data.name, data.sizeMB, data.version);
+            applyDownload(data);
         } else {
             useFallback();
         }

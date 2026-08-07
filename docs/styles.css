@@ -822,6 +822,21 @@ button {
     margin-bottom: var(--space-sm);
 }
 
+.download-portable {
+    display: inline-block;
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    color: var(--color-text-muted);
+    margin-bottom: var(--space-md);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    transition: color 0.2s ease;
+}
+
+.download-portable:hover {
+    color: var(--color-accent);
+}
+
 .download-requirements {
     font-size: var(--text-xs);
     color: var(--color-text-muted);
