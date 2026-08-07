@@ -126,6 +126,9 @@ struct GpuInfo {
     memory_used: Option<u64>,
     memory_total: Option<u64>,
     temperature: Option<u32>,
+    clock_mhz: Option<u32>,
+    power_watts: Option<f32>,
+    fan_percent: Option<u32>,
 }
 
 #[derive(Clone, Serialize)]
@@ -720,6 +723,11 @@ impl SystemMonitor {
                         let temperature = device
                             .temperature(nvml_wrapper::enum_wrappers::device::TemperatureSensor::Gpu)
                             .ok();
+                        let clock_mhz = device
+                            .clock_info(nvml_wrapper::enum_wrappers::device::Clock::Graphics)
+                            .ok();
+                        let power_watts = device.power_usage().ok().map(|mw| mw as f32 / 1000.0);
+                        let fan_percent = device.fan_speed(0).ok();
 
                         nvml_names.push(name.clone());
                         gpus.push(GpuInfo {
@@ -728,6 +736,9 @@ impl SystemMonitor {
                             memory_used: memory.as_ref().map(|m| m.used),
                             memory_total: memory.as_ref().map(|m| m.total),
                             temperature,
+                            clock_mhz,
+                            power_watts,
+                            fan_percent,
                         });
                     }
                 }
@@ -853,6 +864,9 @@ impl SystemMonitor {
                 memory_used,
                 memory_total: adapter_ram,
                 temperature: None,
+                clock_mhz: None,
+                power_watts: None,
+                fan_percent: None,
             });
         }
         
@@ -1864,6 +1878,15 @@ impl SystemMonitorApp {
             if let Some(temp) = gpu.temperature {
                 wtr.write_record(["GPU", "Temperature C", &format!("{}", temp)])?;
             }
+            if let Some(clock) = gpu.clock_mhz {
+                wtr.write_record(["GPU", "Clock MHz", &clock.to_string()])?;
+            }
+            if let Some(power) = gpu.power_watts {
+                wtr.write_record(["GPU", "Power W", &format!("{:.1}", power)])?;
+            }
+            if let Some(fan) = gpu.fan_percent {
+                wtr.write_record(["GPU", "Fan %", &fan.to_string()])?;
+            }
         }
 
         // Top processes header
@@ -2809,10 +2832,14 @@ impl SystemMonitorApp {
 
             let (gpu_val, gpu_sub, gpu_frac, gpu_c) = if let Some(gpu) = data.gpu_info.first() {
                 let c = get_usage_color(gpu.utilization);
-                let sub = if let (Some(u), Some(t)) = (gpu.memory_used, gpu.memory_total) {
+                let mut sub = if let (Some(u), Some(t)) = (gpu.memory_used, gpu.memory_total) {
                     format!("{:.0}/{:.0} MB", bytes_to_mb(u), bytes_to_mb(t))
                 } else {
                     gpu.name.clone()
+                };
+                sub = match gpu.clock_mhz {
+                    Some(mhz) => format!("{} · {} MHz", sub, mhz),
+                    None => sub,
                 };
                 (format!("{:.1}%", gpu.utilization), sub, gpu.utilization / 100.0, c)
             } else {
@@ -2932,6 +2959,20 @@ impl SystemMonitorApp {
                                 ThemePalette::STATUS_CRITICAL
                             };
                             ui.label(egui::RichText::new(format!("{}°C", temp)).strong().color(tc));
+                            ui.separator();
+                        }
+                        if gpu.clock_mhz.is_some() || gpu.power_watts.is_some() || gpu.fan_percent.is_some() {
+                            let mut parts = Vec::new();
+                            if let Some(mhz) = gpu.clock_mhz {
+                                parts.push(format!("{} MHz", mhz));
+                            }
+                            if let Some(w) = gpu.power_watts {
+                                parts.push(format!("{:.0} W", w));
+                            }
+                            if let Some(f) = gpu.fan_percent {
+                                parts.push(format!("{}% fan", f));
+                            }
+                            ui.label(parts.join(" · "));
                             ui.separator();
                         }
                         ui.label(
