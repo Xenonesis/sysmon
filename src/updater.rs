@@ -124,11 +124,34 @@ impl Updater {
         false
     }
 
+    fn is_installed(&self) -> bool {
+        if let Ok(exe) = std::env::current_exe() {
+            let path = exe.to_string_lossy().to_lowercase();
+            if path.contains("\\program files\\") || path.contains("\\program files (x86)\\") {
+                return true;
+            }
+        }
+        #[cfg(target_os = "windows")]
+        {
+            use winreg::enums::*;
+            use winreg::RegKey;
+            let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
+            if hklm
+                .open_subkey(r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\System Monitor")
+                .is_ok()
+            {
+                return true;
+            }
+        }
+        false
+    }
+
     pub fn download_and_install_update(&self, download_url: &str) -> Result<(), String> {
         let temp_dir = std::env::temp_dir();
         let is_exe = download_url.to_lowercase().ends_with(".exe") 
             || download_url.to_lowercase().contains(".exe?");
-        
+        let is_installer = download_url.to_lowercase().contains("setup");
+
         let installer_path = if is_exe {
             temp_dir.join("system-monitor-new.exe")
         } else {
@@ -149,6 +172,26 @@ impl Updater {
 
         fs::write(&installer_path, &bytes)
             .map_err(|e| format!("Failed to write update file: {}", e))?;
+
+        // Installed app + installer asset -> silent install (replaces exe,
+        // shortcuts, and uninstall entry in one pass).
+        if is_exe && is_installer && self.is_installed() {
+            #[cfg(target_os = "windows")]
+            {
+                use std::process::Command;
+                use std::os::windows::process::CommandExt;
+                Command::new(&installer_path)
+                    .creation_flags(0x08000000)
+                    .args(["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"])
+                    .spawn()
+                    .map_err(|e| format!("Failed to spawn installer: {}", e))?;
+                std::process::exit(0);
+            }
+            #[cfg(not(target_os = "windows"))]
+            {
+                return Err("Installer updates are only supported on Windows".to_string());
+            }
+        }
 
         if is_exe {
             #[cfg(target_os = "windows")]
