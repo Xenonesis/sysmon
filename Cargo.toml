@@ -35,7 +35,7 @@ parking_lot = "0.12"
 ureq = { version = "2.9", features = ["json"] }
 percent-encoding = "2.3"
 windows-service = "0.8.1"
-windows-sys = { version = "0.61.2", features = ["Win32_System_Services", "Win32_Foundation"] }
+windows-sys = { version = "0.61.2", features = ["Win32_System_Services", "Win32_Foundation", "Win32_System_Power"] }
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.52", features = [
