@@ -2053,6 +2053,9 @@ impl eframe::App for SystemMonitorApp {
             } else if Some(&event.id) == self.tray_menu_clean_id.as_ref() {
                 self.start_ram_clean(ctx);
             } else if Some(&event.id) == self.tray_menu_procman_id.as_ref() {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+                ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+                self.is_hidden = false;
                 self.show_process_manager = true;
             } else if Some(&event.id) == self.tray_menu_pause_id.as_ref() {
                 let paused = {
