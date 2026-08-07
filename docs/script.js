@@ -242,24 +242,11 @@ async function resolveDownload() {
      * Apply download URL and info
      */
     function applyDownload(data) {
-        const { url, name, sizeMB, version, portableUrl, portableName, portableSizeMB } = data;
+        const { url, name, sizeMB, version } = data;
         buttons.forEach(btn => {
             btn.href = url;
             btn.removeAttribute('target');
         });
-
-        const portableLink = document.getElementById('downloadPortable');
-        if (portableLink) {
-            if (portableUrl) {
-                portableLink.href = portableUrl;
-                portableLink.removeAttribute('target');
-                if (portableName && portableSizeMB) {
-                    portableLink.textContent = `Portable .exe · ${portableName} · ${portableSizeMB} MB`;
-                }
-            } else {
-                portableLink.textContent = 'Prefer portable? Get the .exe instead';
-            }
-        }
 
         const parts = [name];
         if (sizeMB) parts.push(`${sizeMB} MB`);
@@ -279,11 +266,6 @@ async function resolveDownload() {
             btn.target = '_blank';
             btn.rel = 'noopener';
         });
-
-        const portableLink = document.getElementById('downloadPortable');
-        if (portableLink) {
-            portableLink.href = RELEASES_PAGE;
-        }
 
         if (info) {
             info.textContent = 'Visit GitHub Releases for latest version';
@@ -353,28 +335,20 @@ async function resolveDownload() {
         const release = await response.json();
         const version = release.tag_name?.replace(/^v/, '') || release.tag_name;
         
-        // Find installer (recommended) and portable assets
+        // Find the installer asset (SystemMonitor-<ver>-setup.exe)
         const installerAsset = release.assets?.find(asset =>
             asset.name?.toLowerCase().includes('setup') &&
             asset.name?.toLowerCase().endsWith('.exe')
         );
-        const portableAsset = release.assets?.find(asset =>
-            asset.name?.toLowerCase().endsWith('.exe') &&
-            !asset.name?.toLowerCase().includes('setup')
-        );
         
-        if (installerAsset?.browser_download_url || portableAsset?.browser_download_url) {
-            const installerSize = installerAsset ? (installerAsset.size / (1024 * 1024)).toFixed(1) : null;
-            const portableSize = portableAsset ? (portableAsset.size / (1024 * 1024)).toFixed(1) : null;
+        if (installerAsset?.browser_download_url) {
+            const sizeMB = installerAsset.size ? (installerAsset.size / (1024 * 1024)).toFixed(1) : null;
             
             const data = {
-                url: installerAsset?.browser_download_url || portableAsset.browser_download_url,
-                name: installerAsset?.name || portableAsset.name,
-                sizeMB: installerSize || portableSize,
-                version,
-                portableUrl: portableAsset?.browser_download_url,
-                portableName: portableAsset?.name,
-                portableSizeMB: portableSize
+                url: installerAsset.browser_download_url,
+                name: installerAsset.name,
+                sizeMB,
+                version
             };
             
             cacheRelease(data);

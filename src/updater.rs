@@ -59,6 +59,12 @@ impl Updater {
     }
 
     pub fn check_for_updates(&mut self) -> Result<UpdateInfo, String> {
+        // Updates apply to installed apps only — portable builds are no longer
+        // published, so a portable exe would have nothing safe to download.
+        if !self.is_installed() {
+            return Ok(UpdateInfo::default());
+        }
+
         match self.fetch_latest_release() {
             Ok(release) => {
                 let latest_version = release.tag_name.trim_start_matches('v');
@@ -71,33 +77,17 @@ impl Updater {
                 // Clear any URL from a previous check in this session.
                 self.update_info.download_url.clear();
 
-                // Installed app: prefer the installer asset (SystemMonitor-<ver>-setup.exe),
-                // fall back to the first portable exe/zip. Portable app: must pick a
-                // non-setup exe/zip — self-replacing with the installer would overwrite
-                // the running binary with the Inno Setup wizard.
-                let installed = self.is_installed();
-                let mut fallback_url = String::new();
+                // Only the installer asset (SystemMonitor-<ver>-setup.exe) is
+                // offered; portable builds are no longer published.
                 for asset in release.assets {
                     let name = asset.name.to_lowercase();
-                    let is_setup = name.contains("setup") && name.ends_with(".exe");
-                    if installed {
-                        if is_setup {
-                            self.update_info.download_url = asset.browser_download_url;
-                            break;
-                        }
-                        if fallback_url.is_empty()
-                            && (name.ends_with(".zip") || name.ends_with(".exe"))
-                        {
-                            fallback_url = asset.browser_download_url;
-                        }
-                    } else if !is_setup && (name.ends_with(".zip") || name.ends_with(".exe")) {
+                    if name.contains("setup") && name.ends_with(".exe") {
                         self.update_info.download_url = asset.browser_download_url;
                         break;
                     }
                 }
-                if self.update_info.download_url.is_empty() {
-                    self.update_info.download_url = fallback_url;
-                }
+                self.update_info.update_available = self.update_info.update_available
+                    && !self.update_info.download_url.is_empty();
 
                 Ok(self.update_info.clone())
             }
@@ -163,16 +153,13 @@ impl Updater {
     }
 
     pub fn download_and_install_update(&self, download_url: &str) -> Result<(), String> {
-        let temp_dir = std::env::temp_dir();
-        let is_exe = download_url.to_lowercase().ends_with(".exe") 
+        let is_exe = download_url.to_lowercase().ends_with(".exe")
             || download_url.to_lowercase().contains(".exe?");
-        let is_installer = download_url.to_lowercase().contains("setup");
+        if !is_exe {
+            return Err("Unsupported update format".to_string());
+        }
 
-        let installer_path = if is_exe {
-            temp_dir.join("system-monitor-new.exe")
-        } else {
-            temp_dir.join("system-monitor-update.zip")
-        };
+        let installer_path = std::env::temp_dir().join("system-monitor-setup.exe");
 
         // Download the update using ureq
         let response = ureq::get(download_url)
@@ -189,9 +176,10 @@ impl Updater {
         fs::write(&installer_path, &bytes)
             .map_err(|e| format!("Failed to write update file: {}", e))?;
 
-        // Installed app + installer asset -> silent install (replaces exe,
-        // shortcuts, and uninstall entry in one pass).
-        if is_exe && is_installer && self.is_installed() {
+        // Silent install — replaces the exe, shortcuts, and uninstall entry in
+        // one pass. Only installer assets are offered; the process exits so the
+        // installer can replace files freely.
+        {
             #[cfg(target_os = "windows")]
             {
                 use std::process::Command;
@@ -209,95 +197,6 @@ impl Updater {
             }
         }
 
-        if is_exe {
-            #[cfg(target_os = "windows")]
-            {
-                use std::process::Command;
-                use std::os::windows::process::CommandExt;
-
-                let current_exe = std::env::current_exe()
-                    .map_err(|e| format!("Failed to get current exe path: {}", e))?;
-
-                // Spawn a detached powershell script to wait, rename the running exe,
-                // copy the new exe to its place, launch it, and clean up the old file.
-                let script = format!(
-                    "Start-Sleep -Seconds 1; \
-                     Move-Item -Path '{current_exe}' -Destination '{current_exe}.old' -Force; \
-                     Copy-Item -Path '{installer_path}' -Destination '{current_exe}' -Force; \
-                     Start-Process '{current_exe}'; \
-                     Remove-Item -Path '{current_exe}.old' -Force",
-                    current_exe = current_exe.display(),
-                    installer_path = installer_path.display()
-                );
-
-                Command::new("powershell")
-                    .creation_flags(0x08000000)
-                    .arg("-Command")
-                    .arg(&script)
-                    .spawn()
-                    .map_err(|e| format!("Failed to spawn updater process: {}", e))?;
-
-                std::process::exit(0);
-            }
-            #[cfg(not(target_os = "windows"))]
-            {
-                return Err("Executable auto-update is only supported on Windows".to_string());
-            }
-        }
-
-        // Extract ZIP
-        let extract_dir = temp_dir.join("system-monitor-update");
-        if extract_dir.exists() {
-            fs::remove_dir_all(&extract_dir).ok();
-        }
-        fs::create_dir_all(&extract_dir)
-            .map_err(|e| format!("Failed to create extract dir: {}", e))?;
-
-        // Use zip crate or PowerShell as fallback for extraction
-        #[cfg(target_os = "windows")]
-        {
-            use std::process::Command;
-            use std::os::windows::process::CommandExt;
-
-            let output = Command::new("powershell")
-                .creation_flags(0x08000000)
-                .arg("-Command")
-                .arg(format!(
-                    "Expand-Archive -Path '{}' -DestinationPath '{}' -Force",
-                    installer_path.display(),
-                    extract_dir.display()
-                ))
-                .output()
-                .map_err(|e| format!("Failed to extract update: {}", e))?;
-
-            if !output.status.success() {
-                return Err("Failed to extract update archive".to_string());
-            }
-        }
-
-        // Run the installer
-        let installer_script = extract_dir.join("installer.ps1");
-        if installer_script.exists() {
-            #[cfg(target_os = "windows")]
-            {
-                use std::process::Command;
-                use std::os::windows::process::CommandExt;
-
-                Command::new("powershell")
-                    .creation_flags(0x08000000)
-                    .arg("-ExecutionPolicy")
-                    .arg("Bypass")
-                    .arg("-File")
-                    .arg(&installer_script)
-                    .arg("-Silent")
-                    .spawn()
-                    .map_err(|e| format!("Failed to run installer: {}", e))?;
-
-                std::process::exit(0);
-            }
-        } else {
-            Err("Installer script not found in update package".to_string())
-        }
     }
 
     #[allow(dead_code)]

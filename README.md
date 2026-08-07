@@ -28,8 +28,6 @@ Or download directly from [GitHub Releases](https://github.com/Xenonesis/sysmon/
 - **Auto-updates** - App automatically checks for updates every 24 hours
 - **Size:** ~5.4 MB - Lightweight and fast
 
-Prefer portable? Use `system-monitor-<version>-windows-x64.exe` - no installation needed.
-
 ---
 
 ## ✨ Screenshots
@@ -88,7 +86,7 @@ Prefer portable? Use `system-monitor-<version>-windows-x64.exe` - no installatio
 - ✅ **Start Menu entry** - Searchable and accessible
 - ✅ **Native Windows app** - Full OS integration
 - ✅ **Auto-update system** - Automatic update checking and installation
-- ✅ **Direct .exe downloads** - No ZIP extraction needed
+- ✅ **Installer** - Proper install with silent auto-updates
 
 ## 🎯 Key Features at a Glance
 
@@ -105,7 +103,7 @@ Prefer portable? Use `system-monitor-<version>-windows-x64.exe` - no installatio
 | 🎮 **GPU Support**        | NVIDIA GPU monitoring (utilization, temp, VRAM)                        |
 | 📈 **Real-time Updates**  | Configurable refresh interval (1-10 seconds)                           |
 | 🔄 **Auto-Update**        | Automatic update checking every 24 hours with one-click install        |
-| ⬇️ **Direct Downloads**   | Website serves .exe directly - no installation hassle                  |
+| ⬇️ **Installer**          | Proper Windows install with silent auto-updates                        |
 
 ## 📋 Prerequisites
 
@@ -127,10 +125,6 @@ The installer:
 - Optionally creates a Desktop shortcut
 - Registers the app in Settings → Apps for clean uninstall
 - Requires administrator privileges (the app needs elevated rights for RAM cleaning, process management, and startup optimization)
-
-### Option 2: Portable
-
-Prefer running without installing? Download `system-monitor-<version>-windows-x64.exe` and run it directly. Settings are still stored per-user in `%APPDATA%\Xenonesis\SystemMonitor`.
 
 ### Building from source
 
@@ -198,7 +192,7 @@ The executable will be at: `target/release/system-monitor.exe`
 ## Recent Updates
 
 - ✅ **Auto-update system** - Automatic update checking and one-click installation
-- ✅ **Direct .exe downloads** - Website now serves executables directly
+- ✅ **Installer** - Proper Windows install with silent auto-updates
 - ✅ **Downloads folder** - Build artifacts automatically saved for distribution
 - ✅ **Smart download fallback** - Local-first, then GitHub releases
 - ✅ **Update notifications** - In-app banner when new version available
