@@ -3,6 +3,7 @@ pub(crate) mod ui;
 use crate::ui::theme::ThemePalette;
 use crate::ui::components::*;
 use chrono::Local;
+mod monitoring;
 mod updater;
 mod startup;
 mod privilege;
