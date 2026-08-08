@@ -1265,6 +1265,7 @@ pub(crate) struct SystemMonitorApp {
     pub(crate) update_info_share: Arc<Mutex<Option<updater::UpdateInfo>>>,
     pub(crate) show_update_notification: bool,
     pub(crate) update_check_time: Option<Instant>,
+    pub(crate) auto_update_installed: bool,
     pub(crate) ram_cleaner_state: RamCleanerState,
     pub(crate) startup_items: Vec<StartupItem>,
     pub(crate) startup_items_loaded: bool,
@@ -1951,6 +1952,7 @@ impl SystemMonitorApp {
             update_info_share: Arc::new(Mutex::new(None)),
             show_update_notification: true,
             update_check_time: None,
+            auto_update_installed: false,
             ram_cleaner_state: RamCleanerState {
                 last_cleaned: None,
                 last_cleaned_display: String::new(),
@@ -2174,14 +2176,24 @@ impl eframe::App for SystemMonitorApp {
             let mut updater = self.updater.clone();
             let ctx_clone = ctx.clone();
             let update_info_share = self.update_info_share.clone();
+            let auto_update_installed = self.auto_update_installed;
             thread::Builder::new()
                 .name("auto_updater_check".to_string())
                 .stack_size(8 * 1024 * 1024)
                 .spawn(move || {
                     if let Ok(update_info) = updater.check_for_updates() {
                         *update_info_share.lock() = Some(update_info.clone());
-                        if update_info.update_available {
-                            ctx_clone.request_repaint();
+                        if update_info.update_available && !auto_update_installed {
+                            let download_url = update_info.download_url.clone();
+                            thread::Builder::new()
+                                .name("updater_downloader".to_string())
+                                .stack_size(8 * 1024 * 1024)
+                                .spawn(move || {
+                                    if let Err(e) = updater::Updater::new().download_and_install_update(&download_url) {
+                                        eprintln!("Update failed: {}", e);
+                                    }
+                                })
+                                .expect("failed to spawn updater downloader thread");
                         }
                     }
                 })
