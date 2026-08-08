@@ -69,20 +69,6 @@ pub(crate) fn get_battery_info(wmi_con: &wmi::WMIConnection) -> Option<BatteryIn
     None
 }
 
-macro_rules! eprintln {
-    ($($arg:tt)*) => {{
-        if let Ok(mut file) = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open("c:\\Users\\Acer\\Desktop\\sysmon\\dbg.txt")
-        {
-            use std::io::Write;
-            let _ = writeln!(file, $($arg)*);
-            let _ = file.sync_all();
-        }
-    }};
-}
-
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::fs;
@@ -300,6 +286,8 @@ struct SystemMonitor {
     wmi_gpu_memory_class: Option<String>,
     last_network_update: Instant,
     last_disk_update: Instant,
+    previous_network_totals: std::collections::HashMap<String, (u64, u64)>,
+    previous_disk_totals: (u64, u64),
 }
 
 impl Default for AppSettings {
@@ -384,23 +372,15 @@ impl AppSettings {
 
 impl SystemMonitor {
     fn new() -> Self {
-        eprintln!("DBG: SystemMonitor::new starting, size of SystemMonitor={}", std::mem::size_of::<SystemMonitor>());
-        eprintln!("DBG: size of sysinfo::System={}", std::mem::size_of::<System>());
         let mut sys = System::new_all();
-        eprintln!("DBG: sysinfo::System::new_all completed");
         sys.refresh_all();
-        eprintln!("DBG: sysinfo::System::refresh_all completed");
 
         let disks = Disks::new_with_refreshed_list();
-        eprintln!("DBG: sysinfo::Disks::new_with_refreshed_list completed");
         let networks = Networks::new_with_refreshed_list();
-        eprintln!("DBG: sysinfo::Networks::new_with_refreshed_list completed");
 
         #[cfg(target_os = "windows")]
         let nvml = {
-            eprintln!("DBG: Initializing NVML");
             let res = Nvml::init().ok();
-            eprintln!("DBG: NVML init done: {}", res.is_some());
             res
         };
 
@@ -462,6 +442,8 @@ impl SystemMonitor {
             wmi_gpu_memory_class,
             last_network_update: Instant::now(),
             last_disk_update: Instant::now(),
+            previous_network_totals: std::collections::HashMap::new(),
+            previous_disk_totals: (0, 0),
         }
     }
 
@@ -981,35 +963,18 @@ impl SystemMonitor {
             .collect()
     }
 
-    fn get_disk_io(&mut self, refresh_interval: u64) -> (f64, f64) {
+    fn get_disk_io(&mut self, _refresh_interval: u64) -> (f64, f64) {
         let elapsed = self.last_disk_update.elapsed().as_secs_f64();
-        let mut total_read = 0;
-        let mut total_written = 0;
-
-        for process in self.sys.processes().values() {
+        let (total_read, total_written) = self.sys.processes().values().fold((0u64, 0u64), |(read, written), process| {
             let usage = process.disk_usage();
-            total_read += usage.read_bytes;
-            total_written += usage.written_bytes;
-        }
-
+            (read.saturating_add(usage.read_bytes), written.saturating_add(usage.written_bytes))
+        });
+        let read_delta = total_read.saturating_sub(self.previous_disk_totals.0);
+        let write_delta = total_written.saturating_sub(self.previous_disk_totals.1);
+        self.previous_disk_totals = (total_read, total_written);
         self.last_disk_update = Instant::now();
-
-        let min_window = 0.25;
-        let effective_elapsed = if elapsed > min_window {
-            elapsed
-        } else {
-            let fallback = if refresh_interval > 0 {
-                refresh_interval as f64
-            } else {
-                min_window
-            };
-            fallback.max(min_window)
-        };
-
-        let read_rate = total_read as f64 / effective_elapsed / 1024.0 / 1024.0; // MB/s
-        let write_rate = total_written as f64 / effective_elapsed / 1024.0 / 1024.0; // MB/s
-
-        (read_rate, write_rate)
+        if elapsed <= 0.0 { return (0.0, 0.0); }
+        (read_delta as f64 / elapsed / 1024.0 / 1024.0, write_delta as f64 / elapsed / 1024.0 / 1024.0)
     }
 
     fn check_alerts(&self, settings: &AppSettings, data: &SystemData) -> Vec<AlertInfo> {
@@ -1079,32 +1044,19 @@ impl SystemMonitor {
 
     fn get_network_info(&mut self) -> Vec<NetworkInfo> {
         let elapsed = self.last_network_update.elapsed().as_secs_f64();
-
-        let network_info: Vec<NetworkInfo> = self
-            .networks
-            .iter()
-            .map(|(interface, data)| {
-                let received_rate = if elapsed > 0.0 {
-                    data.received() as f64 / elapsed / 1024.0 / 1024.0 // MB/s
-                } else {
-                    0.0
-                };
-                let transmitted_rate = if elapsed > 0.0 {
-                    data.transmitted() as f64 / elapsed / 1024.0 / 1024.0 // MB/s
-                } else {
-                    0.0
-                };
-
-                NetworkInfo {
-                    interface: interface.clone(),
-                    received: data.received(),
-                    transmitted: data.transmitted(),
-                    received_rate,
-                    transmitted_rate,
-                }
-            })
-            .collect();
-
+        let mut current_totals = std::collections::HashMap::new();
+        let network_info = self.networks.iter().map(|(interface, data)| {
+            let current = (data.received(), data.transmitted());
+            let previous = self.previous_network_totals.get(interface).copied();
+            current_totals.insert(interface.clone(), current);
+            let (received_rate, transmitted_rate) = if elapsed > 0.0 {
+                let received = previous.map_or(0, |p| current.0.saturating_sub(p.0));
+                let transmitted = previous.map_or(0, |p| current.1.saturating_sub(p.1));
+                (received as f64 / elapsed / 1024.0 / 1024.0, transmitted as f64 / elapsed / 1024.0 / 1024.0)
+            } else { (0.0, 0.0) };
+            NetworkInfo { interface: interface.clone(), received: current.0, transmitted: current.1, received_rate, transmitted_rate }
+        }).collect();
+        self.previous_network_totals = current_totals;
         self.last_network_update = Instant::now();
         network_info
     }
@@ -1338,13 +1290,11 @@ pub(crate) enum Tab {
 
 impl SystemMonitorApp {
     fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        eprintln!("DBG: SystemMonitorApp::new started");
         // Install image loaders for showing the logo
         egui_extras::install_image_loaders(&cc.egui_ctx);
 
         // Load settings
         let settings = AppSettings::load();
-        eprintln!("DBG: Settings loaded successfully");
 
         // Load Windows system fonts at runtime to support all standard symbols and checkmarks
         #[cfg(target_os = "windows")]
@@ -1502,33 +1452,28 @@ impl SystemMonitorApp {
 
         cc.egui_ctx.set_style(style);
 
-        eprintln!("DBG: Creating SystemData::default()");
         let data = Arc::new(Mutex::new(SystemData::default()));
         let data_clone = Arc::clone(&data);
         let shared_settings = Arc::new(Mutex::new(settings.clone()));
         let shared_settings_clone = Arc::clone(&shared_settings);
 
         // Background thread for monitoring
-        eprintln!("DBG: Spawning background monitoring thread");
         thread::Builder::new()
             .name("monitoring".to_string())
             .stack_size(8 * 1024 * 1024)
             .spawn(move || {
-                eprintln!("DBG: Background monitoring thread started running");
             let mut monitor = SystemMonitor::new();
-            eprintln!("DBG: SystemMonitor::new finished in background thread");
 
             // Get system info once (doesn't change)
             let system_info = monitor.get_system_info();
-            eprintln!("DBG: monitor.get_system_info() completed");
             let mut battery_check_counter: u32 = 0;
+            let mut temperature_check_counter: u32 = 0;
             let mut service_check_counter: u32 = 0;
             let mut last_alert_time: std::collections::HashMap<AlertType, Instant> = std::collections::HashMap::new();
             let mut last_hidden_tick = Instant::now();
             let mut last_selected_tab = data_clone.lock().selected_tab;
 
             loop {
-                eprintln!("DBG: background thread loop iteration starting");
                 thread::sleep(Duration::from_millis(500));
 
                 // Read hidden status, current tab, and pause state
@@ -1584,11 +1529,12 @@ impl SystemMonitorApp {
                     Vec::new()
                 };
 
-                let cpu_temperature = if need_cpu_temp {
+                let cpu_temperature = if need_cpu_temp && temperature_check_counter % 10 == 0 {
                     SystemMonitor::get_cpu_temperature_wmi()
                 } else {
                     None
                 };
+                temperature_check_counter = temperature_check_counter.wrapping_add(1);
 
                 let gpu_info = if need_gpu_info {
                     monitor.get_gpu_info(need_gpu_wmi)
@@ -2113,7 +2059,6 @@ impl eframe::App for SystemMonitorApp {
                 event => self.action_events.push(event),
             }
         }
-        eprintln!("DBG: update() function started running");
         {
             let mut data = self.data.lock();
             data.is_hidden = self.is_hidden;
@@ -3160,15 +3105,12 @@ fn main() {
     };
 
     info!("Launching GUI window");
-    eprintln!("DBG: Launching GUI window via eframe::run_native");
 
     let result = eframe::run_native(
         "System Monitor",
         options,
         Box::new(|cc| {
-            eprintln!("DBG: eframe application creator closure running");
             let app = SystemMonitorApp::new(cc);
-            eprintln!("DBG: SystemMonitorApp::new completed successfully");
             Ok(Box::new(app))
         }),
     );
