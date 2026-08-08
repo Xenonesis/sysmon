@@ -1,0 +1,13 @@
+pub(crate) mod overview;
+pub(crate) mod performance;
+pub(crate) mod processes;
+pub(crate) mod storage;
+pub(crate) mod network;
+pub(crate) mod alerts;
+pub(crate) mod system_info;
+pub(crate) mod cpu_cores;
+pub(crate) mod ram_cleaner;
+pub(crate) mod startup_manager;
+pub(crate) mod settings;
+pub(crate) mod about;
+pub(crate) mod services;

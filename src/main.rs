@@ -1,4 +1,7 @@
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
+pub(crate) mod ui;
+use crate::ui::theme::ThemePalette;
+use crate::ui::components::*;
 use chrono::Local;
 mod updater;
 mod startup;
@@ -18,11 +21,11 @@ const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 #[cfg(target_os = "windows")]
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "PascalCase")]
-struct Win32Battery {
-    design_capacity: Option<u32>,
-    full_charge_capacity: Option<u32>,
-    battery_status: Option<u16>,
-    discharge_state: Option<String>,
+pub(crate) struct Win32Battery {
+    pub(crate) design_capacity: Option<u32>,
+    pub(crate) full_charge_capacity: Option<u32>,
+    pub(crate) battery_status: Option<u16>,
+    pub(crate) discharge_state: Option<String>,
 }
 
 #[cfg(target_os = "windows")]
@@ -44,7 +47,7 @@ fn battery_status_label(status: u16) -> Option<&'static str> {
 }
 
 #[cfg(target_os = "windows")]
-pub fn get_battery_info(wmi_con: &wmi::WMIConnection) -> Option<BatteryInfo> {
+pub(crate) fn get_battery_info(wmi_con: &wmi::WMIConnection) -> Option<BatteryInfo> {
     let results: Result<Vec<Win32Battery>, _> = wmi_con.raw_query("SELECT DesignCapacity, FullChargeCapacity, BatteryStatus, DischargeRate FROM Win32_Battery");
     if let Ok(mut bats) = results {
         if let Some(bat) = bats.pop() {
@@ -78,45 +81,6 @@ macro_rules! eprintln {
     }};
 }
 
-struct ThemePalette;
-impl ThemePalette {
-    // Primary Vibrant Accents -> Muted Minimalist Primary
-    const ACCENT_PRIMARY: egui::Color32 = egui::Color32::from_rgb(198, 198, 199); // #c6c6c7
-    const ACCENT_ACTIVE: egui::Color32 = egui::Color32::from_rgb(226, 226, 226); // #e2e2e2
-
-    // Sleek Dark Backgrounds -> Graphite Core
-    const BG_DEEPEST: egui::Color32 = egui::Color32::from_rgb(14, 14, 14); // #0e0e0e
-    const BG_DEEP: egui::Color32 = egui::Color32::from_rgb(14, 14, 14); 
-    const BG_SURFACE: egui::Color32 = egui::Color32::from_rgb(19, 19, 19); // #131313
-    const BG_CARD: egui::Color32 = egui::Color32::from_rgb(19, 19, 19);
-    const BG_TRACK: egui::Color32 = egui::Color32::from_rgb(31, 32, 32); // #1f2020
-
-    // Component states
-    const WIDGET_INACTIVE: egui::Color32 = egui::Color32::from_rgb(31, 32, 32); // #1f2020
-    const WIDGET_HOVERED: egui::Color32 = egui::Color32::from_rgb(37, 38, 38); // #252626
-    const BORDER: egui::Color32 = egui::Color32::from_rgb(19, 19, 19); // Hidden in #131313
-    const BORDER_LIGHT: egui::Color32 = egui::Color32::from_rgb(31, 32, 32); // Just slight edge
-
-    // Modern Status Colors -> Minimalist Status
-    const STATUS_HEALTHY: egui::Color32 = egui::Color32::from_rgb(230, 255, 244); // #e6fff4
-    const STATUS_WARNING: egui::Color32 = egui::Color32::from_rgb(192, 191, 191); // Soft grey
-    const STATUS_CRITICAL: egui::Color32 = egui::Color32::from_rgb(238, 125, 119); // #ee7d77
-
-    // Gorgeous Typography hierarchy -> Crisp and Stark
-    const TEXT_PRIMARY: egui::Color32 = egui::Color32::from_rgb(255, 255, 255); // Stark white
-    const TEXT_SELECTED: egui::Color32 = egui::Color32::from_rgb(255, 255, 255);
-    const TEXT_FEATURE: egui::Color32 = egui::Color32::from_rgb(231, 229, 229); // #e7e5e5
-    const TEXT_SUBTITLE: egui::Color32 = egui::Color32::from_rgb(172, 171, 170); // #acabaa
-    const TEXT_SECONDARY: egui::Color32 = egui::Color32::from_rgb(172, 171, 170); 
-    const TEXT_LABEL: egui::Color32 = egui::Color32::from_rgb(118, 117, 117); // #767575
-    const TEXT_LABEL_SUB: egui::Color32 = egui::Color32::from_rgb(118, 117, 117); 
-    const TEXT_TERTIARY: egui::Color32 = egui::Color32::from_rgb(86, 85, 85); // #565555
-    const TEXT_DIMMED: egui::Color32 = egui::Color32::from_rgb(86, 85, 85);
-
-    const GPU_UNAVAILABLE: egui::Color32 = egui::Color32::from_rgb(86, 85, 85);
-    const ACCENT_PURPLE: egui::Color32 = egui::Color32::from_rgb(198, 198, 199); // Map purple to primary grey
-    const ACCENT_CYAN: egui::Color32 = egui::Color32::from_rgb(198, 198, 199); // Map cyan to primary grey
-}
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::fs;
@@ -166,50 +130,50 @@ fn play_success_sound() {}
 
 // Data structures
 #[derive(Clone)]
-struct CpuCoreInfo {
-    core_id: usize,
-    usage: f32,
+pub(crate) struct CpuCoreInfo {
+    pub(crate) core_id: usize,
+    pub(crate) usage: f32,
     #[allow(dead_code)]
-    name: String,
+    pub(crate) name: String,
 }
 
 #[derive(Clone, Serialize)]
-struct GpuInfo {
-    name: String,
-    utilization: f32,
-    memory_used: Option<u64>,
-    memory_total: Option<u64>,
-    temperature: Option<u32>,
-    clock_mhz: Option<u32>,
-    power_watts: Option<f32>,
-    fan_percent: Option<u32>,
+pub(crate) struct GpuInfo {
+    pub(crate) name: String,
+    pub(crate) utilization: f32,
+    pub(crate) memory_used: Option<u64>,
+    pub(crate) memory_total: Option<u64>,
+    pub(crate) temperature: Option<u32>,
+    pub(crate) clock_mhz: Option<u32>,
+    pub(crate) power_watts: Option<f32>,
+    pub(crate) fan_percent: Option<u32>,
 }
 
 #[derive(Clone, Serialize)]
-struct DiskInfo {
-    name: String,
-    mount_point: String,
-    total_space: u64,
-    available_space: u64,
-    usage_percentage: f32,
-    file_system: String,
+pub(crate) struct DiskInfo {
+    pub(crate) name: String,
+    pub(crate) mount_point: String,
+    pub(crate) total_space: u64,
+    pub(crate) available_space: u64,
+    pub(crate) usage_percentage: f32,
+    pub(crate) file_system: String,
 }
 
 #[derive(Clone, Serialize)]
-struct NetworkInfo {
-    interface: String,
-    received: u64,
-    transmitted: u64,
-    received_rate: f64,
-    transmitted_rate: f64,
+pub(crate) struct NetworkInfo {
+    pub(crate) interface: String,
+    pub(crate) received: u64,
+    pub(crate) transmitted: u64,
+    pub(crate) received_rate: f64,
+    pub(crate) transmitted_rate: f64,
 }
 
 #[derive(Clone)]
-struct AlertInfo {
-    timestamp: String,
-    alert_type: AlertType,
-    message: String,
-    value: f32,
+pub(crate) struct AlertInfo {
+    pub(crate) timestamp: String,
+    pub(crate) alert_type: AlertType,
+    pub(crate) message: String,
+    pub(crate) value: f32,
 }
 
 #[derive(Clone, PartialEq, Eq, Hash)]
@@ -224,10 +188,10 @@ enum AlertType {
 
 // Swap / Page File info
 #[derive(Clone, Serialize)]
-struct SwapInfo {
-    total: u64,
-    used: u64,
-    percentage: f32,
+pub(crate) struct SwapInfo {
+    pub(crate) total: u64,
+    pub(crate) used: u64,
+    pub(crate) percentage: f32,
 }
 
 // Battery info
@@ -236,66 +200,66 @@ struct SwapInfo {
 
 // RAM Cleaner state
 #[derive(Clone)]
-struct RamCleanerState {
-    last_cleaned: Option<Instant>,
-    last_cleaned_display: String,
-    bytes_freed: u64,
-    auto_clean_enabled: bool,
-    auto_clean_threshold: f32, // percentage threshold for auto-clean
-    auto_clean_interval: u64,  // seconds between auto-cleans
-    is_cleaning: bool,
-    clean_count: u32,
+pub(crate) struct RamCleanerState {
+    pub(crate) last_cleaned: Option<Instant>,
+    pub(crate) last_cleaned_display: String,
+    pub(crate) bytes_freed: u64,
+    pub(crate) auto_clean_enabled: bool,
+    pub(crate) auto_clean_threshold: f32, // percentage threshold for auto-clean
+    pub(crate) auto_clean_interval: u64,  // seconds between auto-cleans
+    pub(crate) is_cleaning: bool,
+    pub(crate) clean_count: u32,
 }
 
 #[derive(Clone, Serialize)]
-struct SystemInfo {
-    os_name: String,
-    os_version: String,
-    kernel_version: String,
-    hostname: String,
-    uptime: u64,
-    cpu_count: usize,
-    cpu_brand: String,
-    motherboard: Option<String>,
-    bios_version: Option<String>,
-    gpu_driver: Option<String>,
-    os_build: Option<String>,
+pub(crate) struct SystemInfo {
+    pub(crate) os_name: String,
+    pub(crate) os_version: String,
+    pub(crate) kernel_version: String,
+    pub(crate) hostname: String,
+    pub(crate) uptime: u64,
+    pub(crate) cpu_count: usize,
+    pub(crate) cpu_brand: String,
+    pub(crate) motherboard: Option<String>,
+    pub(crate) bios_version: Option<String>,
+    pub(crate) gpu_driver: Option<String>,
+    pub(crate) os_build: Option<String>,
 }
 
 // Settings structure
 #[derive(Serialize, Deserialize, Clone)]
-struct AppSettings {
-    refresh_interval: u64,
-    show_graphs: bool,
-    show_gpu: bool,
-    show_processes: bool,
-    show_notifications: bool,
-    notification_cpu_threshold: f32,
-    notification_memory_threshold: f32,
-    notification_temp_threshold: u32,
-    theme_dark: bool,
-    show_per_core_cpu: bool,
-    process_count: usize,
-    auto_clear_alerts: bool,
-    auto_start: bool,
-    start_minimized: bool,
+pub(crate) struct AppSettings {
+    pub(crate) refresh_interval: u64,
+    pub(crate) show_graphs: bool,
+    pub(crate) show_gpu: bool,
+    pub(crate) show_processes: bool,
+    pub(crate) show_notifications: bool,
+    pub(crate) notification_cpu_threshold: f32,
+    pub(crate) notification_memory_threshold: f32,
+    pub(crate) notification_temp_threshold: u32,
+    pub(crate) theme_dark: bool,
+    pub(crate) show_per_core_cpu: bool,
+    pub(crate) process_count: usize,
+    pub(crate) auto_clear_alerts: bool,
+    pub(crate) auto_start: bool,
+    pub(crate) start_minimized: bool,
     #[serde(default = "default_show_cpu_cores")]
-    show_cpu_cores: bool,
+    pub(crate) show_cpu_cores: bool,
     #[serde(default = "default_show_widget")]
-    show_widget: bool,
-    minimize_to_tray: bool,
+    pub(crate) show_widget: bool,
+    pub(crate) minimize_to_tray: bool,
     #[serde(default = "default_auto_ram_clean")]
-    auto_ram_clean: bool,
+    pub(crate) auto_ram_clean: bool,
     #[serde(default = "default_ram_clean_threshold")]
-    ram_clean_threshold: f32,
+    pub(crate) ram_clean_threshold: f32,
     #[serde(default = "default_enable_sounds")]
-    enable_sounds: bool,
+    pub(crate) enable_sounds: bool,
     #[serde(default)]
-    startup_optimization_history: Vec<StartupOptimizationEntry>,
+    pub(crate) startup_optimization_history: Vec<StartupOptimizationEntry>,
     #[serde(default)]
-    last_boot_diagnostics: Option<BootDiagnostics>,
+    pub(crate) last_boot_diagnostics: Option<BootDiagnostics>,
     #[serde(default = "default_auto_clean_interval")]
-    auto_clean_interval: u64,
+    pub(crate) auto_clean_interval: u64,
 }
 
 fn default_auto_clean_interval() -> u64 {
@@ -378,7 +342,7 @@ impl AppSettings {
 
         if enable {
             let exe_path = std::env::current_exe()?;
-            key.set_value("SystemMonitor", &exe_path.to_string_lossy().to_string())?;
+            key.set_value("SystemMonitor", &format!("\"{}\"", exe_path.to_string_lossy()))?;
         } else {
             key.delete_value("SystemMonitor").ok();
         }
@@ -939,7 +903,11 @@ impl SystemMonitor {
                 _ => return None,
             };
 
-            // Convert to Celsius: (K / 10) - 273.15
+            // Convert to Celsius: (K / 10) - 273.15. A value of 0 means the thermal zone
+            // has no data (not absolute zero), so treat it as unavailable.
+            if temp_k_tenths == 0.0 {
+                return None;
+            }
             let temp_c = (temp_k_tenths / 10.0) - 273.15;
             return Some(temp_c.round());
         }
@@ -1164,58 +1132,58 @@ impl SystemMonitor {
 
 // Historical data point
 #[derive(Clone, Copy)]
-struct DataPoint {
-    time: f64,
-    value: f64,
+pub(crate) struct DataPoint {
+    pub(crate) time: f64,
+    pub(crate) value: f64,
 }
 
 // Shared state between threads
 #[derive(Debug, Clone, Default)]
-pub struct BatteryInfo {
-    pub design_capacity: u32,
-    pub full_charge_capacity: u32,
-    pub status: u16,
-    pub discharge_state: Option<String>,
-    pub present: bool,
+pub(crate) struct BatteryInfo {
+    pub(crate) design_capacity: u32,
+    pub(crate) full_charge_capacity: u32,
+    pub(crate) status: u16,
+    pub(crate) discharge_state: Option<String>,
+    pub(crate) present: bool,
 }
 #[derive(Clone)]
 
-struct SystemData {
-    memory_total: u64,
-    memory_used: u64,
-    memory_percentage: f32,
-    cpu_usage: f32,
-    cpu_cores: Vec<CpuCoreInfo>,
-    gpu_info: Vec<GpuInfo>,
-    top_processes: Vec<ProcessInfo>,
-    monitoring_paused: bool,
-    selected_process_pid: Option<u32>,
-    selected_process_details: Option<(u32, processes::ProcessDetails)>,
-    disk_info: Vec<DiskInfo>,
-    network_info: Vec<NetworkInfo>,
-    system_info: SystemInfo,
-    cpu_temperature: Option<f32>,
-    last_update: String,
-    cpu_history: VecDeque<DataPoint>,
-    memory_history: VecDeque<DataPoint>,
-    gpu_history: VecDeque<DataPoint>,
-    network_download_history: VecDeque<DataPoint>,
-    network_upload_history: VecDeque<DataPoint>,
-    alerts: Vec<AlertInfo>,
-    start_time: Instant,
-    swap_info: SwapInfo,
-    battery_info: Option<BatteryInfo>,
-    network_sample_count: u32,
-    high_impact_startup_count: usize,
-    ram_clean_freed_bytes: u64,
-    ram_clean_is_cleaning: bool,
-    disk_read_rate: f64,
-    disk_write_rate: f64,
-    disk_read_history: VecDeque<DataPoint>,
-    disk_write_history: VecDeque<DataPoint>,
-    is_hidden: bool,
-    selected_tab: Tab,
-    services: Vec<services::ServiceInfo>,
+pub(crate) struct SystemData {
+    pub(crate) memory_total: u64,
+    pub(crate) memory_used: u64,
+    pub(crate) memory_percentage: f32,
+    pub(crate) cpu_usage: f32,
+    pub(crate) cpu_cores: Vec<CpuCoreInfo>,
+    pub(crate) gpu_info: Vec<GpuInfo>,
+    pub(crate) top_processes: Vec<ProcessInfo>,
+    pub(crate) monitoring_paused: bool,
+    pub(crate) selected_process_pid: Option<u32>,
+    pub(crate) selected_process_details: Option<(u32, processes::ProcessDetails)>,
+    pub(crate) disk_info: Vec<DiskInfo>,
+    pub(crate) network_info: Vec<NetworkInfo>,
+    pub(crate) system_info: SystemInfo,
+    pub(crate) cpu_temperature: Option<f32>,
+    pub(crate) last_update: String,
+    pub(crate) cpu_history: VecDeque<DataPoint>,
+    pub(crate) memory_history: VecDeque<DataPoint>,
+    pub(crate) gpu_history: VecDeque<DataPoint>,
+    pub(crate) network_download_history: VecDeque<DataPoint>,
+    pub(crate) network_upload_history: VecDeque<DataPoint>,
+    pub(crate) alerts: Vec<AlertInfo>,
+    pub(crate) start_time: Instant,
+    pub(crate) swap_info: SwapInfo,
+    pub(crate) battery_info: Option<BatteryInfo>,
+    pub(crate) network_sample_count: u32,
+    pub(crate) high_impact_startup_count: usize,
+    pub(crate) ram_clean_freed_bytes: u64,
+    pub(crate) ram_clean_is_cleaning: bool,
+    pub(crate) disk_read_rate: f64,
+    pub(crate) disk_write_rate: f64,
+    pub(crate) disk_read_history: VecDeque<DataPoint>,
+    pub(crate) disk_write_history: VecDeque<DataPoint>,
+    pub(crate) is_hidden: bool,
+    pub(crate) selected_tab: Tab,
+    pub(crate) services: Vec<services::ServiceInfo>,
 }
 
 impl Default for SystemData {
@@ -1276,78 +1244,78 @@ impl Default for SystemData {
     }
 }
 
-struct SystemMonitorApp {
-    data: Arc<Mutex<SystemData>>,
-    settings: AppSettings,
-    shared_settings: Arc<Mutex<AppSettings>>,
-    selected_tab: Tab,
-    show_settings: bool,
-    show_export: bool,
-    show_alerts: bool,
-    show_process_manager: bool,
-    selected_process_pid: Option<u32>,
-    details_pid: Option<u32>,
-    kill_tree_pid: Option<u32>,
-    pending_service_action: Option<services::ServiceAction>,
-    process_search: String,
-    process_sort_column: ProcessSortColumn,
-    process_sort_ascending: bool,
-    show_export_csv: bool,
-    updater: updater::Updater,
-    update_info_share: Arc<Mutex<Option<updater::UpdateInfo>>>,
-    show_update_notification: bool,
-    update_check_time: Option<Instant>,
-    ram_cleaner_state: RamCleanerState,
-    startup_items: Vec<StartupItem>,
-    startup_items_loaded: bool,
-    startup_items_loading: bool,
-    startup_items_share: Arc<Mutex<Option<Vec<StartupItem>>>>,
-    startup_search: String,
-    startup_sort: StartupSortColumn,
-    startup_sort_ascending: bool,
-    startup_filter_impact: Option<ImpactTier>,
-    startup_filter_signed: Option<bool>,
-    startup_filter_broken: bool,
-    startup_show_confirm: Option<usize>,
-    boot_diagnostics: Option<BootDiagnostics>,
-    boot_diagnostics_loaded: bool,
-    boot_diagnostics_share: Arc<Mutex<Option<BootDiagnostics>>>,
-    show_shortcuts: bool,
-    suspend_process_pid: Option<u32>,
-    resume_process_pid: Option<u32>,
-    suspended_pids: std::collections::HashSet<u32>,
-    priority_change: Option<(u32, String)>,
+pub(crate) struct SystemMonitorApp {
+    pub(crate) data: Arc<Mutex<SystemData>>,
+    pub(crate) settings: AppSettings,
+    pub(crate) shared_settings: Arc<Mutex<AppSettings>>,
+    pub(crate) selected_tab: Tab,
+    pub(crate) show_settings: bool,
+    pub(crate) show_export: bool,
+    pub(crate) show_alerts: bool,
+    pub(crate) show_process_manager: bool,
+    pub(crate) selected_process_pid: Option<u32>,
+    pub(crate) details_pid: Option<u32>,
+    pub(crate) kill_tree_pid: Option<u32>,
+    pub(crate) pending_service_action: Option<services::ServiceAction>,
+    pub(crate) process_search: String,
+    pub(crate) process_sort_column: ProcessSortColumn,
+    pub(crate) process_sort_ascending: bool,
+    pub(crate) show_export_csv: bool,
+    pub(crate) updater: updater::Updater,
+    pub(crate) update_info_share: Arc<Mutex<Option<updater::UpdateInfo>>>,
+    pub(crate) show_update_notification: bool,
+    pub(crate) update_check_time: Option<Instant>,
+    pub(crate) ram_cleaner_state: RamCleanerState,
+    pub(crate) startup_items: Vec<StartupItem>,
+    pub(crate) startup_items_loaded: bool,
+    pub(crate) startup_items_loading: bool,
+    pub(crate) startup_items_share: Arc<Mutex<Option<Vec<StartupItem>>>>,
+    pub(crate) startup_search: String,
+    pub(crate) startup_sort: StartupSortColumn,
+    pub(crate) startup_sort_ascending: bool,
+    pub(crate) startup_filter_impact: Option<ImpactTier>,
+    pub(crate) startup_filter_signed: Option<bool>,
+    pub(crate) startup_filter_broken: bool,
+    pub(crate) startup_show_confirm: Option<usize>,
+    pub(crate) boot_diagnostics: Option<BootDiagnostics>,
+    pub(crate) boot_diagnostics_loaded: bool,
+    pub(crate) boot_diagnostics_share: Arc<Mutex<Option<BootDiagnostics>>>,
+    pub(crate) show_shortcuts: bool,
+    pub(crate) suspend_process_pid: Option<u32>,
+    pub(crate) resume_process_pid: Option<u32>,
+    pub(crate) suspended_pids: std::collections::HashSet<u32>,
+    pub(crate) priority_change: Option<(u32, String)>,
     #[allow(dead_code)]
     #[cfg(target_os = "windows")]
-    tray_icon: Option<tray_icon::TrayIcon>,
+    pub(crate) tray_icon: Option<tray_icon::TrayIcon>,
     #[cfg(target_os = "windows")]
-    tray_menu_show_id: Option<tray_icon::menu::MenuId>,
+    pub(crate) tray_menu_show_id: Option<tray_icon::menu::MenuId>,
     #[cfg(target_os = "windows")]
-    tray_menu_quit_id: Option<tray_icon::menu::MenuId>,
+    pub(crate) tray_menu_quit_id: Option<tray_icon::menu::MenuId>,
     #[cfg(target_os = "windows")]
-    tray_menu_clean_id: Option<tray_icon::menu::MenuId>,
+    pub(crate) tray_menu_clean_id: Option<tray_icon::menu::MenuId>,
     #[cfg(target_os = "windows")]
-    tray_menu_procman_id: Option<tray_icon::menu::MenuId>,
+    pub(crate) tray_menu_procman_id: Option<tray_icon::menu::MenuId>,
     #[cfg(target_os = "windows")]
-    tray_menu_pause_id: Option<tray_icon::menu::MenuId>,
+    pub(crate) tray_menu_pause_id: Option<tray_icon::menu::MenuId>,
     #[cfg(target_os = "windows")]
-    tray_menu_pause_item: Option<tray_icon::menu::CheckMenuItem>,
+    pub(crate) tray_menu_pause_item: Option<tray_icon::menu::CheckMenuItem>,
     #[cfg(target_os = "windows")]
-    tray_menu_handle: Option<tray_icon::menu::Menu>,
+    pub(crate) tray_menu_handle: Option<tray_icon::menu::Menu>,
     #[cfg(target_os = "windows")]
-    tray_menu_power_item: Option<tray_icon::menu::Submenu>,
+    pub(crate) tray_menu_power_item: Option<tray_icon::menu::Submenu>,
     #[cfg(target_os = "windows")]
-    tray_menu_power_items: std::collections::HashMap<tray_icon::menu::MenuId, tray_icon::menu::CheckMenuItem>,
+    pub(crate) tray_menu_power_items: std::collections::HashMap<tray_icon::menu::MenuId, tray_icon::menu::CheckMenuItem>,
     #[cfg(target_os = "windows")]
-    tray_menu_power_guids: std::collections::HashMap<tray_icon::menu::MenuId, String>,
-    is_hidden: bool,
-    widget_open: bool,
+    pub(crate) tray_menu_power_guids: std::collections::HashMap<tray_icon::menu::MenuId, String>,
+    pub(crate) is_hidden: bool,
+    pub(crate) widget_open: bool,
     /// Whether we have already applied the start_minimized setting on the first frame.
-    start_minimized_applied: bool,
+    pub(crate) start_minimized_applied: bool,
 }
 
 #[derive(Clone, Copy, PartialEq)]
-enum Tab {
+pub(crate) enum Tab {
     Overview,
     Performance,
     Processes,
@@ -1945,6 +1913,24 @@ impl SystemMonitorApp {
             tray_menu_handle = Some(menu_handle);
         }
 
+        let startup_items_share = Arc::new(Mutex::new(None));
+        let boot_diagnostics_share = Arc::new(Mutex::new(None));
+        
+        let startup_share_clone = Arc::clone(&startup_items_share);
+        let boot_share_clone = Arc::clone(&boot_diagnostics_share);
+        let ctx_clone = cc.egui_ctx.clone();
+        std::thread::Builder::new()
+            .name("startup_loader".to_string())
+            .spawn(move || {
+                let items = crate::startup::get_startup_items();
+                *startup_share_clone.lock() = Some(items);
+                if let Some(diag) = crate::startup::get_boot_diagnostics() {
+                    *boot_share_clone.lock() = Some(diag);
+                }
+                ctx_clone.request_repaint();
+            })
+            .ok();
+
         Self {
             data,
             settings: settings.clone(),
@@ -1977,8 +1963,8 @@ impl SystemMonitorApp {
             },
             startup_items: Vec::new(),
             startup_items_loaded: false,
-            startup_items_loading: false,
-            startup_items_share: Arc::new(Mutex::new(None)),
+            startup_items_loading: true,
+            startup_items_share,
             startup_search: String::new(),
             startup_sort: StartupSortColumn::Impact,
             startup_sort_ascending: true,
@@ -1988,7 +1974,7 @@ impl SystemMonitorApp {
             startup_show_confirm: None,
             boot_diagnostics: None,
             boot_diagnostics_loaded: false,
-            boot_diagnostics_share: Arc::new(Mutex::new(None)),
+            boot_diagnostics_share,
             show_shortcuts: false,
             suspend_process_pid: None,
             resume_process_pid: None,
@@ -2107,38 +2093,6 @@ impl SystemMonitorApp {
         Ok(serde_json::to_string_pretty(&export)?)
     }
 }
-
-fn bytes_to_mb(bytes: u64) -> f64 {
-    bytes as f64 / 1024.0 / 1024.0
-}
-
-fn bytes_to_gb(bytes: u64) -> f64 {
-    bytes as f64 / 1024.0 / 1024.0 / 1024.0
-}
-
-fn format_rate(mb_per_sec: f64) -> String {
-    let bytes_per_sec = mb_per_sec * 1024.0 * 1024.0;
-    if bytes_per_sec >= 1_073_741_824.0 {
-        format!("{:.2} GB/s", bytes_per_sec / 1_073_741_824.0)
-    } else if bytes_per_sec >= 1_048_576.0 {
-        format!("{:.2} MB/s", bytes_per_sec / 1_048_576.0)
-    } else if bytes_per_sec >= 1024.0 {
-        format!("{:.0} KB/s", bytes_per_sec / 1024.0)
-    } else {
-        format!("{:.0} B/s", bytes_per_sec)
-    }
-}
-
-fn get_usage_color(percentage: f32) -> egui::Color32 {
-    if percentage < 50.0 {
-        ThemePalette::STATUS_HEALTHY // Mint green (#69f0ae)
-    } else if percentage < 75.0 {
-        ThemePalette::STATUS_WARNING // Amber (#ffab40)
-    } else {
-        ThemePalette::STATUS_CRITICAL // Saturated red (#ff5252)
-    }
-}
-
 impl eframe::App for SystemMonitorApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         eprintln!("DBG: update() function started running");
@@ -2146,8 +2100,10 @@ impl eframe::App for SystemMonitorApp {
             let mut data = self.data.lock();
             data.is_hidden = self.is_hidden;
             data.selected_tab = self.selected_tab;
+            if let Some(items) = &*self.startup_items_share.lock() {
+                data.high_impact_startup_count = startup::high_impact_count(items);
+            }
         }
-
         // Apply start_minimized on the very first frame
         if !self.start_minimized_applied {
             self.start_minimized_applied = true;
@@ -2741,7 +2697,7 @@ impl eframe::App for SystemMonitorApp {
 
         // Process Manager window
         if self.show_process_manager {
-            self.show_process_manager_window(ctx, &data);
+            crate::ui::windows::process_manager::show(self, ctx, &data);
         }
 
         // Keyboard Shortcuts dialog
@@ -2780,7 +2736,7 @@ impl eframe::App for SystemMonitorApp {
                 .default_width(600.0)
                 .default_height(500.0)
                 .show(ctx, |ui| {
-                    self.show_settings_tab(ui);
+                    crate::ui::pages::settings::show(self, ui);
                 });
             self.show_settings = show_settings;
         }
@@ -2850,18 +2806,18 @@ impl eframe::App for SystemMonitorApp {
 
         // Main content area
         egui::CentralPanel::default().show(ctx, |ui| match self.selected_tab {
-            Tab::Overview => self.show_overview_tab(ui, &data),
-            Tab::Performance => self.show_performance_tab(ui, &data),
-            Tab::Processes => self.show_processes_tab(ui, &data),
-            Tab::CpuCores => self.show_cpu_cores_tab(ui, &data),
-            Tab::Storage => self.show_storage_tab(ui, &data),
-            Tab::Network => self.show_network_tab(ui, &data),
-            Tab::SystemInfo => self.show_system_info_tab(ui, &data),
-            Tab::Alerts => self.show_alerts_tab(ui, &data),
-            Tab::RamCleaner => self.show_ram_cleaner_tab(ui, &data),
-            Tab::StartupManager => self.show_startup_manager_tab(ui),
-            Tab::Services => self.show_services_tab(ui, &data),
-            Tab::About => self.show_about_tab(ui, &data),
+            Tab::Overview => crate::ui::pages::overview::show(self, ui, &data),
+            Tab::Performance => crate::ui::pages::performance::show(self, ui, &data),
+            Tab::Processes => crate::ui::pages::processes::show(self, ui, &data),
+            Tab::CpuCores => crate::ui::pages::cpu_cores::show(self, ui, &data),
+            Tab::Storage => crate::ui::pages::storage::show(self, ui, &data),
+            Tab::Network => crate::ui::pages::network::show(self, ui, &data),
+            Tab::SystemInfo => crate::ui::pages::system_info::show(self, ui, &data),
+            Tab::Alerts => crate::ui::pages::alerts::show(self, ui, &data),
+            Tab::RamCleaner => crate::ui::pages::ram_cleaner::show(self, ui, &data),
+            Tab::StartupManager => crate::ui::pages::startup_manager::show(self, ui),
+            Tab::Services => crate::ui::pages::services::show(self, ui, &data),
+            Tab::About => crate::ui::pages::about::show(self, ui, &data),
         });
     }
 }
@@ -2869,1485 +2825,36 @@ impl eframe::App for SystemMonitorApp {
 // ─── Custom UI helpers ───────────────────────────────────────────────
 
 /// Section header with sleek gradient-like accent underline
-fn paint_section_header(ui: &mut egui::Ui, text: &str) {
-    ui.add_space(4.0);
-    let r = ui.label(
-        egui::RichText::new(text)
-            .text_style(egui::TextStyle::Heading)
-            .strong()
-            .color(ThemePalette::TEXT_PRIMARY),
-    );
-    let y = r.rect.bottom() + 4.0;
 
-    // Modern thick rounded line highlight
-    let underline_w = r.rect.width();
-    ui.painter().line_segment(
-        [egui::pos2(r.rect.left(), y), egui::pos2(r.rect.left() + underline_w, y)],
-        egui::Stroke::new(3.5, ThemePalette::ACCENT_PRIMARY),
-    );
-    ui.add_space(12.0);
-}
 
-fn details_row(ui: &mut egui::Ui, label: &str, value: &str) {
-    ui.label(egui::RichText::new(label).strong());
-    ui.label(value);
-    ui.end_row();
-}
 
-fn format_started(epoch_secs: u64) -> String {
-    chrono::DateTime::from_timestamp(epoch_secs as i64, 0)
-        .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
-        .unwrap_or_else(|| "N/A".to_string())
-}
+
+
 
 /// Rounded pill progress bar with subtle track
-fn paint_progress_bar(ui: &mut egui::Ui, fraction: f32, fill: egui::Color32, h: f32) {
-    let w = ui.available_width();
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(w, h), egui::Sense::hover());
-    let rnd = h / 2.0;
 
-    // Track background
-    ui.painter().rect_filled(rect, rnd, ThemePalette::BG_DEEPEST);
-    ui.painter()
-        .rect_stroke(rect, rnd, egui::Stroke::new(1.0, ThemePalette::BG_TRACK));
-
-    let frac = fraction.clamp(0.0, 1.0);
-    if frac > 0.005 {
-        let bar = egui::Rect::from_min_size(rect.min, egui::vec2(w * frac, h));
-        ui.painter().rect_filled(bar, rnd, fill);
-    }
-}
 
 /// Circular animated gauge for premium UI
-fn paint_circular_gauge(ui: &mut egui::Ui, center: egui::Pos2, radius: f32, fraction: f32, color: egui::Color32, label: &str) {
-    let p = ui.painter();
-    let track_color = ThemePalette::BG_TRACK;
-    
-    // Track
-    p.circle_stroke(center, radius, egui::Stroke::new(6.0, track_color));
-    
-    // Animate fraction if we had time context, but for now we draw the arc
-    let frac = fraction.clamp(0.0, 1.0);
-    if frac > 0.005 {
-        use std::f32::consts::PI;
-        // Start from top (-PI/2), sweep clockwise
-        let start_angle = -PI / 2.0;
-        let end_angle = start_angle + (frac * 2.0 * PI);
-        
-        let path: Vec<egui::Pos2> = (0..=30).map(|i| {
-            let t = i as f32 / 30.0;
-            let angle = start_angle + (end_angle - start_angle) * t;
-            center + egui::vec2(angle.cos() * radius, angle.sin() * radius)
-        }).collect();
 
-        // Outer glow
-        p.add(egui::Shape::line(
-            path.clone(),
-            egui::Stroke::new(12.0, color.linear_multiply(0.15)),
-        ));
-
-        // Main arc
-        p.add(egui::Shape::line(
-            path,
-            egui::Stroke::new(6.0, color),
-        ));
-    }
-    
-    // Label in center
-    let text_color = ThemePalette::TEXT_PRIMARY;
-    p.text(
-        center,
-        egui::Align2::CENTER_CENTER,
-        label,
-        egui::FontId::proportional(16.0),
-        text_color,
-    );
-}
 
 impl SystemMonitorApp {
-    fn show_overview_tab(&mut self, ui: &mut egui::Ui, data: &SystemData) {
-        paint_section_header(ui, "System Overview");
 
-        // Show loading state until first data arrives
-        if data.memory_total == 0 {
-            ui.add_space(40.0);
-            ui.vertical_centered(|ui| {
-                ui.label(
-                    egui::RichText::new("Collecting system data...")
-                        .size(18.0)
-                        .color(ThemePalette::TEXT_SUBTITLE),
-                );
-                ui.add_space(8.0);
-                ui.label(
-                    egui::RichText::new("Please wait a moment.")
-                        .size(13.0)
-                        .color(ThemePalette::TEXT_DIMMED),
-                );
-            });
-            return;
-        }
 
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            // ── Metric cards row ──
-            let card_bg = ThemePalette::BG_CARD;
-            let card_border = egui::Stroke::new(1.0, ThemePalette::BORDER);
-            let card_rnd = egui::Rounding::same(12.0); // Premium smooth rounding
 
-            let full_avail = ui.available_width();
-            let card_spacing = 16.0;
-            let card_h = 120.0;
-            let (row_rect, _) = ui.allocate_exact_size(egui::vec2(full_avail, card_h), egui::Sense::hover());
 
-            // Account for HiDPI: at ppp>1, available_width can exceed visible area
-            let ppp = ui.ctx().pixels_per_point();
-            let visible_w = if ppp > 1.01 {
-                let screen_w = ui.ctx().screen_rect().width();
-                (screen_w / ppp - row_rect.min.x).max(200.0)
-            } else {
-                full_avail
-            };
-            let card_w = ((visible_w - card_spacing * 4.0) / 5.0).max(80.0);
 
-            // Prepare card data
-            let cpu_c = get_usage_color(data.cpu_usage);
-            let mem_c = get_usage_color(data.memory_percentage);
 
-            let net_total_rate = data.network_info.iter().map(|n| n.received_rate + n.transmitted_rate).sum::<f64>();
-            let net_download_rate = data.network_info.iter().map(|n| n.received_rate).sum::<f64>();
-            let net_upload_rate = data.network_info.iter().map(|n| n.transmitted_rate).sum::<f64>();
-            let net_c = if net_total_rate > 5_000_000.0 {
-                ThemePalette::STATUS_WARNING
-            } else if net_total_rate > 1_000_000.0 {
-                ThemePalette::STATUS_HEALTHY
-            } else {
-                ThemePalette::TEXT_LABEL_SUB
-            };
 
-            let (gpu_val, gpu_sub, gpu_frac, gpu_c) = if let Some(gpu) = data.gpu_info.first() {
-                let c = get_usage_color(gpu.utilization);
-                let mut sub = if let (Some(u), Some(t)) = (gpu.memory_used, gpu.memory_total) {
-                    format!("{:.0}/{:.0} MB", bytes_to_mb(u), bytes_to_mb(t))
-                } else {
-                    gpu.name.clone()
-                };
-                sub = match gpu.clock_mhz {
-                    Some(mhz) => format!("{} · {} MHz", sub, mhz),
-                    None => sub,
-                };
-                (format!("{:.1}%", gpu.utilization), sub, gpu.utilization / 100.0, c)
-            } else {
-                (
-                    "N/A".to_string(),
-                    "Not detected".to_string(),
-                    0.0,
-                    ThemePalette::GPU_UNAVAILABLE,
-                )
-            };
 
-            let cards = [
-                (
-                    ThemePalette::ACCENT_PRIMARY,
-                    "CPU",
-                    format!("{:.1}%", data.cpu_usage),
-                    if let Some(temp) = data.cpu_temperature {
-                        format!("{} cores • {}°C", data.cpu_cores.len(), temp)
-                    } else {
-                        format!("{} cores", data.cpu_cores.len())
-                    },
-                    data.cpu_usage / 100.0,
-                    cpu_c,
-                ),
-                (
-                    ThemePalette::ACCENT_ACTIVE,
-                    "MEMORY",
-                    format!("{:.1}%", data.memory_percentage),
-                    format!(
-                        "{:.1} / {:.1} GB",
-                        bytes_to_gb(data.memory_used),
-                        bytes_to_gb(data.memory_total)
-                    ),
-                    data.memory_percentage / 100.0,
-                    mem_c,
-                ),
-                (ThemePalette::ACCENT_PURPLE, "GPU", gpu_val, gpu_sub, gpu_frac, gpu_c),
-                (
-                    ThemePalette::TEXT_LABEL_SUB,
-                    "DISK I/O",
-                    format_rate(data.disk_read_rate + data.disk_write_rate),
-                    format!("R: {}  W: {}", format_rate(data.disk_read_rate), format_rate(data.disk_write_rate)),
-                    ((data.disk_read_rate + data.disk_write_rate) / 200.0).clamp(0.0, 1.0) as f32,
-                    ThemePalette::TEXT_LABEL_SUB,
-                ),
-                (
-                    ThemePalette::ACCENT_CYAN,
-                    "NETWORK",
-                    format_rate(net_total_rate),
-                    format!("D: {}  U: {}", format_rate(net_download_rate), format_rate(net_upload_rate)),
-                    (net_total_rate / 10_000_000.0).clamp(0.0, 1.0) as f32,
-                    net_c,
-                ),
-            ];
 
-            for (i, (accent, label, value, sub, frac, color)) in cards.iter().enumerate() {
-                let x = row_rect.min.x + (card_w + card_spacing) * i as f32;
-                let cr = egui::Rect::from_min_size(egui::pos2(x, row_rect.min.y), egui::vec2(card_w, card_h));
 
-                // Deep card background with subtle inner border
-                ui.painter().rect_filled(cr, card_rnd, ThemePalette::BG_DEEPEST);
-                ui.painter().rect_filled(cr.shrink(1.0), card_rnd, card_bg);
-                ui.painter().rect_stroke(cr, card_rnd, card_border);
 
-                // Accent dot
-                ui.painter().circle_filled(
-                    cr.min + egui::vec2(16.0, 18.0),
-                    3.0,
-                    *accent,
-                );
 
-                // Title
-                ui.painter().text(
-                    cr.min + egui::vec2(26.0, 12.0),
-                    egui::Align2::LEFT_TOP,
-                    label,
-                    egui::FontId::proportional(12.0),
-                    ThemePalette::TEXT_LABEL_SUB,
-                );
 
-                // Circular Gauge
-                let radius = 28.0;
-                let center = cr.min + egui::vec2(card_w / 2.0, card_h / 2.0 - 4.0);
-                paint_circular_gauge(ui, center, radius, *frac, *color, "");
 
-                // Value Text inside gauge
-                ui.painter().text(
-                    center,
-                    egui::Align2::CENTER_CENTER,
-                    value,
-                    egui::FontId::new(14.0, egui::FontFamily::Monospace),
-                    ThemePalette::TEXT_PRIMARY,
-                );
 
-                // Subtitle
-                ui.painter().text(
-                    cr.min + egui::vec2(card_w / 2.0, card_h - 18.0),
-                    egui::Align2::CENTER_BOTTOM,
-                    sub,
-                    egui::FontId::proportional(11.0),
-                    ThemePalette::TEXT_DIMMED,
-                );
-            }
 
-            ui.add_space(16.0);
 
-            // ── Detail strip ──
-            ui.group(|ui| {
-                ui.horizontal(|ui| {
-                    if let Some(gpu) = data.gpu_info.first() {
-                        if let Some(temp) = gpu.temperature {
-                            let tc = if temp < 70 {
-                                ThemePalette::STATUS_HEALTHY
-                            } else if temp < 85 {
-                                ThemePalette::STATUS_WARNING
-                            } else {
-                                ThemePalette::STATUS_CRITICAL
-                            };
-                            ui.label(egui::RichText::new(format!("{}°C", temp)).strong().color(tc));
-                            ui.separator();
-                        }
-                        if gpu.clock_mhz.is_some() || gpu.power_watts.is_some() || gpu.fan_percent.is_some() {
-                            let mut parts = Vec::new();
-                            if let Some(mhz) = gpu.clock_mhz {
-                                parts.push(format!("{} MHz", mhz));
-                            }
-                            if let Some(w) = gpu.power_watts {
-                                parts.push(format!("{:.0} W", w));
-                            }
-                            if let Some(f) = gpu.fan_percent {
-                                parts.push(format!("{}% fan", f));
-                            }
-                            ui.label(parts.join(" · "));
-                            ui.separator();
-                        }
-                        ui.label(
-                            egui::RichText::new(&gpu.name)
-                                .size(11.5)
-                                .color(ThemePalette::TEXT_LABEL_SUB),
-                        );
-                        ui.separator();
-                    }
-                    let d = data.system_info.uptime / 86400;
-                    let h = (data.system_info.uptime % 86400) / 3600;
-                    let m = (data.system_info.uptime % 3600) / 60;
-                    ui.label(
-                        egui::RichText::new(format!("Uptime {}d {}h {}m", d, h, m))
-                            .size(11.5)
-                            .color(ThemePalette::TEXT_LABEL_SUB),
-                    );
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.label(
-                            egui::RichText::new(&data.last_update)
-                                .size(11.0)
-                                .color(ThemePalette::TEXT_DIMMED),
-                        );
-                    });
-                });
-            });
-
-            ui.add_space(12.0);
-
-            // ── Startup Health ──
-            {
-                let high = startup::high_impact_count(&self.startup_items);
-                let total = self.startup_items.len();
-                let boot_text = self.boot_diagnostics.as_ref()
-                    .and_then(|bd| bd.boot_duration_ms)
-                    .map(|ms| format!("{:.1}s", ms as f64 / 1000.0));
-
-                ui.group(|ui| {
-                    ui.horizontal(|ui| {
-                        ui.label(egui::RichText::new("STARTUP HEALTH")
-                            .size(10.0).color(ThemePalette::TEXT_DIMMED));
-
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.small_button("View All >").clicked() {
-                                self.selected_tab = Tab::StartupManager;
-                            }
-                        });
-                    });
-
-                    ui.horizontal(|ui| {
-                        if let Some(ref bt) = boot_text {
-                            let boot_ms = self.boot_diagnostics.as_ref().and_then(|b| b.boot_duration_ms).unwrap_or(0);
-                            let c = if boot_ms < 30000 { ThemePalette::STATUS_HEALTHY }
-                                    else if boot_ms < 60000 { ThemePalette::STATUS_WARNING }
-                                    else { ThemePalette::STATUS_CRITICAL };
-                            ui.colored_label(c, egui::RichText::new(format!("Boot: {}", bt)).strong());
-                            ui.separator();
-                        }
-                        if high > 0 {
-                            ui.colored_label(ThemePalette::STATUS_CRITICAL,
-                                format!("{} high-impact", high));
-                        } else {
-                            ui.colored_label(ThemePalette::STATUS_HEALTHY, "Healthy");
-                        }
-                        ui.separator();
-                        ui.label(egui::RichText::new(format!("{} startup items", total))
-                            .color(ThemePalette::TEXT_LABEL_SUB));
-                    });
-                });
-            }
-
-            ui.add_space(12.0);
-
-            // ── Top processes ──
-            if self.settings.show_processes {
-                paint_section_header(ui, "Top Processes");
-
-                egui::Grid::new("overview_process_grid")
-                    .striped(true)
-                    .spacing([14.0, 5.0])
-                    .show(ui, |ui| {
-                        ui.label(
-                            egui::RichText::new("PROCESS")
-                                .size(10.0)
-                                .color(ThemePalette::TEXT_DIMMED),
-                        );
-                        ui.label(
-                            egui::RichText::new("MEMORY")
-                                .size(10.0)
-                                .color(ThemePalette::TEXT_DIMMED),
-                        );
-                        ui.label(egui::RichText::new("CPU").size(10.0).color(ThemePalette::TEXT_DIMMED));
-                        ui.end_row();
-
-                        for process in data.top_processes.iter().take(8) {
-                            let mb = bytes_to_mb(process.memory);
-                            let mc = if mb > 500.0 {
-                                ThemePalette::STATUS_CRITICAL
-                            } else if mb > 200.0 {
-                                ThemePalette::STATUS_WARNING
-                            } else {
-                                ThemePalette::STATUS_HEALTHY
-                            };
-                            let name = if process.name.chars().count() > 32 {
-                                let truncated: String = process.name.chars().take(30).collect();
-                                format!("{}…", truncated)
-                            } else {
-                                process.name.clone()
-                            };
-                            ui.label(egui::RichText::new(name).size(12.5));
-                            ui.colored_label(mc, format!("{:.1} MB", mb));
-                            ui.label(format!("{:.1}%", process.cpu_usage));
-                            ui.end_row();
-                        }
-                    });
-            }
-        });
-    }
-
-    fn show_performance_tab(&self, ui: &mut egui::Ui, data: &SystemData) {
-        paint_section_header(ui, "Performance Graphs");
-
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            if self.settings.show_graphs {
-                ui.columns(2, |cols| {
-                    // CPU Graph
-                    cols[0].group(|ui| {
-                        ui.label(
-                            egui::RichText::new("CPU Usage History")
-                                .size(15.0)
-                                .strong()
-                                .color(ThemePalette::ACCENT_PRIMARY),
-                        );
-                        let cpu_points: PlotPoints = data.cpu_history.iter().map(|p| [p.time, p.value]).collect();
-
-                        let line = Line::new(cpu_points).color(ThemePalette::ACCENT_PRIMARY);
-
-                        Plot::new("cpu_plot")
-                            .height(200.0)
-                            .allow_zoom(false)
-                            .allow_drag(false)
-                            .allow_scroll(false)
-                            .include_y(0.0)
-                            .include_y(100.0)
-                            .y_axis_label("CPU %")
-                            .show(ui, |plot_ui| {
-                                plot_ui.line(line);
-                            });
-                    });
-
-                    // Memory Graph
-                    cols[1].group(|ui| {
-                        ui.label(
-                            egui::RichText::new("Memory Usage History")
-                                .size(15.0)
-                                .strong()
-                                .color(ThemePalette::STATUS_HEALTHY),
-                        );
-                        let mem_points: PlotPoints = data.memory_history.iter().map(|p| [p.time, p.value]).collect();
-
-                        let line = Line::new(mem_points).color(ThemePalette::STATUS_HEALTHY);
-
-                        Plot::new("memory_plot")
-                            .height(200.0)
-                            .allow_zoom(false)
-                            .allow_drag(false)
-                            .allow_scroll(false)
-                            .include_y(0.0)
-                            .include_y(100.0)
-                            .y_axis_label("Memory %")
-                            .show(ui, |plot_ui| {
-                                plot_ui.line(line);
-                            });
-                    });
-                });
-
-                ui.add_space(10.0);
-
-                ui.columns(2, |cols| {
-                    // GPU Graph
-                    if !data.gpu_history.is_empty() {
-                        cols[0].group(|ui| {
-                            ui.label(
-                                egui::RichText::new("GPU Usage History")
-                                    .size(15.0)
-                                    .strong()
-                                    .color(ThemePalette::STATUS_WARNING),
-                            );
-                            let gpu_points: PlotPoints = data.gpu_history.iter().map(|p| [p.time, p.value]).collect();
-
-                            let line = Line::new(gpu_points).color(ThemePalette::STATUS_WARNING);
-
-                            Plot::new("gpu_plot")
-                                .height(200.0)
-                                .allow_zoom(false)
-                                .allow_drag(false)
-                                .allow_scroll(false)
-                                .include_y(0.0)
-                                .include_y(100.0)
-                                .y_axis_label("GPU %")
-                                .show(ui, |plot_ui| {
-                                    plot_ui.line(line);
-                                });
-                        });
-                    }
-
-                    // Disk I/O Graph
-                    cols[1].group(|ui| {
-                        ui.label(
-                            egui::RichText::new("Disk I/O History")
-                                .size(15.0)
-                                .strong()
-                                .color(ThemePalette::TEXT_LABEL_SUB),
-                        );
-                        let read_points: PlotPoints = data.disk_read_history.iter().map(|p| [p.time, p.value]).collect();
-                        let write_points: PlotPoints = data.disk_write_history.iter().map(|p| [p.time, p.value]).collect();
-
-                        let line_r = Line::new(read_points).name("Read MB/s").color(ThemePalette::STATUS_HEALTHY);
-                        let line_w = Line::new(write_points).name("Write MB/s").color(ThemePalette::STATUS_WARNING);
-
-                        Plot::new("disk_plot")
-                            .height(200.0)
-                            .allow_zoom(false)
-                            .allow_drag(false)
-                            .allow_scroll(false)
-                            .legend(egui_plot::Legend::default())
-                            .y_axis_label("MB/s")
-                            .show(ui, |plot_ui| {
-                                plot_ui.line(line_r);
-                                plot_ui.line(line_w);
-                            });
-                    });
-                });
-            } else {
-                ui.label("Performance graphs are disabled. Enable them in View menu.");
-            }
-        });
-    }
-
-    fn show_processes_tab(&mut self, ui: &mut egui::Ui, data: &SystemData) {
-        paint_section_header(ui, "Process Monitor");
-
-        // Header action bar
-        ui.horizontal(|ui| {
-            if ui.button("⚙ Full Process Manager").on_hover_text("Open advanced window with Kill, Suspend & Priority controls").clicked() {
-                self.show_process_manager = true;
-            }
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.button("📊 Export CSV").clicked() { self.show_export_csv = true; }
-                if ui.button("📄 Export JSON").clicked() { self.show_export = true; }
-            });
-        });
-        ui.add_space(4.0);
-
-        // Search box
-        ui.horizontal(|ui| {
-            ui.label("Search:");
-            ui.add(egui::TextEdit::singleline(&mut self.process_search).hint_text("Filter by name or PID (all processes)").desired_width(200.0));
-            if ui.button("x").clicked() {
-                self.process_search.clear();
-            }
-        });
-
-        ui.add_space(5.0);
-
-        // Filter processes
-        let mut filtered_processes = processes::filter_processes(&data.top_processes, &self.process_search);
-
-        // Sort processes
-        let ascending = self.process_sort_ascending;
-        processes::sort_processes(&mut filtered_processes, self.process_sort_column, ascending);
-
-        ui.label(format!(
-            "Showing {} of {} processes",
-            filtered_processes.len(),
-            data.top_processes.len()
-        ));
-        ui.add_space(5.0);
-
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            egui::Grid::new("full_process_grid")
-                .striped(true)
-                .spacing([10.0, 4.0])
-                .min_col_width(80.0)
-                .show(ui, |ui| {
-                    // Clickable sort headers
-                    let sort_arrow = |col: ProcessSortColumn, current: ProcessSortColumn, asc: bool| -> &'static str {
-                        if col == current {
-                            if asc {
-                                " ^"
-                            } else {
-                                " v"
-                            }
-                        } else {
-                            ""
-                        }
-                    };
-
-                    let sort_col = self.process_sort_column;
-                    let sort_asc = self.process_sort_ascending;
-
-                    if ui
-                        .button(format!("PID{}", sort_arrow(ProcessSortColumn::Pid, sort_col, sort_asc)))
-                        .clicked()
-                    {
-                        if self.process_sort_column == ProcessSortColumn::Pid {
-                            self.process_sort_ascending = !self.process_sort_ascending;
-                        } else {
-                            self.process_sort_column = ProcessSortColumn::Pid;
-                            self.process_sort_ascending = true;
-                        }
-                    }
-                    if ui
-                        .button(format!(
-                            "Process Name{}",
-                            sort_arrow(ProcessSortColumn::Name, sort_col, sort_asc)
-                        ))
-                        .clicked()
-                    {
-                        if self.process_sort_column == ProcessSortColumn::Name {
-                            self.process_sort_ascending = !self.process_sort_ascending;
-                        } else {
-                            self.process_sort_column = ProcessSortColumn::Name;
-                            self.process_sort_ascending = true;
-                        }
-                    }
-                    if ui
-                        .button(format!(
-                            "Memory{}",
-                            sort_arrow(ProcessSortColumn::Memory, sort_col, sort_asc)
-                        ))
-                        .clicked()
-                    {
-                        if self.process_sort_column == ProcessSortColumn::Memory {
-                            self.process_sort_ascending = !self.process_sort_ascending;
-                        } else {
-                            self.process_sort_column = ProcessSortColumn::Memory;
-                            self.process_sort_ascending = false; // default descending for memory
-                        }
-                    }
-                    if ui
-                        .button(format!(
-                            "CPU %{}",
-                            sort_arrow(ProcessSortColumn::Cpu, sort_col, sort_asc)
-                        ))
-                        .clicked()
-                    {
-                        if self.process_sort_column == ProcessSortColumn::Cpu {
-                            self.process_sort_ascending = !self.process_sort_ascending;
-                        } else {
-                            self.process_sort_column = ProcessSortColumn::Cpu;
-                            self.process_sort_ascending = false; // default descending for CPU
-                        }
-                    }
-                    ui.strong("Disk Read");
-                    ui.strong("Disk Write");
-                    ui.strong("Actions");
-                    ui.end_row();
-
-                    // Processes
-                    for process in &filtered_processes {
-                        let memory_mb = bytes_to_mb(process.memory);
-
-                        let mut text_color = ui.visuals().text_color();
-                        if memory_mb > 500.0 || process.cpu_usage > 20.0 {
-                            text_color = ThemePalette::STATUS_CRITICAL;
-                        } else if memory_mb > 200.0 || process.cpu_usage > 10.0 {
-                            text_color = ThemePalette::STATUS_WARNING;
-                        }
-
-                        ui.label(egui::RichText::new(process.pid.to_string()).color(text_color));
-
-                        let display_name = if process.name.chars().count() > 40 {
-                            let truncated: String = process.name.chars().take(37).collect();
-                            format!("{}...", truncated)
-                        } else {
-                            process.name.clone()
-                        };
-                        let selected = self.details_pid == Some(process.pid);
-                        if ui
-                            .selectable_label(selected, egui::RichText::new(display_name).color(text_color))
-                            .on_hover_text("Click to view process details")
-                            .clicked()
-                        {
-                            self.details_pid = Some(process.pid);
-                        }
-
-                        ui.label(egui::RichText::new(format!("{:.2} MB", memory_mb)).color(text_color));
-                        ui.label(egui::RichText::new(format!("{:.1}%", process.cpu_usage)).color(text_color));
-
-                        let refresh_interval = self.settings.refresh_interval.max(1);
-                        let effective_elapsed = if refresh_interval > 0 { refresh_interval as f64 } else { 1.0 };
-                        let read_rate_mb = process.disk_read_bytes as f64 / effective_elapsed / 1024.0 / 1024.0;
-                        let write_rate_mb = process.disk_written_bytes as f64 / effective_elapsed / 1024.0 / 1024.0;
-                        ui.label(egui::RichText::new(format!("{:.2} MB/s", read_rate_mb)).color(text_color));
-                        ui.label(egui::RichText::new(format!("{:.2} MB/s", write_rate_mb)).color(text_color));
-
-                        // Action buttons: Tree, Kill, Suspend/Resume, Priority, Copy PID
-                        ui.horizontal(|ui| {
-                            if ui.small_button("Tree").on_hover_text("Kill this process and all its children (deepest first)").clicked() {
-                                self.kill_tree_pid = Some(process.pid);
-                            }
-                            if ui.small_button("Kill").on_hover_text("Terminate this process (requires Admin for system processes)").clicked() {
-                                self.selected_process_pid = Some(process.pid);
-                            }
-                            let is_suspended = self.suspended_pids.contains(&process.pid);
-                            if is_suspended {
-                                if ui.small_button("Resume").on_hover_text("Resume suspended process").clicked() {
-                                    self.resume_process_pid = Some(process.pid);
-                                }
-                            } else {
-                                if ui.small_button("Suspend").on_hover_text("Freeze process execution (Windows only)").clicked() {
-                                    self.suspend_process_pid = Some(process.pid);
-                                }
-                            }
-                            ui.menu_button("Priority", |ui| {
-                                ui.label("Set Priority:");
-                                for priority in &["High", "AboveNormal", "Normal", "BelowNormal", "Idle"] {
-                                    if ui.button(*priority).clicked() {
-                                        self.priority_change = Some((process.pid, priority.to_string()));
-                                        ui.close_menu();
-                                    }
-                                }
-                            }).response.on_hover_text("Set process scheduling priority");
-                            if ui.small_button("Copy PID").on_hover_text("Copy PID to clipboard").clicked() {
-                                ui.output_mut(|o| o.copied_text = process.pid.to_string());
-                            }
-                        });
-
-                        ui.end_row();
-                    }
-                });
-
-                // Details panel for selected process
-                if let Some((pid, details)) = &data.selected_process_details {
-                    if self.details_pid == Some(*pid) {
-                        ui.add_space(8.0);
-                        ui.separator();
-                        paint_section_header(ui, &format!("Process Details — PID {}", pid));
-                        egui::Grid::new("process_details_grid")
-                            .num_columns(2)
-                            .spacing([16.0, 4.0])
-                            .show(ui, |ui| {
-                                details_row(ui, "Executable", details.exe_path.as_deref().unwrap_or("N/A"));
-                                details_row(ui, "Command Line", &details.command_line);
-                                details_row(ui, "Working Directory", details.cwd.as_deref().unwrap_or("N/A"));
-                                details_row(ui, "Started", &format_started(details.start_time));
-                                details_row(ui, "Run Time", &format!("{}m {}s", details.run_time / 60, details.run_time % 60));
-                                details_row(ui, "Parent PID", &details.parent_pid.map(|p| p.to_string()).unwrap_or_else(|| "—".to_string()));
-                                details_row(ui, "Parent Name", details.parent_name.as_deref().unwrap_or("—"));
-                            });
-                    }
-                }
-            });
-    }
-
-    fn show_storage_tab(&self, ui: &mut egui::Ui, data: &SystemData) {
-        paint_section_header(ui, "Storage Devices");
-
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            for disk in &data.disk_info {
-                ui.group(|ui| {
-                    ui.horizontal(|ui| {
-                        ui.heading(&disk.name);
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            let color = get_usage_color(disk.usage_percentage);
-                            ui.colored_label(color, format!("{:.1}%", disk.usage_percentage));
-
-                            // Warning icon for high usage
-                            if disk.usage_percentage > 90.0 {
-                                ui.colored_label(egui::Color32::RED, "[!]");
-                            }
-                        });
-                    });
-
-                    ui.separator();
-
-                    ui.horizontal(|ui| {
-                        ui.label("Mount Point:");
-                        ui.strong(&disk.mount_point);
-                    });
-
-                    ui.horizontal(|ui| {
-                        ui.label("File System:");
-                        ui.strong(&disk.file_system);
-                    });
-
-                    ui.horizontal(|ui| {
-                        ui.label("Total Space:");
-                        ui.strong(format!("{:.2} GB", bytes_to_gb(disk.total_space)));
-                    });
-
-                    ui.horizontal(|ui| {
-                        ui.label("Available:");
-                        ui.strong(format!("{:.2} GB", bytes_to_gb(disk.available_space)));
-                    });
-
-                    ui.horizontal(|ui| {
-                        ui.label("Used:");
-                        let used = disk.total_space.saturating_sub(disk.available_space);
-                        ui.strong(format!("{:.2} GB", bytes_to_gb(used)));
-                    });
-
-                    let color = get_usage_color(disk.usage_percentage);
-                    paint_progress_bar(ui, disk.usage_percentage / 100.0, color, 6.0);
-
-                    // Show warning for low disk space
-                    if disk.usage_percentage > 90.0 {
-                        ui.add_space(5.0);
-                        ui.colored_label(
-                            egui::Color32::RED,
-                            format!(
-                                "Warning: Only {:.2} GB remaining!",
-                                bytes_to_gb(disk.available_space)
-                            ),
-                        );
-                    }
-                });
-
-                ui.add_space(10.0);
-            }
-
-            if data.disk_info.is_empty() {
-                ui.label("No storage devices detected.");
-            }
-        });
-    }
-
-    fn show_network_tab(&self, ui: &mut egui::Ui, data: &SystemData) {
-        paint_section_header(ui, "Network Interfaces");
-
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            // Network graphs
-            if self.settings.show_graphs && !data.network_download_history.is_empty() {
-                ui.group(|ui| {
-                    ui.label(
-                        egui::RichText::new("Network Activity History")
-                            .size(15.0)
-                            .strong()
-                            .color(ThemePalette::TEXT_PRIMARY),
-                    );
-
-                    // Download graph
-                    ui.label(
-                        egui::RichText::new("Download Rate (MB/s)")
-                            .size(12.0)
-                            .color(ThemePalette::STATUS_HEALTHY),
-                    );
-                    let download_points: PlotPoints = data
-                        .network_download_history
-                        .iter()
-                        .map(|p| [p.time, p.value])
-                        .collect();
-
-                    let line = Line::new(download_points).color(ThemePalette::STATUS_HEALTHY);
-
-                    Plot::new("network_download_plot")
-                        .height(150.0)
-                        .allow_zoom(false)
-                        .allow_drag(false)
-                        .allow_scroll(false)
-                        .y_axis_label("MB/s")
-                        .show(ui, |plot_ui| {
-                            plot_ui.line(line);
-                        });
-
-                    ui.add_space(10.0);
-
-                    // Upload graph
-                    ui.label(
-                        egui::RichText::new("Upload Rate (MB/s)")
-                            .size(12.0)
-                            .color(ThemePalette::ACCENT_PRIMARY),
-                    );
-                    let upload_points: PlotPoints =
-                        data.network_upload_history.iter().map(|p| [p.time, p.value]).collect();
-
-                    let line = Line::new(upload_points).color(ThemePalette::ACCENT_PRIMARY);
-
-                    Plot::new("network_upload_plot")
-                        .height(150.0)
-                        .allow_zoom(false)
-                        .allow_drag(false)
-                        .allow_scroll(false)
-                        .y_axis_label("MB/s")
-                        .show(ui, |plot_ui| {
-                            plot_ui.line(line);
-                        });
-                });
-
-                ui.add_space(10.0);
-            }
-
-            // Network interfaces list
-            for network in &data.network_info {
-                ui.group(|ui| {
-                    ui.heading(&network.interface);
-                    ui.separator();
-
-                    ui.horizontal(|ui| {
-                        ui.label("Total Received:");
-                        ui.strong(format!("{:.2} MB", bytes_to_mb(network.received)));
-                    });
-
-                    ui.horizontal(|ui| {
-                        ui.label("Total Transmitted:");
-                        ui.strong(format!("{:.2} MB", bytes_to_mb(network.transmitted)));
-                    });
-
-                    ui.separator();
-
-                    ui.horizontal(|ui| {
-                        ui.label("Download Rate:");
-                        let color = if network.received_rate > 10.0 {
-                            ThemePalette::STATUS_CRITICAL
-                        } else if network.received_rate > 1.0 {
-                            ThemePalette::STATUS_WARNING
-                        } else {
-                            ThemePalette::TEXT_TERTIARY
-                        };
-                        ui.colored_label(color, format_rate(network.received_rate));
-                    });
-
-                    ui.horizontal(|ui| {
-                        ui.label("Upload Rate:");
-                        let color = if network.transmitted_rate > 10.0 {
-                            ThemePalette::STATUS_CRITICAL
-                        } else if network.transmitted_rate > 1.0 {
-                            ThemePalette::STATUS_WARNING
-                        } else {
-                            ThemePalette::TEXT_TERTIARY
-                        };
-                        ui.colored_label(color, format_rate(network.transmitted_rate));
-                    });
-                });
-
-                ui.add_space(10.0);
-            }
-
-            if data.network_info.is_empty() {
-                ui.label("No network interfaces detected.");
-            }
-        });
-    }
-
-    fn show_alerts_tab(&mut self, ui: &mut egui::Ui, data: &SystemData) {
-        paint_section_header(ui, "System Alerts");
-
-        // Warn when desktop notifications are off — alerts tracked in-app only
-        if !self.settings.show_notifications {
-            ui.group(|ui| {
-                ui.horizontal(|ui| {
-                    ui.colored_label(ThemePalette::STATUS_WARNING,
-                        "⚠  Desktop notifications are disabled.");
-                    ui.label("Alerts are tracked inside the app only.");
-                    if ui.small_button("Enable in Settings").clicked() {
-                        self.show_settings = true;
-                    }
-                });
-            });
-            ui.add_space(8.0);
-        }
-
-        if data.alerts.is_empty() {
-            ui.group(|ui| {
-                ui.add_space(20.0);
-                ui.horizontal(|ui| {
-                    ui.add_space(20.0);
-                    ui.colored_label(egui::Color32::GREEN, "OK");
-                    ui.heading("All Systems Normal");
-                });
-                ui.add_space(10.0);
-                ui.label("No alerts detected. Your system is running smoothly.");
-                ui.add_space(20.0);
-            });
-
-            ui.add_space(10.0);
-
-            ui.group(|ui| {
-                ui.heading("Alert Configuration");
-                ui.separator();
-                ui.label("Alerts are triggered when:");
-                ui.label(format!(
-                    "  • CPU usage > {:.0}%",
-                    self.settings.notification_cpu_threshold
-                ));
-                ui.label(format!(
-                    "  • Memory usage > {:.0}%",
-                    self.settings.notification_memory_threshold
-                ));
-                ui.label(format!(
-                    "  • GPU temperature > {}°C",
-                    self.settings.notification_temp_threshold
-                ));
-                ui.label("  • Disk usage > 90%");
-                ui.add_space(5.0);
-                if ui.button("Configure Alert Thresholds").clicked() {
-                    self.show_settings = true;
-                }
-            });
-        } else {
-            ui.label(format!("{} active alert(s)", data.alerts.len()));
-            ui.add_space(10.0);
-
-            egui::ScrollArea::vertical().show(ui, |ui| {
-                for (i, alert) in data.alerts.iter().enumerate() {
-                    ui.group(|ui| {
-                        let (icon, color, severity) = match alert.alert_type {
-                            AlertType::CpuHigh => ("CPU", egui::Color32::YELLOW, "WARNING"),
-                            AlertType::MemoryHigh => ("RAM", egui::Color32::YELLOW, "WARNING"),
-                            AlertType::GpuTempHigh => ("GPU", egui::Color32::RED, "CRITICAL"),
-                            AlertType::DiskSpaceLow => ("DISK", egui::Color32::RED, "CRITICAL"),
-                            AlertType::StartupHighImpact => ("STARTUP", egui::Color32::YELLOW, "INFO"),
-                        };
-
-                        ui.horizontal(|ui| {
-                            ui.colored_label(color, icon);
-                            ui.colored_label(color, severity);
-                            ui.separator();
-                            ui.strong(&alert.message);
-                        });
-
-                        ui.horizontal(|ui| {
-                            ui.label("Time:");
-                            ui.label(&alert.timestamp);
-                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                ui.label(format!("Value: {:.1}", alert.value));
-                            });
-                        });
-                    });
-
-                    if i < data.alerts.len() - 1 {
-                        ui.add_space(5.0);
-                    }
-                }
-            });
-
-            ui.add_space(10.0);
-            ui.separator();
-
-            ui.horizontal(|ui| {
-                if ui.button("Clear All Alerts").clicked() {
-                    {
-                        let mut data = self.data.lock();
-                        data.alerts.clear();
-                    }
-                }
-
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label("Tip: Configure alert thresholds in Settings");
-                });
-            });
-        }
-    }
-
-    fn show_system_info_tab(&self, ui: &mut egui::Ui, data: &SystemData) {
-        paint_section_header(ui, "System Information");
-
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            ui.group(|ui| {
-                ui.heading("Operating System");
-                ui.separator();
-
-                ui.horizontal(|ui| {
-                    ui.label("OS Name:");
-                    ui.strong(&data.system_info.os_name);
-                });
-
-                ui.horizontal(|ui| {
-                    ui.label("OS Version:");
-                    ui.strong(&data.system_info.os_version);
-                });
-
-                ui.horizontal(|ui| {
-                    ui.label("Kernel Version:");
-                    ui.strong(&data.system_info.kernel_version);
-                });
-
-                ui.horizontal(|ui| {
-                    ui.label("Hostname:");
-                    ui.strong(&data.system_info.hostname);
-                });
-
-                ui.horizontal(|ui| {
-                    ui.label("Uptime:");
-                    let days = data.system_info.uptime / 86400;
-                    let hours = (data.system_info.uptime % 86400) / 3600;
-                    let minutes = (data.system_info.uptime % 3600) / 60;
-                    ui.strong(format!("{}d {}h {}m", days, hours, minutes));
-                });
-
-                    if let Some(mb) = &data.system_info.motherboard {
-                        ui.horizontal(|ui| {
-                            ui.label("Motherboard:");
-                            ui.strong(mb);
-                        });
-                    }
-                    if let Some(bios) = &data.system_info.bios_version {
-                        ui.horizontal(|ui| {
-                            ui.label("BIOS Version:");
-                            ui.strong(bios);
-                        });
-                    }
-                    if let Some(drv) = &data.system_info.gpu_driver {
-                        ui.horizontal(|ui| {
-                            ui.label("GPU Driver:");
-                            ui.strong(drv);
-                        });
-                    }
-                    if let Some(build) = &data.system_info.os_build {
-                        ui.horizontal(|ui| {
-                            ui.label("OS Build:");
-                            ui.strong(build);
-                        });
-                    }
-            });
-
-            ui.add_space(10.0);
-
-            ui.group(|ui| {
-                ui.heading("Processor");
-                ui.separator();
-
-                ui.horizontal(|ui| {
-                    ui.label("CPU Brand:");
-                    ui.strong(&data.system_info.cpu_brand);
-                });
-
-                ui.horizontal(|ui| {
-                    ui.label("CPU Cores:");
-                    ui.strong(format!("{}", data.system_info.cpu_count));
-                });
-
-                ui.horizontal(|ui| {
-                    ui.label("Current Usage:");
-                    let color = get_usage_color(data.cpu_usage);
-                    ui.colored_label(color, format!("{:.1}%", data.cpu_usage));
-                });
-            });
-
-            ui.add_space(10.0);
-
-            ui.group(|ui| {
-                ui.heading("Memory");
-                ui.separator();
-
-                ui.horizontal(|ui| {
-                    ui.label("Total RAM:");
-                    ui.strong(format!("{:.2} GB", bytes_to_gb(data.memory_total)));
-                });
-
-                ui.horizontal(|ui| {
-                    ui.label("Used RAM:");
-                    ui.strong(format!("{:.2} GB", bytes_to_gb(data.memory_used)));
-                });
-
-                ui.horizontal(|ui| {
-                    ui.label("Free RAM:");
-                    ui.strong(format!("{:.2} GB", bytes_to_gb(data.memory_total - data.memory_used)));
-                });
-
-                ui.horizontal(|ui| {
-                    ui.label("Usage:");
-                    let color = get_usage_color(data.memory_percentage);
-                    ui.colored_label(color, format!("{:.1}%", data.memory_percentage));
-                });
-            });
-
-            ui.add_space(10.0);
-
-            if data.gpu_info.is_empty() {
-                ui.label(
-                    egui::RichText::new("No supported GPU detected.")
-                        .italics()
-                        .color(ThemePalette::TEXT_DIMMED),
-                );
-            } else {
-                for gpu_info in &data.gpu_info {
-                    ui.group(|ui| {
-                        ui.heading("Graphics Card");
-                        ui.separator();
-
-                        ui.horizontal(|ui| {
-                            ui.label("GPU:");
-                            ui.strong(&gpu_info.name);
-                        });
-
-                        ui.horizontal(|ui| {
-                            ui.label("Utilization:");
-                            let color = get_usage_color(gpu_info.utilization);
-                            ui.colored_label(color, format!("{:.1}%", gpu_info.utilization));
-                        });
-
-                        if let (Some(used), Some(total)) = (gpu_info.memory_used, gpu_info.memory_total) {
-                            ui.horizontal(|ui| {
-                                ui.label("VRAM:");
-                                let used_mb = bytes_to_mb(used);
-                                let total_mb = bytes_to_mb(total);
-                                if total_mb >= 1024.0 {
-                                    ui.strong(format!("{:.1} / {:.1} GB", used_mb / 1024.0, total_mb / 1024.0));
-                                } else {
-                                    ui.strong(format!("{:.0} / {:.0} MB", used_mb, total_mb));
-                                }
-                            });
-                        }
-
-                        if let Some(temp) = gpu_info.temperature {
-                            ui.horizontal(|ui| {
-                                ui.label("Temperature:");
-                                let temp_color = if temp < 70 {
-                                    ThemePalette::STATUS_HEALTHY
-                                } else if temp < 85 {
-                                    ThemePalette::STATUS_WARNING
-                                } else {
-                                    ThemePalette::STATUS_CRITICAL
-                                };
-                                ui.colored_label(temp_color, format!("🌡️ {}°C", temp));
-                            });
-                        }
-                    });
-                }
-            }
-
-            ui.add_space(10.0);
-
-            // Swap / Page File info
-            if data.swap_info.total > 0 {
-                ui.group(|ui| {
-                    ui.heading("Swap / Page File");
-                    ui.separator();
-
-                    ui.horizontal(|ui| {
-                        ui.label("Total Swap:");
-                        ui.strong(format!("{:.2} GB", bytes_to_gb(data.swap_info.total)));
-                    });
-
-                    ui.horizontal(|ui| {
-                        ui.label("Used Swap:");
-                        ui.strong(format!("{:.2} GB", bytes_to_gb(data.swap_info.used)));
-                    });
-
-                    ui.horizontal(|ui| {
-                        ui.label("Usage:");
-                        let color = get_usage_color(data.swap_info.percentage);
-                        ui.colored_label(color, format!("{:.1}%", data.swap_info.percentage));
-                    });
-
-                    let color = get_usage_color(data.swap_info.percentage);
-                    paint_progress_bar(ui, data.swap_info.percentage / 100.0, color, 5.0);
-                });
-            }
-
-            ui.add_space(10.0);
-
-            if let Some(bat) = &data.battery_info {
-                if bat.present {
-                    ui.group(|ui| {
-                        ui.heading("Battery Health");
-                        ui.separator();
-                        ui.horizontal(|ui| {
-                            ui.label("Design Capacity:");
-                            ui.strong(format!("{} mWh", bat.design_capacity));
-                        });
-                        ui.horizontal(|ui| {
-                            ui.label("Full Charge Capacity:");
-                            ui.strong(format!("{} mWh", bat.full_charge_capacity));
-                        });
-                        let wear = if bat.design_capacity > 0 {
-                            100.0 - ((bat.full_charge_capacity as f32 / bat.design_capacity as f32) * 100.0)
-                        } else { 0.0 };
-                        ui.horizontal(|ui| {
-                            ui.label("Battery Wear Level:");
-                            ui.strong(format!("{:.1}%", wear));
-                        });
-                        ui.horizontal(|ui| {
-                            ui.label("Discharge/Charge State:");
-                            ui.strong(bat.discharge_state.as_deref().unwrap_or("N/A").to_string());
-                        });
-                        ui.horizontal(|ui| {
-                            ui.label("Discharge/Charge State:");
-                            ui.strong(bat.discharge_state.as_deref().unwrap_or("N/A").to_string());
-                        });
-                    });
-                    ui.add_space(12.0);
-                }
-            }
-        });
-    }
-
-    fn show_cpu_cores_tab(&self, ui: &mut egui::Ui, data: &SystemData) {
-        paint_section_header(ui, "CPU Cores Monitoring");
-
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            ui.label(format!(
-                "Total Cores: {} ({} logical processors)",
-                data.system_info.cpu_count,
-                data.cpu_cores.len()
-            ));
-            ui.add_space(10.0);
-
-            // Grid layout for cores
-            let cores_per_row = 4;
-            let mut core_index = 0;
-
-            while core_index < data.cpu_cores.len() {
-                ui.horizontal(|ui| {
-                    for _ in 0..cores_per_row {
-                        if core_index >= data.cpu_cores.len() {
-                            break;
-                        }
-
-                        let core = &data.cpu_cores[core_index];
-                        ui.group(|ui| {
-                            ui.set_min_width(180.0);
-
-                            ui.horizontal(|ui| {
-                                ui.strong(format!("Core {}", core.core_id));
-                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                    let color = get_usage_color(core.usage);
-                                    ui.colored_label(color, format!("{:.1}%", core.usage));
-                                });
-                            });
-
-                            let color = get_usage_color(core.usage);
-                            paint_progress_bar(ui, core.usage / 100.0, color, 5.0);
-                        });
-
-                        core_index += 1;
-                    }
-                });
-                ui.add_space(5.0);
-            }
-
-            ui.add_space(10.0);
-
-            // Summary statistics
-            ui.group(|ui| {
-                ui.heading("Core Statistics");
-                ui.separator();
-
-                let avg_usage: f32 = data.cpu_cores.iter().map(|c| c.usage).sum::<f32>() / data.cpu_cores.len() as f32;
-                let max_usage = data.cpu_cores.iter().map(|c| c.usage).fold(0.0f32, f32::max);
-                let min_usage = data.cpu_cores.iter().map(|c| c.usage).fold(100.0f32, f32::min);
-
-                ui.horizontal(|ui| {
-                    ui.label("Average Usage:");
-                    let color = get_usage_color(avg_usage);
-                    ui.colored_label(color, format!("{:.1}%", avg_usage));
-                });
-
-                ui.horizontal(|ui| {
-                    ui.label("Maximum Core:");
-                    let color = get_usage_color(max_usage);
-                    ui.colored_label(color, format!("{:.1}%", max_usage));
-                });
-
-                ui.horizontal(|ui| {
-                    ui.label("Minimum Core:");
-                    ui.label(format!("{:.1}%", min_usage));
-                });
-
-                ui.horizontal(|ui| {
-                    ui.label("Cores Above 50%:");
-                    let high_cores = data.cpu_cores.iter().filter(|c| c.usage > 50.0).count();
-                    ui.label(format!("{} / {}", high_cores, data.cpu_cores.len()));
-                });
-            });
-        });
-    }
-
-    fn show_process_manager_window(&mut self, ctx: &egui::Context, data: &SystemData) {
-        let mut show = self.show_process_manager;
-
-        egui::Window::new("Process Manager")
-            .open(&mut show)
-            .resizable(true)
-            .default_width(800.0)
-            .default_height(500.0)
-            .show(ctx, |ui| {
-                ui.heading("Running Processes");
-                ui.separator();
-
-                ui.horizontal(|ui| {
-                    ui.label(format!("Total processes: {}", data.top_processes.len()));
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button("🔄 Refresh").on_hover_text("Data updates automatically from the monitoring thread").clicked() {
-                            ui.ctx().request_repaint();
-                        }
-                    });
-                });
-
-                ui.add_space(5.0);
-
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    egui::Grid::new("process_manager_grid")
-                        .striped(true)
-                        .spacing([10.0, 4.0])
-                        .min_col_width(60.0)
-                        .show(ui, |ui| {
-                            // Header
-                            ui.strong("PID");
-                            ui.strong("Process Name");
-                            ui.strong("Memory");
-                            ui.strong("CPU %");
-                            ui.strong("Status");
-                            ui.strong("Actions");
-                            ui.end_row();
-
-                            // Processes
-                            for process in &data.top_processes {
-                                let memory_mb = bytes_to_mb(process.memory);
-                                let memory_color = if memory_mb > 500.0 {
-                                    ThemePalette::STATUS_CRITICAL
-                                } else if memory_mb > 200.0 {
-                                    ThemePalette::STATUS_WARNING
-                                } else {
-                                    ThemePalette::STATUS_HEALTHY
-                                };
-
-                                ui.label(process.pid.to_string());
-
-                                // Safe truncation using char boundaries
-                                let display_name = if process.name.chars().count() > 25 {
-                                    let truncated: String = process.name.chars().take(22).collect();
-                                    format!("{}...", truncated)
-                                } else {
-                                    process.name.clone()
-                                };
-                                ui.label(display_name);
-
-                                ui.colored_label(memory_color, format!("{:.2} MB", memory_mb));
-                                ui.label(format!("{:.1}%", process.cpu_usage));
-                                ui.label(&process.status);
-
-                                ui.horizontal(|ui| {
-                                    if ui.small_button("Kill").on_hover_text("Kill Process").clicked() {
-                                        self.selected_process_pid = Some(process.pid);
-                                    }
-                                    let is_suspended = self.suspended_pids.contains(&process.pid);
-                                    if is_suspended {
-                                        if ui.small_button("Resume").on_hover_text("Resume Process").clicked() {
-                                            self.resume_process_pid = Some(process.pid);
-                                        }
-                                    } else {
-                                        if ui.small_button("Suspend").on_hover_text("Suspend Process").clicked() {
-                                            self.suspend_process_pid = Some(process.pid);
-                                        }
-                                    }
-                                    // Priority menu
-                                    ui.menu_button("Priority", |ui| {
-                                        ui.label("Set Priority:");
-                                        for priority in &["High", "AboveNormal", "Normal", "BelowNormal", "Idle"] {
-                                            if ui.button(*priority).clicked() {
-                                                self.priority_change = Some((process.pid, priority.to_string()));
-                                                ui.close_menu();
-                                            }
-                                        }
-                                    })
-                                    .response
-                                    .on_hover_text("Set Priority");
-                                });
-
-                                ui.end_row();
-                            }
-                        });
-                });
-
-                ui.separator();
-                ui.colored_label(
-                    egui::Color32::YELLOW,
-                    "Warning: Killing/suspending processes may cause system instability!",
-                );
-                if !self.suspended_pids.is_empty() {
-                    ui.colored_label(
-                        egui::Color32::from_rgb(255, 165, 0),
-                        format!("{} process(s) suspended", self.suspended_pids.len()),
-                    );
-                }
-            });
-
-        self.show_process_manager = show;
-    }
 
     fn start_ram_clean(&mut self, ctx: &egui::Context) {
         self.ram_cleaner_state.is_cleaning = true;
@@ -4380,639 +2887,9 @@ impl SystemMonitorApp {
         }
     }
 
-    fn show_ram_cleaner_tab(&mut self, ui: &mut egui::Ui, data: &SystemData) {
-        paint_section_header(ui, "RAM Cleaner");
 
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            // Current Memory Status
-            ui.group(|ui| {
-                ui.heading("Memory Overview");
-                ui.separator();
-                ui.horizontal(|ui| {
-                    ui.label("Total RAM:");
-                    ui.strong(format!("{:.2} GB", bytes_to_gb(data.memory_total)));
-                });
-                ui.horizontal(|ui| {
-                    ui.label("Used RAM:");
-                    let color = get_usage_color(data.memory_percentage);
-                    ui.colored_label(
-                        color,
-                        format!(
-                            "{:.2} GB ({:.1}%)",
-                            bytes_to_gb(data.memory_used),
-                            data.memory_percentage
-                        ),
-                    );
-                });
-                ui.horizontal(|ui| {
-                    ui.label("Free RAM:");
-                    ui.strong(format!(
-                        "{:.2} GB",
-                        bytes_to_gb(data.memory_total.saturating_sub(data.memory_used))
-                    ));
-                });
-                let color = get_usage_color(data.memory_percentage);
-                paint_progress_bar(ui, data.memory_percentage / 100.0, color, 8.0);
-            });
 
-            ui.add_space(10.0);
 
-            // Manual Clean button
-            ui.group(|ui| {
-                ui.heading("Manual Clean");
-                ui.separator();
-                ui.label("Frees up unused RAM by emptying process working sets.");
-                ui.label("This is safe and Windows will reload memory as needed.");
-                ui.add_space(5.0);
-
-                if privilege::is_app_elevated() {
-                    ui.colored_label(ThemePalette::STATUS_HEALTHY, "Running as Administrator: Full memory cleaning enabled.");
-                } else {
-                    ui.colored_label(ThemePalette::STATUS_WARNING, "Standard Privileges: User processes only. Run as Admin to clean system memory.");
-                }
-                ui.add_space(5.0);
-
-                let is_cleaning = self.ram_cleaner_state.is_cleaning;
-                ui.add_enabled_ui(!is_cleaning, |ui| {
-                    if ui
-                        .button(egui::RichText::new("🧹 Clean RAM Now").size(16.0).strong())
-                        .on_hover_text("Free working sets of all running processes")
-                        .clicked()
-                    {
-                        self.start_ram_clean(ui.ctx());
-                    }
-                });
-
-                if is_cleaning {
-                    ui.colored_label(ThemePalette::ACCENT_PRIMARY, "Cleaning in progress...");
-                }
-            });
-
-            ui.add_space(10.0);
-
-            // Auto Clean settings
-            ui.group(|ui| {
-                ui.heading("Auto Clean");
-                ui.separator();
-
-                let mut settings_changed = false;
-                if ui.checkbox(
-                    &mut self.ram_cleaner_state.auto_clean_enabled,
-                    "Enable automatic RAM cleaning",
-                ).changed() {
-                    self.settings.auto_ram_clean = self.ram_cleaner_state.auto_clean_enabled;
-                    settings_changed = true;
-                }
-
-                if self.ram_cleaner_state.auto_clean_enabled {
-                    ui.add_space(5.0);
-                    ui.horizontal(|ui| {
-                        ui.label("Clean when RAM usage exceeds:");
-                        if ui.add(
-                            egui::Slider::new(&mut self.ram_cleaner_state.auto_clean_threshold, 50.0..=95.0)
-                                .suffix("%"),
-                        ).changed() {
-                            self.settings.ram_clean_threshold = self.ram_cleaner_state.auto_clean_threshold;
-                            settings_changed = true;
-                        }
-                    });
-                    ui.horizontal(|ui| {
-                        ui.label("Minimum interval between cleans:");
-                        if ui.add(
-                            egui::Slider::new(&mut self.ram_cleaner_state.auto_clean_interval, 60..=1800)
-                                .suffix(" sec"),
-                        ).changed() {
-                            self.settings.auto_clean_interval = self.ram_cleaner_state.auto_clean_interval;
-                            settings_changed = true;
-                        }
-                    });
-                }
-
-                if settings_changed {
-                    let _ = self.settings.save();
-                }
-            });
-
-            ui.add_space(10.0);
-
-            // Statistics
-            ui.group(|ui| {
-                ui.heading("Cleaning Statistics");
-                ui.separator();
-
-                ui.horizontal(|ui| {
-                    ui.label("Total cleans this session:");
-                    ui.strong(format!("{}", self.ram_cleaner_state.clean_count));
-                });
-
-                ui.horizontal(|ui| {
-                    ui.label("Total RAM freed this session:");
-                    ui.strong(format!("{:.2} MB", bytes_to_mb(self.ram_cleaner_state.bytes_freed)));
-                });
-
-                ui.horizontal(|ui| {
-                    ui.label("Last cleaned:");
-                    if self.ram_cleaner_state.last_cleaned.is_some() {
-                        ui.strong(&self.ram_cleaner_state.last_cleaned_display);
-                    } else {
-                        ui.label("Never");
-                    }
-                });
-            });
-        });
-    }
-
-    fn show_startup_manager_tab(&mut self, ui: &mut egui::Ui) {
-        paint_section_header(ui, "Startup Programs");
-
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            // ── Load data lazily in a background thread ──
-            if !self.startup_items_loaded && !self.startup_items_loading {
-                self.startup_items_loading = true;
-                let ctx = ui.ctx().clone();
-                let startup_items_share = Arc::clone(&self.startup_items_share);
-                let boot_diagnostics_share = Arc::clone(&self.boot_diagnostics_share);
-                thread::Builder::new()
-                    .name("startup_loader".to_string())
-                    .stack_size(8 * 1024 * 1024)
-                    .spawn(move || {
-                        let items = startup::get_startup_items();
-                        let diag = startup::get_boot_diagnostics();
-                        {
-                            let mut share = startup_items_share.lock();
-                            *share = Some(items);
-                        }
-                        {
-                            let mut share = boot_diagnostics_share.lock();
-                            *share = diag;
-                        }
-                        ctx.request_repaint();
-                    })
-                    .expect("failed to spawn startup loader thread");
-            }
-
-            // Sync loaded data to app state
-            let is_loading = {
-                let share = self.startup_items_share.lock();
-                if let Some(ref items) = *share {
-                    self.startup_items = items.clone();
-                    self.startup_items_loaded = true;
-                    self.startup_items_loading = false;
-                    
-                    let high_impact_count = items.iter().filter(|i| i.impact_tier == ImpactTier::High && i.enabled).count();
-                    self.data.lock().high_impact_startup_count = high_impact_count;
-                    
-                    false
-                } else {
-                    true
-                }
-            };
-
-            if let Some(ref diag) = *self.boot_diagnostics_share.lock() {
-                self.boot_diagnostics = Some(diag.clone());
-                self.boot_diagnostics_loaded = true;
-            }
-
-            if is_loading {
-                ui.add_space(20.0);
-                ui.horizontal(|ui| {
-                    ui.spinner();
-                    ui.add_space(8.0);
-                    ui.label(egui::RichText::new("Analyzing startup configuration...").strong().color(ThemePalette::TEXT_SECONDARY));
-                });
-                return;
-            }
-
-            // ── Header card with boot info ──
-            ui.group(|ui| {
-                ui.horizontal(|ui| {
-                    ui.heading("Startup Items");
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button("🔄 Refresh").clicked() {
-                            self.startup_items_loaded = false;
-                            self.boot_diagnostics_loaded = false;
-                            *self.startup_items_share.lock() = None;
-                            *self.boot_diagnostics_share.lock() = None;
-                            self.startup_show_confirm = None;
-                        }
-                    });
-                });
-                ui.separator();
-
-                // Boot diagnostics summary
-                ui.horizontal(|ui| {
-                    let total = self.startup_items.len();
-                    let high = startup::high_impact_count(&self.startup_items);
-
-                    let mut boot_shown = false;
-                    if let Some(ref bd) = self.boot_diagnostics {
-                        if let Some(ms) = bd.boot_duration_ms {
-                            let secs = ms as f64 / 1000.0;
-                            let c = if secs < 30.0 { ThemePalette::STATUS_HEALTHY }
-                                    else if secs < 60.0 { ThemePalette::STATUS_WARNING }
-                                    else { ThemePalette::STATUS_CRITICAL };
-                            ui.colored_label(c, format!("Boot: {:.1}s", secs));
-                            ui.separator();
-                            boot_shown = true;
-                        }
-                    }
-                    if !boot_shown {
-                        if privilege::is_app_elevated() {
-                            ui.colored_label(ThemePalette::STATUS_WARNING, "Boot: Unknown");
-                            ui.separator();
-                        } else {
-                            ui.colored_label(ThemePalette::STATUS_WARNING, "Boot: (Requires Admin)")
-                                .on_hover_text("Reading boot diagnostics event logs requires Administrator privileges");
-                            ui.separator();
-                        }
-                    }
-                    if high > 0 {
-                        ui.colored_label(ThemePalette::STATUS_CRITICAL, format!("{} high-impact", high));
-                    } else {
-                        ui.colored_label(ThemePalette::STATUS_HEALTHY, "No high-impact items");
-                    }
-                    ui.separator();
-                    ui.label(egui::RichText::new(format!("{} total", total)).color(ThemePalette::TEXT_LABEL));
-                });
-            });
-
-            ui.add_space(8.0);
-
-            // ── Search & Filter toolbar ──
-            ui.group(|ui| {
-                ui.horizontal(|ui| {
-                    ui.label("Search:");
-                    ui.add(egui::TextEdit::singleline(&mut self.startup_search)
-                        .hint_text("Search by name, command, publisher...")
-                        .desired_width(250.0));
-
-                    ui.separator();
-
-                    // Impact filter
-                    egui::ComboBox::from_id_source("impact_filter")
-                        .selected_text(match &self.startup_filter_impact {
-                            Some(ImpactTier::High) => "High",
-                            Some(ImpactTier::Medium) => "Medium",
-                            Some(ImpactTier::Low) => "Low",
-                            _ => "Impact: All",
-                        })
-                        .show_ui(ui, |ui: &mut egui::Ui| {
-                            if ui.selectable_label(self.startup_filter_impact.is_none(), "All").clicked() {
-                                self.startup_filter_impact = None;
-                            }
-                            if ui.selectable_label(self.startup_filter_impact == Some(ImpactTier::High), "High").clicked() {
-                                self.startup_filter_impact = Some(ImpactTier::High);
-                            }
-                            if ui.selectable_label(self.startup_filter_impact == Some(ImpactTier::Medium), "Medium").clicked() {
-                                self.startup_filter_impact = Some(ImpactTier::Medium);
-                            }
-                            if ui.selectable_label(self.startup_filter_impact == Some(ImpactTier::Low), "Low").clicked() {
-                                self.startup_filter_impact = Some(ImpactTier::Low);
-                            }
-                        });
-
-                    // Signed filter
-                    egui::ComboBox::from_id_source("signed_filter")
-                        .selected_text(match self.startup_filter_signed {
-                            Some(true) => "Signed",
-                            Some(false) => "Unsigned",
-                            None => "Signed: All",
-                        })
-                        .show_ui(ui, |ui: &mut egui::Ui| {
-                            if ui.selectable_label(self.startup_filter_signed.is_none(), "All").clicked() {
-                                self.startup_filter_signed = None;
-                            }
-                            if ui.selectable_label(self.startup_filter_signed == Some(true), "Signed").clicked() {
-                                self.startup_filter_signed = Some(true);
-                            }
-                            if ui.selectable_label(self.startup_filter_signed == Some(false), "Unsigned").clicked() {
-                                self.startup_filter_signed = Some(false);
-                            }
-                        });
-
-                    ui.checkbox(&mut self.startup_filter_broken, "Broken only");
-                });
-
-                // Sort controls
-                ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new("Sort:").color(ThemePalette::TEXT_LABEL).small());
-
-                    let sorts = [
-                        (StartupSortColumn::Impact, "Impact"),
-                        (StartupSortColumn::Name, "Name"),
-                        (StartupSortColumn::Source, "Source"),
-                        (StartupSortColumn::Publisher, "Publisher"),
-                    ];
-                    for (col, label) in &sorts {
-                        let is_active = self.startup_sort == *col;
-                        let text = if is_active {
-                            let arrow = if self.startup_sort_ascending { "^" } else { "v" };
-                            format!("{} {}", label, arrow)
-                        } else {
-                            label.to_string()
-                        };
-                        if ui.selectable_label(is_active,
-                            egui::RichText::new(text).small()
-                        ).clicked() {
-                            if is_active {
-                                self.startup_sort_ascending = !self.startup_sort_ascending;
-                            } else {
-                                self.startup_sort = *col;
-                                self.startup_sort_ascending = true;
-                            }
-                        }
-                    }
-                });
-            });
-
-            ui.add_space(8.0);
-
-            // ── Apply filters and sort ──
-            let search_lower = self.startup_search.to_lowercase();
-            let mut filtered_indices: Vec<usize> = self.startup_items.iter().enumerate()
-                .filter(|(_, item)| {
-                    // Search filter
-                    if !search_lower.is_empty() {
-                        let matches = item.name.to_lowercase().contains(&search_lower)
-                            || item.command.to_lowercase().contains(&search_lower)
-                            || item.publisher.as_ref().map(|p| p.to_lowercase().contains(&search_lower)).unwrap_or(false);
-                        if !matches { return false; }
-                    }
-                    // Impact filter
-                    if let Some(ref filter) = self.startup_filter_impact {
-                        if item.impact_tier != *filter { return false; }
-                    }
-                    // Signed filter
-                    if let Some(filter_signed) = self.startup_filter_signed {
-                        if item.is_signed != Some(filter_signed) { return false; }
-                    }
-                    // Broken filter
-                    if self.startup_filter_broken && item.exe_exists { return false; }
-                    true
-                })
-                .map(|(i, _)| i)
-                .collect();
-
-            // Sort the filtered view
-            {
-                let items_ref = &self.startup_items;
-                let sort_col = self.startup_sort;
-                let ascending = self.startup_sort_ascending;
-                filtered_indices.sort_by(|a, b| {
-                    let ia = &items_ref[*a];
-                    let ib = &items_ref[*b];
-                    let cmp = match sort_col {
-                        StartupSortColumn::Name => ia.name.to_lowercase().cmp(&ib.name.to_lowercase()),
-                        StartupSortColumn::Impact => ia.impact_tier.sort_key().cmp(&ib.impact_tier.sort_key()),
-                        StartupSortColumn::Source => ia.source.cmp(&ib.source),
-                        StartupSortColumn::Publisher => {
-                            let pa = ia.publisher.as_deref().unwrap_or("zzz").to_lowercase();
-                            let pb = ib.publisher.as_deref().unwrap_or("zzz").to_lowercase();
-                            pa.cmp(&pb)
-                        }
-                    };
-                    if ascending { cmp } else { cmp.reverse() }
-                });
-            }
-
-            if filtered_indices.is_empty() {
-                ui.group(|ui| {
-                    ui.add_space(20.0);
-                    if self.startup_items.is_empty() {
-                        ui.label("No startup items found.");
-                    } else {
-                        ui.label("No items match the current filters.");
-                    }
-                    ui.add_space(20.0);
-                });
-            } else {
-                ui.label(egui::RichText::new(format!("Showing {} of {} item(s)", filtered_indices.len(), self.startup_items.len()))
-                    .small().color(ThemePalette::TEXT_LABEL));
-                ui.add_space(4.0);
-
-                let mut action: Option<(usize, &str)> = None;
-
-                for &idx in &filtered_indices {
-                    let item = &self.startup_items[idx];
-                    let is_confirming = self.startup_show_confirm == Some(idx);
-
-                    ui.group(|ui| {
-                        // ── Row 1: Impact badge + Name + Source ──
-                        ui.horizontal(|ui| {
-                            // Impact badge
-                            let (badge_text, badge_color) = match item.impact_tier {
-                                ImpactTier::High => ("HIGH", ThemePalette::STATUS_CRITICAL),
-                                ImpactTier::Medium => ("MED", ThemePalette::STATUS_WARNING),
-                                ImpactTier::Low => ("LOW", ThemePalette::STATUS_HEALTHY),
-                                ImpactTier::Unknown => ("?", ThemePalette::TEXT_DIMMED),
-                            };
-                            ui.colored_label(badge_color,
-                                egui::RichText::new(badge_text).size(11.0).strong());
-                            ui.separator();
-                            if item.enabled {
-                                ui.strong(&item.name);
-                            } else {
-                                ui.label(egui::RichText::new(&item.name).strong().strikethrough().color(ThemePalette::TEXT_DIMMED));
-                            }
-
-                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                ui.colored_label(ThemePalette::TEXT_TERTIARY,
-                                    egui::RichText::new(&item.source).small());
-                            });
-                        });
-
-                        // ── Row 2: Command path ──
-                        let cmd_display = if item.command.chars().count() > 90 {
-                            let truncated: String = item.command.chars().take(87).collect();
-                            format!("{}...", truncated)
-                        } else {
-                            item.command.clone()
-                        };
-                        ui.label(egui::RichText::new(cmd_display).small().color(ThemePalette::TEXT_DIMMED));
-
-                        // ── Row 3: Publisher + Signed status ──
-                        ui.horizontal(|ui| {
-                            if let Some(ref pub_name) = item.publisher {
-                                ui.label(egui::RichText::new(format!("Publisher: {}", pub_name))
-                                    .small().color(ThemePalette::TEXT_LABEL));
-                            }
-                            match item.is_signed {
-                                Some(true) => { ui.colored_label(ThemePalette::STATUS_HEALTHY,
-                                    egui::RichText::new("Signed").small()); }
-                                Some(false) => { ui.colored_label(ThemePalette::STATUS_CRITICAL,
-                                    egui::RichText::new("Unsigned").small()); }
-                                None => {}
-                            }
-                            if !item.exe_exists && item.exe_path.is_some() {
-                                ui.colored_label(ThemePalette::STATUS_CRITICAL,
-                                    egui::RichText::new("File missing").small());
-                            }
-                        });
-
-                        // ── Row 4: Recommendation + Reason ──
-                        ui.horizontal(|ui| {
-                            let rec_color = match item.recommendation {
-                                Recommendation::Keep => ThemePalette::STATUS_HEALTHY,
-                                Recommendation::Review => ThemePalette::STATUS_WARNING,
-                                Recommendation::Disable => ThemePalette::STATUS_CRITICAL,
-                                Recommendation::Cleanup => ThemePalette::STATUS_CRITICAL,
-                            };
-                            ui.colored_label(rec_color,
-                                egui::RichText::new(format!("> {}", item.recommendation.label()))
-                                    .small().strong());
-                            ui.label(egui::RichText::new(format!("— {}", item.reason))
-                                .small().color(ThemePalette::TEXT_LABEL_SUB));
-                        });
-
-                        // ── Row 5: Actions ──
-                        if is_confirming {
-                            // Confirmation dialog
-                            ui.horizontal(|ui| {
-                                ui.colored_label(ThemePalette::STATUS_WARNING,
-                                    egui::RichText::new(format!("Disable \"{}\" from startup?", item.name)).strong());
-                                if ui.button("Yes, disable").clicked() {
-                                    action = Some((idx, "disable"));
-                                    self.startup_show_confirm = None;
-                                }
-                                if ui.button("Cancel").clicked() {
-                                    self.startup_show_confirm = None;
-                                }
-                            });
-                        } else {
-                            ui.horizontal(|ui| {
-                                let is_elevated = privilege::is_app_elevated();
-                                let can_modify = item.source.contains("HKCU")
-                                    || item.source.contains("Startup Folder")
-                                    || (is_elevated && (item.source.contains("HKLM") || item.source.contains("Task Scheduler")));
-                                let is_keep = item.recommendation == Recommendation::Keep;
-
-                                // Disable/Enable button
-                                if item.enabled {
-                                    ui.add_enabled_ui(can_modify && !is_keep, |ui| {
-                                        if ui.button("Disable").on_hover_text(
-                                            if is_keep { "System component — disabling not recommended" }
-                                            else if !can_modify { "Requires Administrator privileges" }
-                                            else { "Disable this startup item (reversible)" }
-                                        ).clicked() {
-                                            self.startup_show_confirm = Some(idx);
-                                        }
-                                    });
-                                } else {
-                                    ui.add_enabled_ui(can_modify, |ui| {
-                                        if ui.button("Enable").on_hover_text(
-                                            if !can_modify { "Requires Administrator privileges" }
-                                            else { "Re-enable this startup item" }
-                                        ).clicked() {
-                                            action = Some((idx, "enable"));
-                                        }
-                                    });
-                                }
-
-                                // Open location
-                                if let Some(ref path) = item.exe_path {
-                                    if item.exe_exists {
-                                        let path_clone = path.clone();
-                                        if ui.button("Open").on_hover_text("Open file location in Explorer").clicked() {
-                                            startup::open_file_location(&path_clone);
-                                        }
-                                    }
-                                }
-
-                                // Copy command
-                                if ui.button("Copy").on_hover_text("Copy full command to clipboard").clicked() {
-                                    ui.output_mut(|o| o.copied_text = item.command.clone());
-                                }
-
-                                // Search online
-                                let name_clone = item.name.clone();
-                                if ui.button("Search").on_hover_text("Search online for info about this item").clicked() {
-                                    startup::search_online(&name_clone);
-                                }
-
-                                // Remove button (permanent delete for HKCU/Startup Folder/HKLM/Task Scheduler items)
-                                if can_modify && !item.enabled {
-                                    if ui.button("Remove").on_hover_text("Permanently remove this startup item").clicked() {
-                                        action = Some((idx, "remove"));
-                                    }
-                                }
-
-                                // Admin message for HKLM/Task Scheduler items when not elevated
-                                if !can_modify {
-                                    ui.colored_label(ThemePalette::TEXT_DIMMED,
-                                        egui::RichText::new("(Requires Admin)").small());
-                                }
-                            });
-                        }
-                    });
-                    ui.add_space(3.0);
-                }
-
-                // Process actions
-                if let Some((idx, act)) = action {
-                    let item = &self.startup_items[idx];
-                    let item_name = item.name.clone();
-                    let item_source = item.source.clone();
-                    let item_command = item.command.clone();
-                    let tier_before = item.impact_tier.label().to_string();
-                    let high_before = startup::high_impact_count(&self.startup_items);
-
-                    let success = match act {
-                        "disable" => startup::disable_startup_item(&item_name, &item_source, &item_command),
-                        "enable" => startup::reenable_startup_item(&item_name, &item_source),
-                        "remove" => startup::remove_startup_item(&item_name, &item_source),
-                        _ => false,
-                    };
-
-                    if success {
-                        let high_after = if self.startup_items[idx].impact_tier == ImpactTier::High {
-                            if act == "disable" { high_before.saturating_sub(1) } else { high_before + 1 }
-                        } else {
-                            high_before
-                        };
-
-                        self.settings.startup_optimization_history.push(StartupOptimizationEntry {
-                            timestamp: chrono::Local::now().format("%Y-%m-%d %H:%M").to_string(),
-                            action: act.to_string(),
-                            item_name: item_name.clone(),
-                            item_source,
-                            impact_tier_before: tier_before,
-                            high_impact_count_before: high_before,
-                            high_impact_count_after: high_after,
-                        });
-                        let _ = self.settings.save();
-                        self.startup_items_loaded = false;
-                        *self.startup_items_share.lock() = None;
-                        *self.boot_diagnostics_share.lock() = None;
-                    }
-                }
-            }
-
-            // ── Optimization History ──
-            if !self.settings.startup_optimization_history.is_empty() {
-                ui.add_space(16.0);
-                ui.group(|ui| {
-                    ui.heading("Optimization History");
-                    ui.separator();
-
-                    let history = &self.settings.startup_optimization_history;
-                    let show_count = history.len().min(10);
-                    for entry in history.iter().rev().take(show_count) {
-                        ui.horizontal(|ui| {
-                            ui.colored_label(ThemePalette::TEXT_LABEL,
-                                egui::RichText::new(&entry.timestamp).small());
-                            ui.label(egui::RichText::new(format!("{} \"{}\"",
-                                entry.action, entry.item_name)).small());
-                            let delta = entry.high_impact_count_before as i32 - entry.high_impact_count_after as i32;
-                            if delta > 0 {
-                                ui.colored_label(ThemePalette::STATUS_HEALTHY,
-                                    egui::RichText::new(format!("-{} high", delta)).small());
-                            }
-                        });
-                    }
-                });
-            }
-        });
-    }
 
     /// Render the compact desktop mini-widget telemetry panel.
     fn render_widget(&mut self, ui: &mut egui::Ui, data: &SystemData) {
@@ -5077,405 +2954,10 @@ impl SystemMonitorApp {
         });
     }
 
-    fn show_settings_tab(&mut self, ui: &mut egui::Ui) {
-        paint_section_header(ui, "Application Settings");
 
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            let mut changed = false;
-            let mut theme_changed = false;
 
-            // --- General Group ---
-            ui.group(|ui| {
-                ui.set_width(ui.available_width());
-                ui.horizontal(|ui| {
-                    ui.heading("General");
-                });
-                ui.add_space(8.0);
 
-                ui.columns(2, |cols| {
-                    cols[0].vertical(|ui| {
-                        changed |= ui
-                            .checkbox(&mut self.settings.show_graphs, "Show Performance Graphs")
-                            .changed();
-                        changed |= ui
-                            .checkbox(&mut self.settings.show_gpu, "Show GPU Information")
-                            .changed();
-                        changed |= ui
-                            .checkbox(&mut self.settings.show_processes, "Show Process List")
-                            .changed();
-                        changed |= ui
-                            .checkbox(&mut self.settings.show_per_core_cpu, "Show Per-Core CPU in Overview")
-                            .changed();
-                        changed |= ui
-                            .checkbox(&mut self.settings.show_cpu_cores, "Show CPU Cores Tab")
-                            .changed();
-                        changed |= ui
-                            .checkbox(&mut self.settings.show_widget, "Show desktop mini-widget")
-                            .changed();
-                        self.widget_open = self.settings.show_widget;
-                    });
 
-                    cols[1].vertical(|ui| {
-                        changed |= ui
-                            .checkbox(&mut self.settings.show_notifications, "Enable Desktop Notifications")
-                            .changed();
-                        changed |= ui
-                            .checkbox(&mut self.settings.enable_sounds, "Enable System Event Sounds")
-                            .changed();
-                        if ui
-                            .checkbox(&mut self.settings.theme_dark, "Dark Theme (Terminal Noir)")
-                            .changed()
-                        {
-                            changed = true;
-                            theme_changed = true;
-                        }
-                        changed |= ui
-                            .checkbox(&mut self.settings.auto_clear_alerts, "Auto-clear resolved alerts")
-                            .changed();
-                    });
-                });
-            });
-            ui.add_space(12.0);
-
-            // --- Monitoring Group ---
-            ui.group(|ui| {
-                ui.set_width(ui.available_width());
-                ui.horizontal(|ui| {
-                    ui.heading("Monitoring");
-                });
-                ui.add_space(8.0);
-
-                egui::Grid::new("monitoring_grid")
-                    .num_columns(2)
-                    .spacing([24.0, 12.0])
-                    .min_col_width(200.0)
-                    .show(ui, |ui| {
-                        ui.label("Data refresh interval:");
-                        changed |= ui
-                            .add(egui::Slider::new(&mut self.settings.refresh_interval, 1..=10).suffix("s"))
-                            .changed();
-                        ui.end_row();
-
-                        ui.label("Number of processes to show:");
-                        changed |= ui
-                            .add(egui::Slider::new(&mut self.settings.process_count, 5..=100))
-                            .changed();
-                        ui.end_row();
-                    });
-            });
-            ui.add_space(12.0);
-
-            // --- Alert Thresholds Group ---
-            ui.group(|ui| {
-                ui.set_width(ui.available_width());
-                ui.horizontal(|ui| {
-                    ui.heading("Alert Thresholds");
-                });
-                ui.add_space(8.0);
-
-                egui::Grid::new("alert_thresholds_grid")
-                    .num_columns(2)
-                    .spacing([24.0, 12.0])
-                    .min_col_width(200.0)
-                    .show(ui, |ui| {
-                        ui.label("CPU Usage % Alert:");
-                        changed |= ui
-                            .add(egui::Slider::new(&mut self.settings.notification_cpu_threshold, 50.0..=100.0).suffix("%"))
-                            .changed();
-                        ui.end_row();
-
-                        ui.label("Memory Usage % Alert:");
-                        changed |= ui
-                            .add(egui::Slider::new(&mut self.settings.notification_memory_threshold, 50.0..=100.0).suffix("%"))
-                            .changed();
-                        ui.end_row();
-
-                        ui.label("Temperature °C Alert:");
-                        changed |= ui
-                            .add(egui::Slider::new(&mut self.settings.notification_temp_threshold, 60..=105).suffix("°C"))
-                            .changed();
-                        ui.end_row();
-                    });
-            });
-            ui.add_space(12.0);
-
-            // --- Windows Integration Group ---
-            #[cfg(target_os = "windows")]
-            {
-                ui.group(|ui| {
-                    ui.set_width(ui.available_width());
-                    ui.horizontal(|ui| {
-                        ui.heading("Windows Integration");
-                    });
-                    ui.add_space(8.0);
-
-                    if ui
-                        .checkbox(&mut self.settings.auto_start, "Start with Windows")
-                        .changed()
-                    {
-                        changed = true;
-                        let _ = self.settings.set_auto_start(self.settings.auto_start);
-                    }
-                    changed |= ui
-                        .checkbox(&mut self.settings.minimize_to_tray, "Minimize to system tray on close")
-                        .changed();
-                    changed |= ui
-                        .checkbox(&mut self.settings.start_minimized, "Start minimized on launch")
-                        .changed();
-                });
-                ui.add_space(12.0);
-            }
-
-            // --- Export Group ---
-            ui.group(|ui| {
-                ui.set_width(ui.available_width());
-                ui.horizontal(|ui| {
-                    ui.heading("Export Data");
-                });
-                ui.add_space(8.0);
-                ui.horizontal(|ui| {
-                    if ui.button("📊 Export to CSV").clicked() {
-                        self.show_export_csv = true;
-                    }
-                    if ui.button("📄 Export to JSON").clicked() {
-                        self.show_export = true;
-                    }
-                });
-                ui.label(egui::RichText::new("Save current system snapshot to a file")
-                    .size(11.0).color(ThemePalette::TEXT_DIMMED));
-            });
-            ui.add_space(12.0);
-
-            if changed {
-                let _ = self.settings.save();
-                // Sync settings to the background thread
-                {
-                    let mut shared = self.shared_settings.lock();
-                    *shared = self.settings.clone();
-                }
-            }
-
-            // Apply theme change live
-            if theme_changed {
-                if self.settings.theme_dark {
-                    let mut visuals = egui::Visuals::dark();
-                    visuals.panel_fill = ThemePalette::BG_DEEP;
-                    visuals.window_fill = ThemePalette::BG_SURFACE;
-                    visuals.extreme_bg_color = ThemePalette::BG_DEEPEST;
-                    visuals.selection.bg_fill = ThemePalette::ACCENT_PRIMARY;
-                    visuals.selection.stroke = egui::Stroke::new(1.0, ThemePalette::ACCENT_ACTIVE);
-                    visuals.hyperlink_color = ThemePalette::ACCENT_PRIMARY;
-                    visuals.widgets.noninteractive.bg_fill = ThemePalette::BG_CARD;
-                    visuals.widgets.noninteractive.bg_stroke = egui::Stroke::new(1.0, ThemePalette::BORDER);
-                    visuals.widgets.noninteractive.fg_stroke = egui::Stroke::new(1.0, ThemePalette::TEXT_PRIMARY);
-                    visuals.widgets.inactive.bg_fill = ThemePalette::WIDGET_INACTIVE;
-                    visuals.widgets.inactive.bg_stroke = egui::Stroke::new(1.0, ThemePalette::BORDER);
-                    visuals.widgets.inactive.fg_stroke = egui::Stroke::new(1.0, ThemePalette::TEXT_SECONDARY);
-                    visuals.widgets.hovered.bg_fill = ThemePalette::WIDGET_HOVERED;
-                    visuals.widgets.hovered.bg_stroke = egui::Stroke::new(1.0, ThemePalette::BORDER_LIGHT);
-                    visuals.widgets.hovered.fg_stroke = egui::Stroke::new(1.0, ThemePalette::TEXT_SELECTED);
-                    visuals.widgets.active.bg_fill = ThemePalette::ACCENT_ACTIVE;
-                    visuals.widgets.active.bg_stroke = egui::Stroke::new(1.0, ThemePalette::ACCENT_PRIMARY);
-                    visuals.widgets.active.fg_stroke = egui::Stroke::new(1.0, ThemePalette::TEXT_SELECTED);
-                    visuals.window_rounding = egui::Rounding::same(8.0);
-                    visuals.menu_rounding = egui::Rounding::same(8.0);
-                    visuals.widgets.noninteractive.rounding = egui::Rounding::same(8.0);
-                    visuals.widgets.inactive.rounding = egui::Rounding::same(8.0);
-                    visuals.widgets.hovered.rounding = egui::Rounding::same(8.0);
-                    visuals.widgets.active.rounding = egui::Rounding::same(8.0);
-                    visuals.window_stroke = egui::Stroke::new(1.0, ThemePalette::BORDER_LIGHT);
-                    visuals.window_shadow = egui::epaint::Shadow {
-                        offset: egui::vec2(0.0, 12.0),
-                        blur: 32.0,
-                        spread: -4.0,
-                        color: egui::Color32::from_rgba_premultiplied(0, 0, 0, 180),
-                    };
-                    visuals.popup_shadow = egui::epaint::Shadow {
-                        offset: egui::vec2(0.0, 8.0),
-                        blur: 24.0,
-                        spread: -2.0,
-                        color: egui::Color32::from_rgba_premultiplied(0, 0, 0, 150),
-                    };
-                    ui.ctx().set_visuals(visuals);
-                } else {
-                    ui.ctx().set_visuals(egui::Visuals::light());
-                }
-            }
-        });
-    }
-    fn show_about_tab(&self, ui: &mut egui::Ui, _data: &SystemData) {
-        paint_section_header(ui, "About");
-
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            ui.add_space(8.0);
-
-            // Hero brand
-            ui.group(|ui| {
-                ui.horizontal(|ui| {
-                    ui.add(
-                        egui::Image::new(egui::include_image!("../assets/icon.png"))
-                            .max_width(40.0)
-                            .max_height(40.0),
-                    );
-                    ui.add_space(8.0);
-                    ui.vertical(|ui| {
-                        ui.label(
-                            egui::RichText::new("System Monitor")
-                                .size(22.0)
-                                .strong()
-                                .color(ThemePalette::TEXT_PRIMARY),
-                        );
-                        ui.label(
-                            egui::RichText::new(format!("v{} · Terminal Noir", APP_VERSION))
-                                .size(12.0)
-                                .color(ThemePalette::TEXT_TERTIARY),
-                        );
-                    });
-                });
-                ui.add_space(6.0);
-                ui.label(
-                    egui::RichText::new("Professional system intelligence for Windows — built with Rust and egui.")
-                        .size(13.0)
-                        .color(ThemePalette::TEXT_SUBTITLE),
-                );
-            });
-
-            ui.add_space(10.0);
-
-            ui.columns(2, |cols| {
-                cols[0].group(|ui| {
-                    ui.label(
-                        egui::RichText::new("FEATURES")
-                            .size(10.0)
-                            .color(ThemePalette::ACCENT_PRIMARY),
-                    );
-                    ui.add_space(6.0);
-                    for item in &[
-                        "Real-time CPU, Memory & GPU",
-                        "Historical performance graphs",
-                        "Process monitoring & management",
-                        "Color-coded usage indicators",
-                        "Per-core CPU breakdown",
-                        "Smart alerts system",
-                    ] {
-                        ui.horizontal(|ui| {
-                            ui.label(egui::RichText::new("›").color(ThemePalette::ACCENT_PRIMARY));
-                            ui.label(egui::RichText::new(*item).size(12.5).color(ThemePalette::TEXT_FEATURE));
-                        });
-                    }
-                });
-
-                cols[1].group(|ui| {
-                    ui.label(
-                        egui::RichText::new("TECHNICAL")
-                            .size(10.0)
-                            .color(ThemePalette::ACCENT_PRIMARY),
-                    );
-                    ui.add_space(6.0);
-                    let refresh_str = format!("{} s interval", self.settings.refresh_interval);
-                    let specs: Vec<(&str, &str)> = vec![
-                        ("Framework", "egui + eframe"),
-                        ("System", "sysinfo crate"),
-                        ("GPU", "NVML (NVIDIA)"),
-                        ("Refresh", &refresh_str),
-                        ("History", "60 data points"),
-                        ("License", "MIT — open source"),
-                    ];
-                    for (k, v) in &specs {
-                        ui.horizontal(|ui| {
-                            ui.label(egui::RichText::new(*k).size(11.5).color(ThemePalette::TEXT_TERTIARY));
-                            ui.label(
-                                egui::RichText::new(*v)
-                                    .size(12.0)
-                                    .color(egui::Color32::from_rgb(185, 195, 215)),
-                            );
-                        });
-                    }
-                });
-            });
-
-            ui.add_space(10.0);
-
-            ui.group(|ui| {
-                ui.label(
-                    egui::RichText::new("COLOR LEGEND")
-                        .size(10.0)
-                        .color(ThemePalette::ACCENT_PRIMARY),
-                );
-                ui.add_space(6.0);
-                ui.horizontal(|ui| {
-                    ui.colored_label(ThemePalette::STATUS_HEALTHY, "●  Healthy < 50%");
-                    ui.add_space(16.0);
-                    ui.colored_label(ThemePalette::STATUS_WARNING, "●  Moderate 50-75%");
-                    ui.add_space(16.0);
-                    ui.colored_label(ThemePalette::STATUS_CRITICAL, "●  Critical > 75%");
-                });
-            });
-        });
-    }
-
-    fn show_services_tab(&mut self, ui: &mut egui::Ui, data: &SystemData) {
-        paint_section_header(ui, "Windows Services");
-
-        if data.services.is_empty() {
-            ui.add_space(16.0);
-            ui.label(egui::RichText::new("Loading services…").color(ThemePalette::TEXT_SECONDARY));
-            return;
-        }
-
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            egui::Grid::new("services_grid")
-                .striped(true)
-                .min_col_width(200.0)
-                .show(ui, |ui| {
-                    ui.strong("Display Name");
-                    ui.strong("Service Name");
-                    ui.strong("State");
-                    ui.strong("Actions");
-                    ui.end_row();
-
-                    for svc in &data.services {
-                        ui.label(&svc.display_name);
-                        ui.label(&svc.name);
-                        let color = if svc.state == "Running" {
-                            egui::Color32::from_rgb(0, 200, 100)
-                        } else {
-                            ThemePalette::TEXT_SECONDARY
-                        };
-                        ui.colored_label(color, &svc.state);
-
-                        ui.horizontal(|ui| {
-                            let start_btn = ui.small_button("Start");
-                            let stop_btn = ui.small_button("Stop");
-                            let restart_btn = ui.small_button("Restart");
-                            if start_btn.clicked() {
-                                self.pending_service_action = Some(services::ServiceAction {
-                                    name: svc.name.clone(),
-                                    action: services::ServiceControlAction::Start,
-                                });
-                            }
-                            if stop_btn.clicked() {
-                                self.pending_service_action = Some(services::ServiceAction {
-                                    name: svc.name.clone(),
-                                    action: services::ServiceControlAction::Stop,
-                                });
-                            }
-                            if restart_btn.clicked() {
-                                self.pending_service_action = Some(services::ServiceAction {
-                                    name: svc.name.clone(),
-                                    action: services::ServiceControlAction::Restart,
-                                });
-                            }
-                        });
-                        ui.end_row();
-                    }
-                });
-        });
-
-        if let Some(action) = self.pending_service_action.take() {
-            let _ = services::send_service_control(&action.name, action.action);
-        }
-    }
 }
 
 fn load_icon() -> Option<egui::IconData> {
