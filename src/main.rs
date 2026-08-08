@@ -1,5 +1,6 @@
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 pub(crate) mod ui;
+pub(crate) mod app;
 use crate::ui::theme::ThemePalette;
 use crate::ui::components::*;
 use chrono::Local;
@@ -228,7 +229,7 @@ pub(crate) struct SystemInfo {
 }
 
 // Settings structure
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub(crate) struct AppSettings {
     pub(crate) refresh_interval: u64,
     pub(crate) show_graphs: bool,
@@ -1247,6 +1248,9 @@ impl Default for SystemData {
 
 pub(crate) struct SystemMonitorApp {
     pub(crate) data: Arc<Mutex<SystemData>>,
+    pub(crate) app_channels: app::AppChannels,
+    pub(crate) latest_snapshot: Option<monitoring::SystemSnapshot>,
+    pub(crate) action_events: Vec<app::events::AppEvent>,
     pub(crate) settings: AppSettings,
     pub(crate) shared_settings: Arc<Mutex<AppSettings>>,
     pub(crate) selected_tab: Tab,
@@ -1933,7 +1937,12 @@ impl SystemMonitorApp {
             })
             .ok();
 
+        let app_channels = app::AppChannels::new();
+
         Self {
+            app_channels,
+            latest_snapshot: None,
+            action_events: Vec::new(),
             data,
             settings: settings.clone(),
             shared_settings,
@@ -2098,6 +2107,12 @@ impl SystemMonitorApp {
 }
 impl eframe::App for SystemMonitorApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        while let Ok(event) = self.app_channels.event_receiver.try_recv() {
+            match event {
+                app::events::AppEvent::Snapshot(snapshot) => self.latest_snapshot = Some(snapshot),
+                event => self.action_events.push(event),
+            }
+        }
         eprintln!("DBG: update() function started running");
         {
             let mut data = self.data.lock();

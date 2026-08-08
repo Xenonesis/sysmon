@@ -41,7 +41,7 @@ pub struct StartupItem {
     pub reason: String,
 }
 
-#[derive(Clone, Serialize, Deserialize, Default)]
+#[derive(Clone, Serialize, Deserialize, Default, Debug)]
 pub struct BootDiagnostics {
     pub boot_duration_ms: Option<u64>,
     pub main_path_boot_ms: Option<u64>,
@@ -50,7 +50,7 @@ pub struct BootDiagnostics {
     pub degrading_items: Vec<String>,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct StartupOptimizationEntry {
     pub timestamp: String,
     pub action: String,
