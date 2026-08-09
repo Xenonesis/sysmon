@@ -99,6 +99,31 @@
                 </div>
             </section>
 
+            <!-- Screenshots gallery -->
+            <section class="section" aria-label="Inside the app">
+                <div class="container">
+                    <div class="section-head">
+                        <p class="eyebrow">Inside the app</p>
+                        <h2 class="section-title">A live view of your machine.</h2>
+                        <p class="section-lede">Telemetry panels rendered in real time — dark and light, both fully readable. These capture the actual v2.6.1 interface.</p>
+                    </div>
+                    <div class="shots">
+                        <figure class="shot-frame shot-wide">
+                            <img src="assets/screenshot-overview.png" alt="SysMon Overview showing live CPU, memory, GPU, disk and network telemetry" width="1672" height="1256" loading="lazy">
+                            <figcaption>Overview — the live dashboard</figcaption>
+                        </figure>
+                        <figure class="shot-frame">
+                            <img src="assets/screenshot-perf.png" alt="SysMon performance and core telemetry views" width="1672" height="1256" loading="lazy">
+                            <figcaption>Performance &amp; core telemetry</figcaption>
+                        </figure>
+                        <figure class="shot-frame">
+                            <img src="assets/screenshot-proc.png" alt="SysMon process and system control views" width="1672" height="1256" loading="lazy">
+                            <figcaption>Process &amp; system control</figcaption>
+                        </figure>
+                    </div>
+                </div>
+            </section>
+
             <!-- Features -->
             <section id="features" class="section">
                 <div class="container">
@@ -296,17 +321,29 @@
                         <p class="section-lede">A stability rewrite plus configurable RAM cleaning and hardened auto-updates.</p>
                     </div>
                     <div class="changelog-grid">
-                        <div class="change-item">
-                            <span class="change-type">Stability rewrite</span>
-                            <p class="change-desc">Long-lived monitoring and action workers with command/event boundaries; telemetry rates computed from counter deltas — no inflated first sample.</p>
+                        <div class="change-item change-major">
+                            <span class="change-type">Architecture &amp; stability</span>
+                            <p class="change-desc">Long-lived monitoring and action workers with clean command/event boundaries and typed action results. One shared monitor instance instead of repeated per-action initialisation. Telemetry rates computed from counter deltas — no inflated first sample, and safe when counters reset.</p>
                         </div>
                         <div class="change-item">
-                            <span class="change-type">Configurable RAM clean</span>
-                            <p class="change-desc">Trigger threshold, cleanup target, interval, per-pass cap, idle-only mode, excluded processes and freed-MB notifications.</p>
+                            <span class="change-type">Standard-user support</span>
+                            <p class="change-desc">Runs without elevation for everyday monitoring. Privileged operations (kill, service control, RAM cleaning) report access-denied clearly instead of silently failing.</p>
+                        </div>
+                        <div class="change-item">
+                            <span class="change-type">Configurable auto RAM clean</span>
+                            <p class="change-desc">Trigger threshold, cleanup target, minimum interval, per-pass MB cap, idle-only mode, excluded processes, and freed-MB notifications — all persisted.</p>
+                        </div>
+                        <div class="change-item">
+                            <span class="change-type">Reliable alerts</span>
+                            <p class="change-desc">Alerts deduplicated per metric and device; multi-GPU temperature resolution. No more alert spam or first-GPU-only clearing.</p>
                         </div>
                         <div class="change-item">
                             <span class="change-type">Hardened updates</span>
-                            <p class="change-desc">HTTPS-only assets, size limits, Authenticode verification and explicit install — self-signed builds now install by pinned thumbprint. Installable-only releases.</p>
+                            <p class="change-desc">HTTPS-only release assets, download size limits, Authenticode verification with pinned-thumbprint support for self-signed builds, and explicit, verified installs — no silent background auto-install.</p>
+                        </div>
+                        <div class="change-item">
+                            <span class="change-type">Under the hood</span>
+                            <p class="change-desc">Deterministic process-tree construction, service restarts that wait for real state, malformed power-plan GUIDs rejected, and a zero-warning build under strict flags.</p>
                         </div>
                     </div>
                 </div>
