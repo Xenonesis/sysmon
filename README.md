@@ -7,7 +7,7 @@ A comprehensive, professional system monitoring application built with Rust feat
 [![License: MIT](https://img.shields.io/badge/License-MIT-gray.svg?style=flat-square)](https://opensource.org/licenses/MIT)
 [![Rust](https://img.shields.io/badge/Rust-1.70%2B-gray.svg?style=flat-square)](https://www.rust-lang.org/)
 [![Platform](https://img.shields.io/badge/Platform-Windows-gray.svg?style=flat-square)](https://www.microsoft.com/windows)
-[![Version](https://img.shields.io/badge/Version-2.5.0-gray.svg?style=flat-square)](https://github.com/Xenonesis/sysmon/releases/latest)
+[![Version](https://img.shields.io/badge/Version-2.6.0-gray.svg?style=flat-square)](https://github.com/Xenonesis/sysmon/releases/latest)
 
 ---
 
@@ -15,7 +15,7 @@ A comprehensive, professional system monitoring application built with Rust feat
 
 The recommended distribution is our standalone Windows installer, providing automatic updates and seamless system integration.
 
-**[Download SysMon Installer (v2.5.0)](https://systemmonitor.xenonesis.dev)**
+**[Download SysMon Installer (v2.6.0)](https://systemmonitor.xenonesis.dev)**
 
 **Installer Features:**
 * **Native Integration:** Installs to `Program Files` with a searchable Start Menu entry.
@@ -72,6 +72,13 @@ The compiled executable will be located at: `target/release/system-monitor.exe`.
 ---
 
 ## Changelog
+
+### [2.6.0] — Stability Rewrite
+* **Architecture:** Long-lived monitoring and action workers with command/event boundaries; typed action results.
+* **Accuracy:** Telemetry rates computed from counter deltas (no inflated first sample, safe on counter reset).
+* **Safety:** Explicit validated updates (HTTPS-only asset, size cap, Authenticode check); atomic settings persistence; standard-user support (asInvoker).
+* **Reliability:** Alert deduplication, multi-GPU alert resolution, service restart state polling, process-tree determinism.
+* **Zero warnings:** Full crate compiles clean under `-Dwarnings`.
 
 ### [2.5.0] — Power & Desktop Widget
 * **Power Plan Toggle:** Enumerate and switch active Windows power schemes from the tray menu.
