@@ -4,6 +4,7 @@ pub(crate) mod app;
 use crate::ui::theme::ThemePalette;
 use crate::ui::components::*;
 use chrono::Local;
+mod persistence;
 mod monitoring;
 mod updater;
 mod startup;
@@ -351,10 +352,8 @@ impl AppSettings {
     fn load() -> Self {
         if let Some(config_dir) = directories::ProjectDirs::from("com", "Xenonesis", "SystemMonitor") {
             let config_path = config_dir.config_dir().join("settings.json");
-            if let Ok(contents) = fs::read_to_string(config_path) {
-                if let Ok(settings) = serde_json::from_str(&contents) {
-                    return settings;
-                }
+            if let Ok(settings) = persistence::settings::load(&config_path) {
+                return settings;
             }
         }
         Self::default()
@@ -365,8 +364,7 @@ impl AppSettings {
             let config_path = config_dir.config_dir();
             fs::create_dir_all(config_path)?;
             let config_file = config_path.join("settings.json");
-            let contents = serde_json::to_string_pretty(self)?;
-            fs::write(config_file, contents)?;
+            persistence::settings::save(&config_file, self)?;
         }
         Ok(())
     }
@@ -1991,6 +1989,11 @@ impl SystemMonitorApp {
         }
     }
 
+    fn export_diagnostics(&self, destination: &std::path::Path) -> Result<std::path::PathBuf, std::io::Error> {
+        let snapshot = self.latest_snapshot.as_ref().cloned().unwrap_or_else(|| snapshot_from_data(&self.data.lock()));
+        persistence::diagnostics::export(destination, &snapshot, &self.settings)
+    }
+
     fn export_to_csv(&self, data: &SystemData) -> Result<String, Box<dyn std::error::Error>> {
         let mut wtr = csv::Writer::from_writer(vec![]);
 
@@ -2969,6 +2972,37 @@ pub(crate) fn run_action_worker(
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_path(name: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!("sysmon-{name}-{}", SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()))
+    }
+
+    #[test]
+    fn validation_clamps_user_ranges() {
+        let mut settings = AppSettings::default();
+        settings.refresh_interval = 0;
+        settings.process_count = 999;
+        settings.ram_clean_threshold = 1.0;
+        let checked = crate::persistence::settings::validated(settings);
+        assert_eq!(checked.refresh_interval, 1);
+        assert_eq!(checked.process_count, 100);
+        assert_eq!(checked.ram_clean_threshold, 50.0);
+    }
+
+    #[test]
+    fn save_and_load_round_trip() {
+        let path = temp_path("settings.json");
+        let settings = AppSettings::default();
+        crate::persistence::settings::save(&path, &settings).unwrap();
+        let loaded = crate::persistence::settings::load(&path).unwrap();
+        assert_eq!(loaded.refresh_interval, settings.refresh_interval);
+        let _ = std::fs::remove_file(path);
+    }
+}
 fn snapshot_from_data(data: &SystemData) -> monitoring::SystemSnapshot {
     monitoring::SystemSnapshot {
         sampled_at: std::time::SystemTime::now(),
@@ -3232,7 +3266,7 @@ fn main() {
 
 
 #[cfg(test)]
-mod tests {
+mod persistence_tests {
     use super::*;
 
     #[test]
