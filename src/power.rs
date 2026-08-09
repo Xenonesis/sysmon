@@ -22,18 +22,14 @@ pub struct PowerPlan {
 /// Parse a GUID string like `{381b4222-f694-41f0-9685-ff5bb260df2e}` (braces and
 /// hyphens optional) into a `windows_sys::core::GUID`. Falls back to the nil
 /// GUID on malformed input.
-fn parse_guid(s: &str) -> windows_sys::core::GUID {
-    let hex: String = s
-        .trim()
-        .trim_start_matches('{')
-        .trim_end_matches('}')
-        .chars()
-        .filter(|c| *c != '-')
-        .collect();
-    if hex.len() != 32 {
-        return windows_sys::core::GUID::from_u128(0);
+fn parse_guid(s: &str) -> Result<windows_sys::core::GUID, String> {
+    let hex: String = s.trim().trim_start_matches('{').trim_end_matches('}')
+        .chars().filter(|c| *c != '-').collect();
+    if hex.len() != 32 || !hex.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err(format!("Invalid power-plan GUID: {s}"));
     }
-    windows_sys::core::GUID::from_u128(u128::from_str_radix(&hex, 16).unwrap_or(0))
+    u128::from_str_radix(&hex, 16).map(windows_sys::core::GUID::from_u128)
+        .map_err(|_| format!("Invalid power-plan GUID: {s}"))
 }
 
 /// Format a `windows_sys::core::GUID` as a canonical `{xxxxxxxx-xxxx-...}` string.
@@ -105,7 +101,10 @@ pub fn get_power_plans() -> Vec<PowerPlan> {
             if guid_str.is_empty() {
                 continue;
             }
-            let guid = parse_guid(&guid_str);
+            let guid = match parse_guid(&guid_str) {
+                Ok(guid) => guid,
+                Err(_) => continue,
+            };
 
             let mut name_buf = [0u16; 260];
             let mut name_size = (name_buf.len() * 2) as u32;
@@ -158,12 +157,24 @@ pub fn get_power_plans() -> Vec<PowerPlan> {
 
 pub fn set_active_power_plan(guid: &str) -> Result<(), String> {
     unsafe {
-        let g = parse_guid(guid);
+        let g = parse_guid(guid)?;
         let res = PowerSetActiveScheme(ptr::null_mut(), &g);
-        if res == ERROR_SUCCESS {
-            Ok(())
-        } else {
-            Err(format!("PowerSetActiveScheme failed: {res}"))
-        }
+        if res == ERROR_SUCCESS { Ok(()) } else { Err(format!("PowerSetActiveScheme failed: {res}")) }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rejects_malformed_guid() {
+        assert!(parse_guid("not-a-guid").is_err());
+        assert!(parse_guid("{00000000-0000-0000-0000-00000000000z}").is_err());
+    }
+
+    #[test]
+    fn parses_canonical_guid() {
+        assert_eq!(format_guid(&parse_guid("{381b4222-f694-41f0-9685-ff5bb260df2e}").unwrap()), "{381b4222-f694-41f0-9685-ff5bb260df2e}");
     }
 }

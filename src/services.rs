@@ -48,10 +48,18 @@ pub fn send_service_control(name: &str, action: ServiceControlAction) -> bool {
         ServiceControlAction::Stop => service.stop().is_ok(),
         ServiceControlAction::Restart => {
             let stop_ok = service.stop().is_ok();
-            let _ = std::thread::sleep(std::time::Duration::from_millis(250));
+            if !stop_ok { return false; }
+            let stopped = (0..20).any(|_| {
+                std::thread::sleep(std::time::Duration::from_millis(100));
+                service.query_status().map(|s| matches!(s.current_state, windows_service::service::ServiceState::Stopped)).unwrap_or(false)
+            });
+            if !stopped { return false; }
             let empty: Vec<String> = Vec::new();
-            let start_ok = service.start(&empty).is_ok();
-            stop_ok && start_ok
+            if service.start(&empty).is_err() { return false; }
+            (0..20).any(|_| {
+                std::thread::sleep(std::time::Duration::from_millis(100));
+                service.query_status().map(|s| matches!(s.current_state, windows_service::service::ServiceState::Running)).unwrap_or(false)
+            })
         }
     }
 }
