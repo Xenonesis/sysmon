@@ -258,8 +258,6 @@ h1, h2, h3, h4 {
 .download-meta { font-family: var(--font-mono); font-size: var(--text-xs); color: color-mix(in oklch, var(--paper) 60%, transparent); }
 
 /* ── Changelog ────────────────────────────────────────────── */
-/* -- Screenshots gallery ------------------------------------------ */
-
 .changelog-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-4); }
 .change-item { border-top: 2px solid var(--ink); padding-top: var(--space-4); }
 [data-theme="dark"] .change-item { border-top-color: var(--accent); }
