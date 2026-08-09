@@ -1,29 +1,30 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SysMon — Refined System Intelligence</title>
-    <meta name="description" content="Professional system monitoring built with Rust. Real-time CPU, memory, GPU and process intelligence for Windows.">
-    
-    <!-- Favicon -->
+    <title>SysMon — System Intelligence, in Rust</title>
+    <meta name="description" content="Professional Windows system monitoring, built in Rust. Real-time CPU, memory, GPU, disk, network, process and thermal telemetry — with process management, RAM cleaning and automatic verified updates.">
+
     <link rel="icon" type="image/x-icon" href="favicon.ico">
     <link rel="icon" type="image/png" sizes="32x32" href="assets/icon.png">
-    <link rel="icon" type="image/png" sizes="16x16" href="assets/icon.png">
     <link rel="apple-touch-icon" sizes="180x180" href="assets/icon.png">
-    <meta name="theme-color" content="#FAFAFA">
-    <meta name="theme-color" content="#0F0F0F" media="(prefers-color-scheme: dark)">
+    <meta name="theme-color" content="#f8f8f8" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#15151a" media="(prefers-color-scheme: dark)">
+
+    <link rel="stylesheet" href="tokens.css">
     <link rel="stylesheet" href="styles.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&family=Playfair+Display:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;550;600&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 </head>
 <body>
     <div class="page-wrapper">
-        <!-- Navigation -->
-        <nav class="nav" id="nav">
+
+        <!-- Nav -->
+        <nav class="nav" id="nav" aria-label="Main navigation">
             <div class="nav-container">
-                <a href="#" class="nav-brand" aria-label="SysMon Home">
+                <a href="#" class="nav-brand" aria-label="SysMon home">
                     <span class="brand-icon">◈</span>
                     <span class="brand-name">SysMon</span>
                 </a>
@@ -31,337 +32,225 @@
                     <a href="#features">Features</a>
                     <a href="#modules">Modules</a>
                     <a href="#download">Download</a>
-                    <a href="#docs">Documentation</a>
+                    <a href="#docs">Docs</a>
                     <a href="https://github.com/Xenonesis/sysmon" target="_blank" rel="noopener" class="nav-link-github">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+                        <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
                         <span>GitHub</span>
                     </a>
-                    <button class="theme-toggle" id="themeToggle" aria-label="Toggle dark mode" title="Toggle dark mode">
-                        <svg class="theme-icon-sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
-                        <svg class="theme-icon-moon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+                    <button class="theme-toggle" id="themeToggle" aria-label="Toggle color mode" title="Toggle theme">
+                        <svg class="theme-icon-sun" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+                        <svg class="theme-icon-moon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
                     </button>
                 </div>
                 <button class="nav-toggle" id="navToggle" aria-label="Toggle navigation" aria-expanded="false">
-                    <span></span>
-                    <span></span>
+                    <span></span><span></span>
                 </button>
             </div>
         </nav>
 
-        <!-- Hero Section -->
-        <header class="hero">
-            <div class="hero-content">
-                <div class="hero-badge">
-                    <span class="badge-dot"></span>
-                    Crafted with Rust
-                </div>
-                <h1 class="hero-title">
-                    System Intelligence,<br>
-                    <span class="hero-accent">Reimagined.</span>
-                </h1>
-                <p class="hero-description">
-                    Refined system monitoring for the discerning developer. Real-time insights into CPU, memory, GPU, and processes — all in an elegant, lightweight package.
+        <!-- Hero -->
+        <header class="hero container" role="banner">
+            <div>
+                <p class="eyebrow">Crafted with Rust</p>
+                <h1 class="hero-title">System intelligence,<br><span class="hero-accent">without the noise.</span></h1>
+                <p class="hero-lede">
+                    Professional Windows monitoring with real-time telemetry across CPU, memory, GPU, disk, network and thermals — plus process control, RAM cleaning and automatic, verified updates. Built in Rust; runs in your tray.
                 </p>
-                <div class="hero-badges">
-                    <a href="https://github.com/Xenonesis/sysmon" target="_blank" rel="noopener" class="hero-badge-link">
-                        <img src="https://img.shields.io/github/stars/Xenonesis/sysmon?style=social" alt="GitHub stars" loading="lazy">
-                    </a>
-                    <span class="hero-opensource">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
-                        Open Source
-                    </span>
-                </div>
                 <div class="hero-actions">
-                    <a id="downloadNow" class="btn btn-primary" href="https://github.com/Xenonesis/sysmon/releases/latest" target="_blank" rel="noopener">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                    <a id="downloadNow" href="https://github.com/Xenonesis/sysmon/releases/latest" target="_blank" rel="noopener" class="btn btn-primary">
+                        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                         Download for Windows
                     </a>
-                    <a href="#features" class="btn btn-secondary">Explore Features</a>
+                    <a href="#features" class="btn btn-ghost">Explore features</a>
                 </div>
-                <div class="hero-meta">
-                    <span class="meta-tag">Windows 10/11</span>
-                    <span class="meta-sep">·</span>
-                    <span class="meta-tag">x64</span>
-                    <span class="meta-sep">·</span>
-                    <span class="meta-tag">v2.6.0</span>
-                    <span class="meta-sep">·</span>
-                    <span class="meta-tag">~5 MB installer</span>
+                <div class="hero-spec">
+                    <div class="spec-item"><span class="spec-key">Platform</span><span class="spec-val">Windows 10/11 · x64</span></div>
+                    <div class="spec-item"><span class="spec-key">Latest</span><span class="spec-val mono" id="latestVersion">v2.6.1</span></div>
+                    <div class="spec-item"><span class="spec-key">Installer</span><span class="spec-val">~5 MB</span></div>
+                    <div class="spec-item"><span class="spec-key">Refresh</span><span class="spec-val">1–10 s</span></div>
                 </div>
             </div>
-            <div class="hero-visual">
-                <div class="screenshot-card">
-                    <div class="screenshot-header">
-                        <div class="screenshot-dots">
-                            <span></span><span></span><span></span>
-                        </div>
-                        <span class="screenshot-title">sysmon.exe</span>
-                    </div>
-                    <img src="assets/screenshot.png" alt="SysMon application showing real-time system metrics" class="screenshot-img" width="1115" height="837" loading="eager">
-                </div>
-            </div>
+
+            <figure class="hero-figure hero-visual">
+                <img src="assets/screenshot.png" alt="SysMon dashboard showing real-time CPU, memory, GPU and network telemetry" width="1115" height="837" loading="eager" fetchpriority="high">
+            </figure>
         </header>
 
         <main>
-            <!-- Stats Section -->
-            <section class="stats" aria-label="Key statistics">
-                <div class="stats-container">
+            <!-- Telemetry strip -->
+            <section class="container" aria-label="Key facts">
+                <div class="strip" style="margin-top: var(--space-8);">
                     <div class="stat-item">
                         <span class="stat-value">100%</span>
-                        <span class="stat-label">Rust — No GC Pauses</span>
+                        <span class="stat-label">Rust — no GC pauses</span>
                     </div>
                     <div class="stat-item">
                         <span class="stat-value">~5 MB</span>
-                        <span class="stat-label">Installer Size</span>
+                        <span class="stat-label">Installer footprint</span>
                     </div>
                     <div class="stat-item">
-                        <span class="stat-value">2s</span>
-                        <span class="stat-label">Default Refresh</span>
+                        <span class="stat-value">2 s</span>
+                        <span class="stat-label">Default refresh rate</span>
                     </div>
                     <div class="stat-item">
                         <span class="stat-value">11</span>
-                        <span class="stat-label">Built-in Modules</span>
+                        <span class="stat-label">Built-in modules</span>
                     </div>
                 </div>
             </section>
 
-            <!-- Features Section -->
-            <section id="features" class="features">
-                <div class="section-container">
-                    <div class="section-header">
-                        <span class="section-label">Capabilities</span>
-                        <h2 class="section-title">Everything You Need.<br>Nothing You Don't.</h2>
-                        <p class="section-description">
-                            A curated set of tools for developers, sysadmins, and power users who demand clarity and precision. SysMon v2.6.0 ships a comprehensive suite of monitoring &amp; management modules plus a deep system-information panel.
-                        </p>
+            <!-- Features -->
+            <section id="features" class="section">
+                <div class="container">
+                    <div class="section-head">
+                        <p class="eyebrow">Capabilities</p>
+                        <h2 class="section-title">A focused toolkit for the machine under the desk.</h2>
+                        <p class="section-lede">SysMon is built for developers, sysadmins and power users who want hard numbers, clearly shown. Each panel is a first-class tool — no bloat, no telemetry, no cloud.</p>
                     </div>
-                    <div class="features-grid">
-                        <article class="feature-card">
-                            <div class="feature-icon">
-                                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
-                            </div>
-                            <h3 class="feature-title">Real-time Dashboard</h3>
-                            <p class="feature-description">CPU, memory, GPU utilization with color-coded progress bars. Adaptive thresholds that respond to your system's state.</p>
-                            <span class="feature-badge">Core</span>
+                    <div class="bento">
+                        <article class="feature-card feature-wide">
+                            <div class="feature-icon"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></div>
+                            <span class="feature-tag">Core</span>
+                            <h3 class="feature-title">Real-time dashboard &amp; graphs</h3>
+                            <p class="feature-desc">Live CPU, memory and GPU utilisation with colour-coded progress bars, plus rolling line charts to spot anomalies and trends. Adaptive thresholds respond to your system's state.</p>
                         </article>
+
                         <article class="feature-card">
-                            <div class="feature-icon">
-                                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-                            </div>
-                            <h3 class="feature-title">Performance Graphs</h3>
-                            <p class="feature-description">Live line charts tracking CPU, memory, and GPU over time. Spot anomalies and trends at a glance.</p>
+                            <div class="feature-icon"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 16V8a2 2 0 0 1 1 1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg></div>
+                            <h3 class="feature-title">Process forensics</h3>
+                            <p class="feature-desc">Exact executable paths, command lines, working directories and parent processes — then terminate entire sub-trees with one action.</p>
                         </article>
+
                         <article class="feature-card">
-                            <div class="feature-icon">
-                                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 16V8a2 2 0 0 1 1 1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
-                            </div>
-                            <h3 class="feature-title">Process Details & Kill Tree</h3>
-                            <p class="feature-description">Inspect exact executable paths, command lines, working directories, and parent processes. Terminate entire process trees instantly.</p>
+                            <div class="feature-icon"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="4" y="4" width="16" height="16" rx="2" ry="2"/><path d="M9 9h6v6H9z"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/></svg></div>
+                            <h3 class="feature-title">NVIDIA deep metrics</h3>
+                            <p class="feature-desc">VRAM, core clock, power draw in watts, and fan speed via NVML. Multiple adapters supported.</p>
                         </article>
+
                         <article class="feature-card">
-                            <div class="feature-icon">
-                                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="4" y="4" width="16" height="16" rx="2" ry="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/></svg>
-                            </div>
-                            <h3 class="feature-title">Advanced GPU Metrics</h3>
-                            <p class="feature-description">Deep integration with NVIDIA GPUs. Monitor real-time core clock speeds, power draw (watts), and fan RPM.</p>
+                            <div class="feature-icon"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></div>
+                            <h3 class="feature-title">Tray quick actions</h3>
+                            <p class="feature-desc">Clean RAM, open the process manager, pause monitoring or switch power plans — straight from the system tray.</p>
                         </article>
+
                         <article class="feature-card">
-                            <div class="feature-icon">
-                                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
-                            </div>
-                            <h3 class="feature-title">Tray Quick Actions</h3>
-                            <p class="feature-description">Control SysMon from the taskbar. Clean RAM, open the Process Manager, or pause monitoring with a single click.</p>
+                            <div class="feature-icon"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></div>
+                            <h3 class="feature-title">Smart alerts</h3>
+                            <p class="feature-desc">Configurable thresholds for CPU, memory, GPU temperature and disk space, with native toasts — deduplicated, multi-GPU aware.</p>
                         </article>
-                        <article class="feature-card">
-                            <div class="feature-icon">
-                                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-                            </div>
-                            <h3 class="feature-title">Per-Core CPU View</h3>
-                            <p class="feature-description">Individual core utilization breakdown. See exactly which cores are under load and which are idle.</p>
+
+                        <article class="feature-card feature-wide">
+                            <div class="feature-icon"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M12 7v5l3 2"/></svg></div>
+                            <span class="feature-tag">Utility</span>
+                            <h3 class="feature-title">RAM cleaner — manual &amp; automatic</h3>
+                            <p class="feature-desc">Free memory on demand or automatically. Auto-clean is fully configurable: trigger threshold, target level, min interval, per-pass MB cap, idle-only gating, excluded processes, and freed-MB notifications.</p>
                         </article>
+
                         <article class="feature-card">
-                            <div class="feature-icon">
-                                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-                            </div>
-                            <h3 class="feature-title">Smart Alerts</h3>
-                            <p class="feature-description">Configurable thresholds for CPU, memory, GPU temperature, and disk space. Proactive warnings before issues arise.</p>
+                            <div class="feature-icon"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></div>
+                            <h3 class="feature-title">Startup manager</h3>
+                            <p class="feature-desc">Review and toggle Windows startup entries by name, publisher and boot-time impact.</p>
                         </article>
+
                         <article class="feature-card">
-                            <div class="feature-icon">
-                                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M12 7v5l3 2"/></svg>
-                            </div>
-                            <h3 class="feature-title">Storage &amp; Network Rates</h3>
-                            <p class="feature-description">Real-time read/write throughput per disk (MB/s), device capacities, and live download/upload rates across every active network interface.</p>
+                            <div class="feature-icon"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><rect x="14" y="14" width="6" height="6" rx="1"/></svg></div>
+                            <h3 class="feature-title">WMI system info</h3>
+                            <p class="feature-desc">Motherboard, BIOS version, GPU driver, OS build, battery health and power state — one place.</p>
                         </article>
+
                         <article class="feature-card">
-                            <div class="feature-icon">
-                                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M18 4l6 6-6 6"/><path d="M6 4l-6 6 6 6"/><line x1="10" y1="2" x2="14" y2="22"/></svg>
-                            </div>
-                            <h3 class="feature-title">RAM Cleaner</h3>
-                            <p class="feature-description">Free up memory on demand or automatically at a configurable threshold. One-click cleanup from the tray or the dedicated RAM Cleaner module.</p>
-                            <span class="feature-badge">Utility</span>
+                            <div class="feature-icon"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="2" y="14" width="20" height="8" rx="2"/></svg></div>
+                            <h3 class="feature-title">Services manager</h3>
+                            <p class="feature-desc">Browse every Windows service by display name and state, colour-coded at a glance.</p>
                         </article>
+
                         <article class="feature-card">
-                            <div class="feature-icon">
-                                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="2" y="14" width="20" height="8" rx="2"/></svg>
-                            </div>
-                            <h3 class="feature-title">Startup Manager</h3>
-                            <p class="feature-description">Review and toggle Windows startup entries by name, publisher, and startup impact — trim every app that slows down boot.</p>
+                            <div class="feature-icon"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg></div>
+                            <h3 class="feature-title">Power plan toggle</h3>
+                            <p class="feature-desc">Switch installed Windows power schemes from the tray — no Control Panel needed.</p>
                         </article>
+
                         <article class="feature-card">
-                            <div class="feature-icon">
-                                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg>
-                            </div>
-                            <h3 class="feature-title">Services Manager</h3>
-                            <p class="feature-description">Browse every Windows service with display name, service name, and current state — running services color-coded at a glance.</p>
+                            <div class="feature-icon"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></div>
+                            <span class="feature-tag is-new">New</span>
+                            <h3 class="feature-title">Desktop mini-widget</h3>
+                            <p class="feature-desc">A compact always-visible overlay with live CPU, RAM, GPU and network — toggled from Settings.</p>
                         </article>
+
                         <article class="feature-card">
-                            <div class="feature-icon">
-                                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><rect x="14" y="14" width="6" height="6" rx="1"/></svg>
-                            </div>
-                            <h3 class="feature-title">WMI System Info</h3>
-                            <p class="feature-description">Deep hardware telemetry via WMI: motherboard, BIOS version, GPU driver, OS build, battery health, and power state — all in one place.</p>
+                            <div class="feature-icon"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg></div>
+                            <h3 class="feature-title">Verified auto-updates</h3>
+                            <p class="feature-desc">Checks GitHub every 24 h. Updates download only on explicit approval, after URL, size and Authenticode signature checks.</p>
                         </article>
+
                         <article class="feature-card">
-                            <div class="feature-icon">
-                                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
-                            </div>
-                            <h3 class="feature-title">Power Plan Toggle</h3>
-                            <p class="feature-description">Switch between installed Windows power schemes (Balanced, High Performance, Power Saver, and more) straight from the tray menu — no Control Panel required.</p>
+                            <div class="feature-icon"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></div>
+                            <h3 class="feature-title">Snapshots &amp; export</h3>
+                            <p class="feature-desc">Export the current system state to CSV, JSON or a redacted diagnostics report for scripts and support.</p>
                         </article>
+
                         <article class="feature-card">
-                            <div class="feature-icon">
-                                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
-                            </div>
-                            <h3 class="feature-title">Desktop Mini-Widget</h3>
-                            <p class="feature-description">A compact always-visible overlay showing live CPU, RAM, GPU, and network activity. Toggle it from Settings and keep an eye on your system without opening the main window.</p>
-                            <span class="feature-badge">New</span>
-                        </article>
-                        <article class="feature-card">
-                            <div class="feature-icon">
-                                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                            </div>
-                            <h3 class="feature-title">CSV &amp; JSON Export</h3>
-                            <p class="feature-description">Snapshot your current system state to CSV or JSON with a single click — perfect for reports, scripts, and long-term trending.</p>
-                        </article>
-                        <article class="feature-card">
-                            <div class="feature-icon">
-                                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
-                            </div>
-                            <h3 class="feature-title">Windows Notifications</h3>
-                            <p class="feature-description">Native toast alerts when CPU, memory, or GPU temperature crosses your thresholds — so you can act before problems escalate.</p>
-                        </article>
-                        <article class="feature-card">
-                            <div class="feature-icon">
-                                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
-                            </div>
-                            <h3 class="feature-title">Dual Themes</h3>
-                            <p class="feature-description">A polished dark theme and an Apple-inspired minimal light theme. Instant switching, with every telemetry panel staying perfectly readable.</p>
+                            <div class="feature-icon"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></div>
+                            <h3 class="feature-title">Per-core CPU view</h3>
+                            <p class="feature-desc">Utilisation and thermal breakdown for every logical core, so you can see the real load.</p>
                         </article>
                     </div>
                 </div>
             </section>
 
-            <!-- Modules / Interface Section -->
-            <section id="modules" class="modules">
-                <div class="section-container">
-                    <div class="section-header">
-                        <span class="section-label">Built-in Modules</span>
-                        <h2 class="section-title">Eleven Focused Tools.<br>One Unified Interface.</h2>
-                        <p class="section-description">
-                            Every panel is a first-class citizen — from a live overview to deep process forensics, startup control, and RAM maintenance. Switch between them instantly from the sidebar.
-                        </p>
+            <!-- Modules -->
+            <section id="modules" class="section">
+                <div class="container">
+                    <div class="section-head">
+                        <p class="eyebrow">Built-in modules</p>
+                        <h2 class="section-title">Eleven focused tools. One interface.</h2>
+                        <p class="section-lede">Switch between panels instantly from the sidebar — each one is a first-class citizen of the same window.</p>
                     </div>
-                    <div class="modules-grid">
-                        <div class="module-item">
-                            <span class="module-num">01</span>
-                            <h4 class="module-name">Overview</h4>
-                            <p class="module-desc">Live CPU, memory, GPU, per-core, disk, and network at a glance.</p>
-                        </div>
-                        <div class="module-item">
-                            <span class="module-num">02</span>
-                            <h4 class="module-name">Performance</h4>
-                            <p class="module-desc">Historical graphs and rolling trends for CPU, RAM, GPU, and network.</p>
-                        </div>
-                        <div class="module-item">
-                            <span class="module-num">03</span>
-                            <h4 class="module-name">Processes</h4>
-                            <p class="module-desc">Process Pro — details, priorities, and deep kill-tree control.</p>
-                        </div>
-                        <div class="module-item">
-                            <span class="module-num">04</span>
-                            <h4 class="module-name">CPU Cores</h4>
-                            <p class="module-desc">Per-core utilization and thermal breakdown for every logical core.</p>
-                        </div>
-                        <div class="module-item">
-                            <span class="module-num">05</span>
-                            <h4 class="module-name">Storage</h4>
-                            <p class="module-desc">Device capacities, used space, and live read/write rates in MB/s.</p>
-                        </div>
-                        <div class="module-item">
-                            <span class="module-num">06</span>
-                            <h4 class="module-name">Network</h4>
-                            <p class="module-desc">Per-interface download/upload rates and live throughput.</p>
-                        </div>
-                        <div class="module-item">
-                            <span class="module-num">07</span>
-                            <h4 class="module-name">Alerts</h4>
-                            <p class="module-desc">Threshold management and notification history for all metrics.</p>
-                        </div>
-                        <div class="module-item">
-                            <span class="module-num">08</span>
-                            <h4 class="module-name">System Info</h4>
-                            <p class="module-desc">WMI-powered motherboard, BIOS, GPU driver, OS, and battery data.</p>
-                        </div>
-                        <div class="module-item">
-                            <span class="module-num">09</span>
-                            <h4 class="module-name">RAM Cleaner</h4>
-                            <p class="module-desc">On-demand or threshold-triggered memory reclamation.</p>
-                        </div>
-                        <div class="module-item">
-                            <span class="module-num">10</span>
-                            <h4 class="module-name">Startup Apps</h4>
-                            <p class="module-desc">Manage Windows startup entries and their boot-time impact.</p>
-                        </div>
-                        <div class="module-item">
-                            <span class="module-num">11</span>
-                            <h4 class="module-name">Services</h4>
-                            <p class="module-desc">Browse every Windows service and its current run state.</p>
-                        </div>
+                    <div class="module-list">
+                        <div class="module-item"><span class="module-num">01</span><h3 class="module-name">Overview</h3><p class="module-desc">Live CPU, memory, GPU, per-core, disk and network at a glance.</p></div>
+                        <div class="module-item"><span class="module-num">02</span><h3 class="module-name">Performance</h3><p class="module-desc">Historical graphs and rolling trends for CPU, RAM, GPU and network.</p></div>
+                        <div class="module-item"><span class="module-num">03</span><h3 class="module-name">Processes</h3><p class="module-desc">Process Pro — details, priorities and deep kill-tree control.</p></div>
+                        <div class="module-item"><span class="module-num">04</span><h3 class="module-name">CPU Cores</h3><p class="module-desc">Per-core utilisation and thermal breakdown for every logical core.</p></div>
+                        <div class="module-item"><span class="module-num">05</span><h3 class="module-name">Storage</h3><p class="module-desc">Device capacities, used space and live read/write rates in MB/s.</p></div>
+                        <div class="module-item"><span class="module-num">06</span><h3 class="module-name">Network</h3><p class="module-desc">Per-interface download/upload rates and live throughput.</p></div>
+                        <div class="module-item"><span class="module-num">07</span><h3 class="module-name">Alerts</h3><p class="module-desc">Threshold management and notification history for all metrics.</p></div>
+                        <div class="module-item"><span class="module-num">08</span><h3 class="module-name">System Info</h3><p class="module-desc">WMI-powered motherboard, BIOS, GPU driver, OS and battery data.</p></div>
+                        <div class="module-item"><span class="module-num">09</span><h3 class="module-name">RAM Cleaner</h3><p class="module-desc">On-demand or threshold-triggered memory reclamation.</p></div>
+                        <div class="module-item"><span class="module-num">10</span><h3 class="module-name">Startup Apps</h3><p class="module-desc">Manage Windows startup entries and their boot-time impact.</p></div>
+                        <div class="module-item"><span class="module-num">11</span><h3 class="module-name">Services</h3><p class="module-desc">Browse every Windows service and its current run state.</p></div>
                     </div>
                 </div>
             </section>
 
-            <!-- System Requirements Section -->
-            <section id="requirements" class="requirements">
-                <div class="section-container">
-                    <div class="section-header">
-                        <span class="section-label">Runs Anywhere Modern</span>
-                        <h2 class="section-title">Modest Requirements.</h2>
-                        <p class="section-description">
-                            SysMon is built to run comfortably on everyday hardware, leaving the rest of your system free to do real work.
-                        </p>
+            <!-- Requirements -->
+            <section id="requirements" class="section">
+                <div class="container">
+                    <div class="section-head">
+                        <p class="eyebrow">Spec sheet</p>
+                        <h2 class="section-title">Runs comfortably on everyday hardware.</h2>
+                        <p class="section-lede">SysMon stays out of the way, leaving the rest of your system free to do real work.</p>
                     </div>
-                    <div class="requirements-grid">
-                        <div class="req-card">
-                            <h4 class="req-title">System</h4>
-                            <ul class="req-list">
+                    <div class="specgrid">
+                        <div class="spec-card">
+                            <h4>System</h4>
+                            <ul>
                                 <li>Windows 10 / 11 — 64-bit</li>
                                 <li>~5 MB installer · ~8 MB disk footprint</li>
                                 <li>Configurable 1–10 s refresh (2 s default)</li>
                                 <li>Runs in the system tray</li>
                             </ul>
                         </div>
-                        <div class="req-card">
-                            <h4 class="req-title">Optional Hardware</h4>
-                            <ul class="req-list">
+                        <div class="spec-card">
+                            <h4>Optional hardware</h4>
+                            <ul>
                                 <li>NVIDIA GPU for deep NVML metrics (VRAM, clock, power, fans)</li>
-                                <li>Motherboard/BIOS telemetry on supported boards</li>
-                                <li>Battery/AC power sensing on laptops</li>
+                                <li>Motherboard / BIOS telemetry on supported boards</li>
+                                <li>Battery / AC power sensing on laptops</li>
                             </ul>
                         </div>
-                        <div class="req-card">
-                            <h4 class="req-title">Notes</h4>
-                            <ul class="req-list">
+                        <div class="spec-card">
+                            <h4>Notes</h4>
+                            <ul>
                                 <li>Advanced process control &amp; RAM cleaning may request administrator privileges</li>
                                 <li>Fully offline — no cloud, no telemetry</li>
                                 <li>Open source under the MIT License</li>
@@ -371,111 +260,78 @@
                 </div>
             </section>
 
-            <!-- Download Section -->
-            <section id="download" class="download">
-                <div class="section-container">
-                    <div class="download-card">
-                        <div class="download-content">
-                            <span class="section-label">Get Started</span>
-                            <h2 class="download-title">Install in Seconds.<br>Auto-Update Itself.</h2>
-                            <p class="download-description">
-                                One installer handles setup, Start Menu entry, clean uninstall, and silent background updates — checked every 24 hours. Nothing else to configure.
-                            </p>
-                            <ul class="download-features">
-                                <li>
-                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
-                                    Silent auto-updates (24h check)
-                                </li>
-                                <li>
-                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
-                                    Start Menu + Settings → Apps uninstall
-                                </li>
-                                <li>
-                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
-                                    Dark &amp; light themes
-                                </li>
-                                <li>
-                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
-                                    Settings saved to %APPDATA%
-                                </li>
+            <!-- Download -->
+            <section id="download" class="section">
+                <div class="container">
+                    <div class="band">
+                        <div>
+                            <p class="eyebrow">Get started</p>
+                            <h2>Install in seconds. Update, verified.</h2>
+                            <p>One installer handles setup, a Start Menu entry and clean uninstall. Updates are checked every 24 hours and applied only after an explicit approval and a full signature check.</p>
+                            <ul>
+                                <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>Explicit, verified updates — no silent installs</li>
+                                <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>Start Menu + Settings → Apps uninstall</li>
+                                <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>Dark &amp; light themes</li>
+                                <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>Settings saved to %APPDATA%</li>
                             </ul>
                         </div>
-                        <div class="download-action">
-                            <a id="downloadNowSection" href="https://github.com/Xenonesis/sysmon/releases/latest" class="btn btn-primary btn-large" target="_blank" rel="noopener">
-                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                                Download Installer
+                        <div class="band-actions">
+                            <a id="downloadNowSection" href="https://github.com/Xenonesis/sysmon/releases/latest" target="_blank" rel="noopener" class="btn btn-primary">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                                Download installer
                             </a>
-                            <p id="downloadInfo" class="download-info">Checking for latest version…</p>
-                            <div class="download-requirements">
-                                <span>Windows 10/11</span>
-                                <span class="req-sep">•</span>
-                                <span>x64</span>
-                                <span class="req-sep">•</span>
-                                <span>NVIDIA GPU optional</span>
-                            </div>
+                            <span class="download-meta" id="downloadInfo">Resolving latest release…</span>
+                            <span class="download-meta">Windows 10/11 · x64 · NVIDIA optional</span>
                         </div>
                     </div>
                 </div>
             </section>
 
-            <!-- What's New Section -->
-            <section id="changelog" class="changelog">
-                <div class="section-container">
-                    <div class="section-header">
-                        <span class="section-label">Release Notes</span>
-                        <h2 class="section-title">What's New in v2.6.0</h2>
-                        <p class="section-description">
-                            Power controls and a live desktop widget land in this release, alongside continued polish across every module.
-                        </p>
+            <!-- Changelog -->
+            <section id="changelog" class="section">
+                <div class="container">
+                    <div class="section-head">
+                        <p class="eyebrow">Release notes</p>
+                        <h2 class="section-title">What's new in v2.6.1</h2>
+                        <p class="section-lede">A stability rewrite plus configurable RAM cleaning and hardened auto-updates.</p>
                     </div>
                     <div class="changelog-grid">
                         <div class="change-item">
-                            <span class="change-type change-added">Power Plan Toggle</span>
-                            <p class="change-desc">Switch between installed Windows power schemes (Balanced, High Performance, Power Saver) from the system tray.</p>
+                            <span class="change-type">Stability rewrite</span>
+                            <p class="change-desc">Long-lived monitoring and action workers with command/event boundaries; telemetry rates computed from counter deltas — no inflated first sample.</p>
                         </div>
                         <div class="change-item">
-                            <span class="change-type change-added">Desktop Mini-Widget</span>
-                            <p class="change-desc">A compact always-visible overlay showing live CPU, RAM, GPU, and network telemetry — toggled from Settings.</p>
+                            <span class="change-type">Configurable RAM clean</span>
+                            <p class="change-desc">Trigger threshold, cleanup target, interval, per-pass cap, idle-only mode, excluded processes and freed-MB notifications.</p>
                         </div>
                         <div class="change-item">
-                            <span class="change-type change-perf">UI Polish</span>
-                            <p class="change-desc">Unified 8px corner rounding across dark and light themes for a consistent, premium feel.</p>
+                            <span class="change-type">Hardened updates</span>
+                            <p class="change-desc">HTTPS-only assets, size limits, Authenticode verification and explicit install — self-signed builds now install by pinned thumbprint. Installable-only releases.</p>
                         </div>
                     </div>
                 </div>
             </section>
 
-            <!-- Documentation Section -->
-            <section id="docs" class="docs">
-                <div class="section-container">
-                    <div class="section-header">
-                        <span class="section-label">Resources</span>
+            <!-- Docs -->
+            <section id="docs" class="section">
+                <div class="container">
+                    <div class="section-head">
+                        <p class="eyebrow">Resources</p>
                         <h2 class="section-title">Documentation</h2>
-                        <p class="section-description">
-                            Everything you need to get started and make the most of SysMon.
-                        </p>
+                        <p class="section-lede">Everything you need to get started and go further with SysMon.</p>
                     </div>
                     <div class="docs-grid">
-                        <a href="https://github.com/Xenonesis/sysmon/blob/main/QUICK_START.md" target="_blank" rel="noopener" class="doc-card">
-                            <span class="doc-arrow">→</span>
-                            <div class="doc-content">
-                                <h3 class="doc-title">Quick Start</h3>
-                                <p class="doc-description">Up and running in two minutes.</p>
-                            </div>
-                        </a>
                         <a href="https://github.com/Xenonesis/sysmon/blob/main/USER_GUIDE.md" target="_blank" rel="noopener" class="doc-card">
+                            <div><h3 class="doc-title">User guide</h3><p class="doc-desc">Complete feature walkthrough.</p></div>
                             <span class="doc-arrow">→</span>
-                            <div class="doc-content">
-                                <h3 class="doc-title">User Guide</h3>
-                                <p class="doc-description">Complete feature walkthrough.</p>
-                            </div>
                         </a>
-                        <a href="https://github.com/Xenonesis/sysmon/blob/main/SETUP_GUIDE.md" target="_blank" rel="noopener" class="doc-card">
+                        <a href="https://github.com/Xenonesis/sysmon/blob/main/README.md" target="_blank" rel="noopener" class="doc-card">
+                            <div><h3 class="doc-title">README</h3><p class="doc-desc">Overview and quick start.</p></div>
                             <span class="doc-arrow">→</span>
-                            <div class="doc-content">
-                                <h3 class="doc-title">Build from Source</h3>
-                                <p class="doc-description">Contributor setup instructions.</p>
-                            </div>
+                        </a>
+                        <a href="https://github.com/Xenonesis/sysmon/blob/main/CHANGELOG.md" target="_blank" rel="noopener" class="doc-card">
+                            <div><h3 class="doc-title">Changelog</h3><p class="doc-desc">Full version history.</p></div>
+                            <span class="doc-arrow">→</span>
                         </a>
                     </div>
                 </div>
@@ -484,28 +340,26 @@
 
         <!-- Footer -->
         <footer class="footer">
-            <div class="footer-container">
+            <div class="container">
                 <div class="footer-grid">
                     <div class="footer-brand">
-                        <span class="brand-icon">◈</span>
-                        <span class="brand-name">SysMon</span>
+                        <span class="brand-icon">◈</span> <span class="brand-name">SysMon</span>
                         <p class="footer-tagline">System intelligence, crafted with Rust and egui.</p>
                     </div>
-                    <div class="footer-column">
-                        <h4 class="footer-heading">Project</h4>
+                    <div class="footer-col">
+                        <h4>Project</h4>
                         <a href="https://github.com/Xenonesis/sysmon" target="_blank" rel="noopener">Repository</a>
+                        <a href="https://github.com/Xenonesis/sysmon/releases" target="_blank" rel="noopener">Releases</a>
                         <a href="https://github.com/Xenonesis/sysmon/issues" target="_blank" rel="noopener">Issues</a>
-                        <a href="https://github.com/Xenonesis/sysmon/blob/main/CHANGELOG.md" target="_blank" rel="noopener">Changelog</a>
                     </div>
-                    <div class="footer-column">
-                        <h4 class="footer-heading">Resources</h4>
-                        <a href="https://github.com/Xenonesis/sysmon/blob/main/README.md" target="_blank" rel="noopener">README</a>
-                        <a href="https://github.com/Xenonesis/sysmon/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener">Contributing</a>
+                    <div class="footer-col">
+                        <h4>License</h4>
                         <a href="https://github.com/Xenonesis/sysmon/blob/main/LICENSE" target="_blank" rel="noopener">MIT License</a>
+                        <a href="https://github.com/Xenonesis" target="_blank" rel="noopener">Xenonesis</a>
                     </div>
                 </div>
                 <div class="footer-bottom">
-                    <p>&copy; <span id="currentYear">2026</span> <a href="https://github.com/Xenonesis" target="_blank" rel="noopener">Xenonesis</a>. Open source under MIT.</p>
+                    <p>&copy; <span id="currentYear">2026</span> <a href="https://github.com/Xenonesis" target="_blank" rel="noopener">Xenonesis</a> · Open source under MIT.</p>
                 </div>
             </div>
         </footer>

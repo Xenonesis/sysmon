@@ -1,0 +1,78 @@
+/* ============================================================
+ * SysMon · design tokens
+ * Genre: modern-minimal · Macrostructure: Workbench · Theme: Cobalt
+ * Hallmark pre-emit critique: P5 H5 E5 S5 R5 V5
+ * ============================================================ */
+
+:root {
+  /* Paper bands */
+  --paper: oklch(0.982 0.004 250);
+  --paper-2: oklch(0.965 0.006 250);
+  --paper-3: oklch(0.945 0.008 250);
+  --ink: oklch(0.20 0.02 255);
+  --ink-2: oklch(0.42 0.025 255);
+  --ink-3: oklch(0.60 0.02 255);
+
+  /* Accent (cool telemetry blue) */
+  --accent: oklch(0.55 0.16 248);
+  --accent-strong: oklch(0.48 0.17 250);
+  --accent-soft: oklch(0.93 0.03 248);
+  --accent-ink: oklch(0.30 0.12 250);
+
+  /* Status (real reading semantics) */
+  --ok: oklch(0.62 0.14 160);
+  --warn: oklch(0.70 0.16 80);
+  --crit: oklch(0.60 0.19 30);
+
+  /* Rule / structure */
+  --rule: oklch(0.88 0.01 250);
+  --hairline: 1px solid var(--rule);
+
+  /* Typography */
+  --font-display: "Space Grotesk", "Inter", system-ui, sans-serif;
+  --font-body: "Inter", system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", monospace;
+
+  /* Scale (4pt) */
+  --space-1: 4px;  --space-2: 8px;  --space-3: 12px;
+  --space-4: 16px; --space-5: 20px; --space-6: 24px;
+  --space-8: 32px; --space-10: 40px;--space-12: 48px;
+  --space-16: 64px;--space-20: 80px;--space-24: 96px;
+
+  /* Text steps */
+  --text-xs: 0.75rem;   --text-sm: 0.875rem; --text-md: 1rem;
+  --text-lg: 1.125rem;  --text-xl: 1.375rem; --text-2xl: 1.75rem;
+  --text-3xl: 2.25rem;  --text-4xl: 3rem;    --text-display: 4rem;
+
+  /* Motion */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in: cubic-bezier(0.55, 0.06, 0.68, 0.19);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-f: 200ms; --dur-m: 360ms; --dur-s: 640ms;
+
+  --radius-sm: 6px; --radius-md: 10px; --radius-lg: 14px;
+  --shadow-1: 0 1px 2px oklch(0.2 0.02 255 / 0.06);
+  --shadow-2: 0 8px 28px oklch(0.2 0.02 255 / 0.10);
+}
+
+[data-theme="dark"] {
+  --paper: oklch(0.16 0.015 260);
+  --paper-2: oklch(0.19 0.016 260);
+  --paper-3: oklch(0.22 0.018 260);
+  --ink: oklch(0.94 0.005 250);
+  --ink-2: oklch(0.70 0.015 255);
+  --ink-3: oklch(0.55 0.015 255);
+
+  --accent: oklch(0.72 0.14 245);
+  --accent-strong: oklch(0.78 0.13 240);
+  --accent-soft: oklch(0.28 0.05 250);
+  --accent-ink: oklch(0.82 0.12 240);
+
+  --ok: oklch(0.74 0.14 160);
+  --warn: oklch(0.78 0.15 85);
+  --crit: oklch(0.70 0.18 30);
+
+  --rule: oklch(0.30 0.02 260);
+  --shadow-1: 0 1px 2px oklch(0 0 0 / 0.4);
+  --shadow-2: 0 8px 28px oklch(0 0 0 / 0.5);
+}
