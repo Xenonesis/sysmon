@@ -112,12 +112,9 @@ if ($Publish) {
         Write-Host "    (or: https://github.com/Xenonesis/sysmon/releases/new -> tag $tag, attach $setupPath)" -ForegroundColor Yellow
     }
 
-    # Deploy website (docs/ to GitHub Pages)
-    if (Test-Path "docs\index.html") {
-        & ".\deploy-website.ps1" -Deploy
-    } else {
-        Write-Host "[WARN] website files absent; skipping deploy" -ForegroundColor Yellow
-    }
+    # Website deploys automatically: pages-deploy.yml uploads docs/ to GitHub
+    # Pages on every push to main. No manual step needed.
+    Write-Host "[OK] Website deploys automatically via GitHub Actions (pages-deploy.yml)." -ForegroundColor DarkGray
 } else {
     Write-Host "`nRelease artifacts ready locally. Re-run with -Publish to push, tag," -ForegroundColor Cyan
     Write-Host "create the GitHub release (installed-user notifications) and deploy the site." -ForegroundColor Cyan
