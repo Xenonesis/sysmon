@@ -12,7 +12,7 @@
 2. **Update README.md** — version badge, download link, new changelog entry.
 3. **Update website** — `docs/index.html` version tags (GitHub Pages source at `systemmonitor.xenonesis.dev`).
 4. **Build** `cargo build --release`.
-5. **Create installer** — `create-installer.ps1` produces `dist/SystemMonitor-vX.Y.Z/` + `.zip`.
+5. **Create installer** — `create-installer.ps1` produces the installable `SystemMonitor-<version>-setup.exe` (Inno).
 6. **Delete old builds** — every other `dist/SystemMonitor-v*` folder/zip is removed; only the latest stays.
 7. **Sign** (optional, `-Sign`) — Authenticode-sign the exe.
 8. **Publish** (optional, `-Publish`):

@@ -30,7 +30,6 @@ if ($Help) {
     Write-Host "  - Application runs as a native Windows GUI" -ForegroundColor White
     Write-Host ""
     Write-Host "For setup help, run:" -ForegroundColor Cyan
-    Write-Host "  .\setup-build-environment.ps1" -ForegroundColor White
     Write-Host ""
     Write-Host "Or see SETUP_GUIDE.md for detailed instructions." -ForegroundColor White
     exit 0
@@ -230,8 +229,6 @@ if ($LASTEXITCODE -eq 0) {
     
     Write-Host "Next steps:" -ForegroundColor Cyan
     Write-Host "  1. Run: .\target\release\system-monitor.exe" -ForegroundColor White
-    Write-Host "  2. Install: .\install.ps1" -ForegroundColor White
-    Write-Host "  3. Or use: .\one-click-install.ps1" -ForegroundColor White
     Write-Host ""
     
     if (-not $NoLaunch) {
@@ -266,7 +263,6 @@ if ($LASTEXITCODE -eq 0) {
     Write-Host "Common issues:" -ForegroundColor Yellow
     Write-Host ""
     Write-Host "1. Missing build tools:" -ForegroundColor Cyan
-    Write-Host "   Run: .\setup-build-environment.ps1" -ForegroundColor White
     Write-Host ""
     Write-Host "2. Wrong toolchain:" -ForegroundColor Cyan
     Write-Host "   For MSVC: rustup default stable-x86_64-pc-windows-msvc" -ForegroundColor White
@@ -280,13 +276,6 @@ if ($LASTEXITCODE -eq 0) {
     Write-Host "   Open SETUP_GUIDE.md" -ForegroundColor White
     Write-Host ""
     
-    if (-not $NoLaunch) {
-        $help = Read-Host "Run build environment setup? (Y/N)"
-        if ($help -eq "Y" -or $help -eq "y") {
-            Write-Host ""
-            .\setup-build-environment.ps1
-        }
-    }
-    
+    Write-Host "Need build tools? See README.md (Rust + MSVC + Inno Setup 6)." -ForegroundColor DarkGray
     exit 1
 }
