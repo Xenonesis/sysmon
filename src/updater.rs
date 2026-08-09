@@ -221,16 +221,58 @@ impl Clone for UpdateInfo {
     }
 }
 
+// Thumbprint of the self-signed code-signing cert (see sign-binary.ps1,
+// subject CN=System Monitor Dev). Pin it so installs pass even though the
+// root is untrusted, while still rejecting tamper/corruption (HashMismatch).
+// ponytail: thumbprint pin instead of purchased CA. Swap for a real cert's
+// thumbprint when you get Azure Trusted Signing / DigiCert etc.
+const SIGNER_THUMBPRINT: &str = "770D302796B6FE5A5E7D3D428998ED2F7EC657FA";
+
+/// Pure decision: is a signature status + signer thumbprint acceptable?
+/// Accepts fully-trusted 'Valid', or untrusted-root self-signed whose signer
+/// exactly matches our pinned thumbprint. Tamper/corruption (HashMismatch,
+/// NotSigned, NoSignature) always rejected.
+fn sig_acceptable(status: &str, thumbprint: Option<&str>) -> bool {
+    match status {
+        "Valid" => true,
+        "UnknownError" | "NotTrusted" => thumbprint == Some(SIGNER_THUMBPRINT),
+        _ => false,
+    }
+}
+
 #[cfg(target_os = "windows")]
 fn verify_authenticode(path: &std::path::Path) -> Result<(), String> {
     use std::os::windows::process::CommandExt;
     let escaped = path.to_string_lossy().replace('"', "\"");
-    let script = format!("if ((Get-AuthenticodeSignature -LiteralPath \"{escaped}\").Status -eq 'Valid') {{ exit 0 }} else {{ exit 1 }}");
-    let status = std::process::Command::new("powershell")
+    // PowerShell only reports status + signer thumbprint; the acceptance
+    // decision lives in Rust (sig_acceptable) so it is testable and is the
+    // single source of truth.
+    let script = format!(
+        "$sig = Get-AuthenticodeSignature -LiteralPath \"{escaped}\"; \
+         $tp = if ($sig.SignerCertificate) {{ $sig.SignerCertificate.Thumbprint }} else {{ '' }}; \
+         Write-Output ('STATUS=' + $sig.Status); Write-Output ('THUMB=' + $tp)"
+    );
+    let out = std::process::Command::new("powershell")
         .creation_flags(0x08000000)
         .args(["-NoProfile", "-NonInteractive", "-Command", &script])
-        .status().map_err(|e| format!("Failed to verify installer signature: {e}"))?;
-    if status.success() { Ok(()) } else { Err("Installer Authenticode signature is invalid".into()) }
+        .output()
+        .map_err(|e| format!("Failed to verify installer signature: {e}"))?;
+    let text = String::from_utf8_lossy(&out.stdout);
+    let mut status: Option<String> = None;
+    let mut thumb: Option<String> = None;
+    for line in text.lines() {
+        if let Some(v) = line.strip_prefix("STATUS=") { status = Some(v.trim().to_string()); }
+        if let Some(v) = line.strip_prefix("THUMB=") {
+            let t = v.trim();
+            thumb = if t.is_empty() { None } else { Some(t.to_string()) };
+        }
+    }
+    let status = status.ok_or("PowerShell signature check returned no status")?;
+    if sig_acceptable(status.as_str(), thumb.as_deref()) {
+        Ok(())
+    } else {
+        Err(format!("Installer Authenticode signature is invalid (status {status})"))
+    }
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -255,5 +297,24 @@ mod tests {
             "https://github.com/other/sysmon/releases/download/v2/a.exe",
             "https://github.com/Xenonesis/sysmon/releases/download/v2/a.zip",
         ] { assert!(validate_asset_url(url).is_err(), "accepted {url}"); }
+    }
+
+    #[test]
+    fn signature_accepts_pinned_self_signed() {
+        assert!(sig_acceptable("Valid", None));
+        assert!(sig_acceptable("Valid", Some("other")));
+        assert!(sig_acceptable("UnknownError", Some(SIGNER_THUMBPRINT)));
+        assert!(sig_acceptable("NotTrusted", Some(SIGNER_THUMBPRINT)));
+    }
+
+    #[test]
+    fn signature_rejects_tamper_wrong_signer_and_unsigned() {
+        // tamper/unsigned -> wrong status, never pinned-check bypass
+        assert!(!sig_acceptable("HashMismatch", Some(SIGNER_THUMBPRINT)));
+        assert!(!sig_acceptable("NotSigned", Some(SIGNER_THUMBPRINT)));
+        assert!(!sig_acceptable("NoSignature", Some(SIGNER_THUMBPRINT)));
+        // untrusted-root but wrong signer -> reject
+        assert!(!sig_acceptable("UnknownError", Some("DEADBEEF")));
+        assert!(!sig_acceptable("UnknownError", None));
     }
 }
