@@ -1,3 +1,0 @@
-﻿System Monitor v2.6.0
-Built on: 2026-08-09 12:00:44
-Repository: https://github.com/Xenonesis/sysmon

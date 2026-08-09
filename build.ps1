@@ -179,60 +179,53 @@ if ($LASTEXITCODE -eq 0) {
         & .\sign-binary.ps1 -FilePath "target\release\system-monitor.exe"
     }
 
-    # ── Compile Installer (Inno Setup) ──
+    # -- Compile Installer (Inno Setup) --
     $isccPath = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+    $installerName = "SystemMonitor-$version-setup.exe"
+    $installerExists = $false
     if (Test-Path $isccPath) {
         Write-Host "Inno Setup found. Compiling installer..." -ForegroundColor Cyan
         & $isccPath "/DAppVersion=$version" "installer.iss" | Out-Null
-        if ($LASTEXITCODE -eq 0) {
-            Write-Host "[OK] Installer SystemMonitor-Setup.exe compiled to downloads folder." -ForegroundColor Green
+        if ($LASTEXITCODE -eq 0 -and (Test-Path "$downloadsFolder\$installerName")) {
             $installerExists = $true
-            # Sign the installer
+            Write-Host "[OK] Installed to $downloadsFolder\$installerName" -ForegroundColor Green
             if (Test-Path "sign-binary.ps1") {
                 Write-Host "Signing installer..." -ForegroundColor Cyan
-                & .\sign-binary.ps1 -FilePath "downloads\SystemMonitor-Setup.exe"
+                & .\sign-binary.ps1 -FilePath "$downloadsFolder\$installerName"
             }
-            # Copy versioned installer
-            Copy-Item "downloads\SystemMonitor-Setup.exe" "downloads\SystemMonitor-Setup-v$version.exe" -Force
-            Copy-Item "downloads\SystemMonitor-Setup.exe" "docs\downloads\SystemMonitor-Setup-v$version.exe" -Force
-            Copy-Item "downloads\SystemMonitor-Setup.exe" "docs\downloads\SystemMonitor-Setup.exe" -Force
         } else {
             Write-Host "[FAIL] Failed to compile installer." -ForegroundColor Red
         }
     } else {
-        Write-Host "[INFO] Inno Setup (ISCC.exe) not found. Skipping installer compilation." -ForegroundColor Yellow
-        Write-Host "   Install Inno Setup 6 if you want to build the setup wizard." -ForegroundColor DarkGray
+        Write-Host "[FAIL] Inno Setup (ISCC.exe) not found." -ForegroundColor Red
     }
-    
-    # -- Distribute ONLY the installer (never portable bare exe) --
-    # Fail closed: if no installer was produced, do not ship a bare exe.
+
+    # Fail closed: no installer, no bare portable exe.
     if (-not $installerExists) {
         Write-Host "" -ForegroundColor Yellow
-        Write-Host "[FAIL] No installer was built (Inno Setup ISCC.exe not found)." -ForegroundColor Red
-        Write-Host "  Refusing to ship a portable bare exe. Install Inno Setup 6 to release." -ForegroundColor Red
-        Write-Host "  Install: https://jrsoftware.org/isdl.php" -ForegroundColor Yellow
+        Write-Host "[FAIL] No installer was built. Refusing to ship a portable bare exe." -ForegroundColor Red
+        Write-Host "  Install Inno Setup 6 to release: https://jrsoftware.org/isdl.php" -ForegroundColor Yellow
         exit 1
     }
 
     # Remove old versioned installers (keep only current)
-    Get-ChildItem "$downloadsFolder\SystemMonitor-*-setup*.exe" -ErrorAction SilentlyContinue | Where-Object { $_.Name -notlike "*v$version*" } | Remove-Item -Force
-    Get-ChildItem "$docsDownloadsFolder\SystemMonitor-*-setup*.exe" -ErrorAction SilentlyContinue | Where-Object { $_.Name -notlike "*v$version*" } | Remove-Item -Force
+    Get-ChildItem "$downloadsFolder\SystemMonitor-*-setup*.exe" -ErrorAction SilentlyContinue | Where-Object { $_.Name -notlike "*$version*" } | Remove-Item -Force
+    Get-ChildItem "$docsDownloadsFolder\SystemMonitor-*-setup*.exe" -ErrorAction SilentlyContinue | Where-Object { $_.Name -notlike "*$version*" } | Remove-Item -Force
 
-    # Also remove any stray portable exes that must not be distributed
+    # Purge any stray portable artifacts (bare exes, zips) - never distributed
     Get-ChildItem "$downloadsFolder\SystemMonitor-v*.exe" -ErrorAction SilentlyContinue | Where-Object { $_.Name -notmatch '-setup' } | Remove-Item -Force
     Get-ChildItem "$docsDownloadsFolder\SystemMonitor-v*.exe" -ErrorAction SilentlyContinue | Where-Object { $_.Name -notmatch '-setup' } | Remove-Item -Force
+    Get-ChildItem $downloadsFolder -Filter *.zip -ErrorAction SilentlyContinue | Remove-Item -Force
+    Get-ChildItem $docsDownloadsFolder -Filter *.zip -ErrorAction SilentlyContinue | Remove-Item -Force
 
-    # Re-copy current installer to versioned + docs latest (installer only)
-    Copy-Item "$downloadsFolder\SystemMonitor-Setup.exe" "$downloadsFolder\SystemMonitor-Setup-v$version.exe" -Force
-    Copy-Item "$downloadsFolder\SystemMonitor-Setup.exe" "$docsDownloadsFolder\SystemMonitor-Setup-v$version.exe" -Force
-    Copy-Item "$downloadsFolder\SystemMonitor-Setup.exe" "$docsDownloadsFolder\SystemMonitor-Setup.exe" -Force
+    # Copy current installer to docs downloads (installer only)
+    Copy-Item "$downloadsFolder\$installerName" "$docsDownloadsFolder\$installerName" -Force
 
-    Write-Host "[OK] Installer saved to downloads folders:" -ForegroundColor Green
-    Write-Host "  - $downloadsFolder\SystemMonitor-Setup-v$version.exe" -ForegroundColor White
-    Write-Host "  - $docsDownloadsFolder\SystemMonitor-Setup-v$version.exe (GitHub Pages)" -ForegroundColor White
-    Write-Host "  - $docsDownloadsFolder\SystemMonitor-Setup.exe (latest, GitHub Pages)" -ForegroundColor White
+    Write-Host "[OK] Installer ready (installable only):" -ForegroundColor Green
+    Write-Host "  - $downloadsFolder\$installerName" -ForegroundColor White
+    Write-Host "  - $docsDownloadsFolder\$installerName (GitHub Pages)" -ForegroundColor White
     Write-Host ""
-    Write-Host "Note: only installable builds are produced. No portable bare exe is shipped." -ForegroundColor Cyan
+    Write-Host "Note: only installable builds are produced. No portable exe or zip is shipped." -ForegroundColor Cyan
     Write-Host ""
     
     Write-Host "Next steps:" -ForegroundColor Cyan

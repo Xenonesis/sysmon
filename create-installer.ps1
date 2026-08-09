@@ -1,9 +1,8 @@
 # System Monitor - Distribution Builder
-# Creates a complete installer package for distribution
+# Produces ONLY the installable Inno Setup.exe. Never ships a portable bare exe.
 
 param(
-    [switch]$Clean,
-    [switch]$NoZip
+    [switch]$Clean
 )
 
 Write-Host "=============================================" -ForegroundColor Cyan
@@ -13,191 +12,58 @@ Write-Host ""
 
 $ErrorActionPreference = "Stop"
 
-# Configuration
 $AppName = "SystemMonitor"
 $cargoToml = Get-Content "Cargo.toml" -Raw
 if ($cargoToml -match 'version\s*=\s*"([^"]+)"') {
     $Version = $matches[1]
 } else {
-    $Version = "1.0.0"
+    throw "Cannot read version from Cargo.toml"
 }
 $DistDir = "dist"
-$BuildDir = "$DistDir\$AppName-v$Version"
 $DownloadsDir = "downloads"
+$Installer = "SystemMonitor-$Version-setup.exe"
 
-function Write-Step {
-    param([string]$Message)
-    Write-Host "-> $Message" -ForegroundColor White
-}
-
-function Write-Success {
-    param([string]$Message)
-    Write-Host "[OK] $Message" -ForegroundColor Green
-}
-
-function Write-Error {
-    param([string]$Message)
-    Write-Host "[FAIL] $Message" -ForegroundColor Red
-}
-
-# Clean previous builds
+# Clean previous distribution leftovers
 if ($Clean) {
-    Write-Step "Cleaning previous builds..."
-    if (Test-Path $DistDir) {
-        Remove-Item $DistDir -Recurse -Force
-    }
-    Write-Success "Cleaned previous builds"
+    Write-Host "-> Cleaning previous distributions..." -ForegroundColor White
+    Remove-Item "$DistDir\*" -Force -Recurse -ErrorAction SilentlyContinue
+    Remove-Item "$DownloadsDir\*" -Force -Recurse -ErrorAction SilentlyContinue
 }
 
-# Create distribution directory
-Write-Step "Creating distribution directory..."
-New-Item -ItemType Directory -Path $BuildDir -Force | Out-Null
-Write-Success "Created distribution directory: $BuildDir"
-
-# Build the application
-Write-Step "Building application..."
-try {
-    & ".\build.ps1" -NoLaunch
-    if ($LASTEXITCODE -ne 0) {
-        throw "Build failed with exit code $LASTEXITCODE"
-    }
-}
-catch {
-    Write-Error "Build failed: $($_.Exception.Message)"
+# Build release + compile the Inno Setup.exe (build.ps1 does both)
+Write-Host "-> Building application and installer..." -ForegroundColor White
+& ".\build.ps1" -NoLaunch
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "[FAIL] Build failed with exit code $LASTEXITCODE" -ForegroundColor Red
     exit 1
 }
-Write-Success "Application built successfully"
 
-# Copy application files
-Write-Step "Copying application files..."
-Copy-Item "target\release\system-monitor.exe" "$BuildDir\" -Force
-Write-Success "Copied executable"
-
-# Copy installer files
-Write-Step "Copying installer files..."
-$installerFiles = @(
-    "installer.ps1",
-    "setup.bat",
-    "LICENSE",
-    "README.md",
-    "USER_GUIDE.md"
-)
-
-foreach ($file in $installerFiles) {
-    if (Test-Path $file) {
-        Copy-Item $file $BuildDir -Force
-    }
-}
-Write-Success "Copied installer files"
-
-# Create additional documentation
-Write-Step "Creating installation instructions..."
-$installInstructions = 'System Monitor Installation Instructions
-=======================================
-
-Quick Installation:
-1. Double-click "setup.bat"
-2. Follow the installation wizard
-3. Launch System Monitor from Start Menu or Desktop
-
-Manual Installation:
-1. Run: PowerShell -ExecutionPolicy Bypass -File installer.ps1
-2. Or run: .\installer.ps1 from PowerShell
-
-Uninstallation:
-- Use Windows Settings -> Apps -> System Monitor -> Uninstall
-- Or run: .\installer.ps1 -Uninstall
-
-For more information, see README.md and USER_GUIDE.md
-
-System Requirements:
-- Windows 10 or later
-- No additional dependencies required
-
-Contact: https://github.com/Xenonesis/sysmon'
-
-$installInstructions | Out-File "$BuildDir\INSTALL.txt" -Encoding UTF8
-Write-Success "Created installation instructions"
-
-# Create version info
-Write-Step "Creating version information..."
-$versionInfo = "System Monitor v$Version
-Built on: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
-Repository: https://github.com/Xenonesis/sysmon"
-
-$versionInfo | Out-File "$BuildDir\VERSION.txt" -Encoding UTF8
-Write-Success "Created version information"
-
-# Create ZIP archive (optional)
-if (-not $NoZip) {
-    Write-Step "Creating ZIP archive..."
-    $zipPath = "$DistDir\$AppName-v$Version.zip"
-    if (Test-Path $zipPath) {
-        Remove-Item $zipPath -Force
-    }
-
-    # Create ZIP using PowerShell
-    Compress-Archive -Path "$BuildDir\*" -DestinationPath $zipPath -Force
-    Write-Success "Created ZIP archive: $zipPath"
-    
-    # Copy to downloads folder
-    Write-Step "Copying installer to downloads folder..."
-    if (-not (Test-Path $DownloadsDir)) {
-        New-Item -ItemType Directory -Path $DownloadsDir -Force | Out-Null
-    }
-    
-    Copy-Item $zipPath "$DownloadsDir\$AppName-v$Version.zip" -Force
-    Copy-Item $zipPath "$DownloadsDir\$AppName-latest.zip" -Force
-
-    # Remove old versioned builds, keep current + latest
-    Get-ChildItem $DownloadsDir -ErrorAction SilentlyContinue |
-        Where-Object { $_.Name -match "SystemMonitor-v\d+\.\d+\.\d+" -and $_.Name -notlike "*v$Version*" } |
-        Remove-Item -Force
-
-    Write-Success "Installer saved to downloads folder"
-    Write-Host "  - $DownloadsDir\$AppName-v$Version.zip" -ForegroundColor White
-    Write-Host "  - $DownloadsDir\$AppName-latest.zip (latest)" -ForegroundColor White
+# The one deliverable: the Inno installer exe produced by build.ps1
+$installerPath = "$DownloadsDir\$Installer"
+if (-not (Test-Path $installerPath)) {
+    Write-Host "[FAIL] Installer not found: $installerPath (is Inno Setup 6 installed?)" -ForegroundColor Red
+    exit 1
 }
 
-# Show summary
-Write-Host ""
-Write-Host "=============================================" -ForegroundColor Cyan
-Write-Host "   Distribution Package Created!" -ForegroundColor Green
-Write-Host "=============================================" -ForegroundColor Cyan
-Write-Host ""
-Write-Host "Distribution contents:" -ForegroundColor Cyan
-Get-ChildItem $BuildDir | ForEach-Object {
-    Write-Host "  - $($_.Name)" -ForegroundColor White
-}
-Write-Host ""
-Write-Host "Installation methods:" -ForegroundColor Cyan
-Write-Host "  1. Double-click: $BuildDir\setup.bat" -ForegroundColor White
-Write-Host "  2. PowerShell: $BuildDir\installer.ps1" -ForegroundColor White
-Write-Host "  3. Silent install: $BuildDir\installer.ps1 -Silent" -ForegroundColor White
-Write-Host ""
+# Place a copy in dist/ (single installer file, no portable bundle)
+New-Item -ItemType Directory -Path "$DistDir" -Force | Out-Null
+Remove-Item "$DistDir\$AppName-v$Version.zip" -Force -ErrorAction SilentlyContinue
+Remove-Item "$DistDir\$AppName-v$Version" -Recurse -Force -ErrorAction SilentlyContinue
+Copy-Item $installerPath "$DistDir\" -Force
 
-if (-not $NoZip) {
-    $zipSize = (Get-Item "$DistDir\$AppName-v$Version.zip").Length / 1MB
-    Write-Host "ZIP Archive:" -ForegroundColor Cyan
-    Write-Host "  - Location: $DistDir\$AppName-v$Version.zip" -ForegroundColor White
-    Write-Host "  - Size: $([math]::Round($zipSize, 2)) MB" -ForegroundColor White
-    Write-Host ""
-}
+# Purge any stray portable artifacts (bare exes, zips, bundles)
+Get-ChildItem $DownloadsDir -Recurse -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -match 'SystemMonitor-v\d+\.\d+\.\d+\.exe' -and $_.Name -notmatch '-setup' -and $_.Name -ne "SystemMonitor-Setup-v$Version.exe" } |
+    Remove-Item -Force
+Get-ChildItem $DownloadsDir -Filter *.zip -ErrorAction SilentlyContinue | Remove-Item -Force
 
-Write-Host "Ready for distribution! Users can now install by running setup.bat" -ForegroundColor Green
 Write-Host ""
-
-# Test the installer
-$test = Read-Host "Test the installer now? (Y/N)"
-if ($test -eq "Y" -or $test -eq "y") {
-    Write-Host ""
-    Write-Step "Testing installer..."
-    Push-Location $BuildDir
-    try {
-        & ".\installer.ps1" -Silent
-        Write-Success "Installer test completed"
-    }
-    finally {
-        Pop-Location
-    }
-}
+Write-Host "=============================================" -ForegroundColor Green
+Write-Host "   Installer Ready (installable only)" -ForegroundColor Green
+Write-Host "=============================================" -ForegroundColor Green
+Write-Host ""
+Write-Host "  $DownloadsDir\$Installer" -ForegroundColor White
+Write-Host "  $DistDir\$Installer" -ForegroundColor White
+Write-Host ""
+Write-Host "No portable build is produced. Users install via the Setup.exe." -ForegroundColor Cyan
+Write-Host ""

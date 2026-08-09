@@ -1,3 +1,10 @@
+> **NOTE — SUPERSEDED (2026-08): This document describes an OBSOLETE process that
+> distributed PORTABLE bare `.exe` and `.zip` files. The project now ships ONLY an
+> installable Inno Setup installer (`SystemMonitor-<version>-setup.exe`). Portable
+> builds are disabled and refused by the build scripts. See `docs/release-rule.md`,
+> `release.ps1`, `build.ps1`, and `.github/workflows/windows-release.yml` for the
+> current installable-only release pipeline. The guidance below is historical only.
+
 # GitHub Pages Deployment Fix
 
 ## 🔴 Current Issue
