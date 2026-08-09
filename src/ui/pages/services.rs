@@ -63,6 +63,7 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
         });
 
         if let Some(action) = app.pending_service_action.take() {
+            app.action_pending = true;
             let _ = app.app_channels.action_sender.send(crate::app::commands::ActionCommand::ControlService {
                 name: action.name,
                 action: action.action,

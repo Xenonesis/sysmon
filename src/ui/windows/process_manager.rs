@@ -101,6 +101,9 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ctx: &egui::Context, data:
                         });
                 });
 
+                if let Some(status) = &app.action_status {
+                    ui.label(egui::RichText::new(status).small().color(ThemePalette::TEXT_LABEL));
+                }
                 ui.separator();
                 ui.colored_label(
                     egui::Color32::YELLOW,

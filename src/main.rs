@@ -1200,6 +1200,8 @@ pub(crate) struct SystemMonitorApp {
     pub(crate) app_channels: app::AppChannels,
     pub(crate) latest_snapshot: Option<monitoring::SystemSnapshot>,
     pub(crate) action_events: Vec<app::events::AppEvent>,
+    pub(crate) action_pending: bool,
+    pub(crate) action_status: Option<String>,
     pub(crate) settings: AppSettings,
     pub(crate) shared_settings: Arc<Mutex<AppSettings>>,
     pub(crate) selected_tab: Tab,
@@ -1219,7 +1221,6 @@ pub(crate) struct SystemMonitorApp {
     pub(crate) update_info_share: Arc<Mutex<Option<updater::UpdateInfo>>>,
     pub(crate) show_update_notification: bool,
     pub(crate) update_check_time: Option<Instant>,
-    pub(crate) auto_update_installed: bool,
     pub(crate) ram_cleaner_state: RamCleanerState,
     pub(crate) startup_items: Vec<StartupItem>,
     pub(crate) startup_items_loaded: bool,
@@ -1911,6 +1912,8 @@ impl SystemMonitorApp {
             app_channels,
             latest_snapshot: None,
             action_events: Vec::new(),
+            action_pending: false,
+            action_status: None,
             data,
             settings: settings.clone(),
             shared_settings,
@@ -1930,7 +1933,6 @@ impl SystemMonitorApp {
             update_info_share: Arc::new(Mutex::new(None)),
             show_update_notification: true,
             update_check_time: None,
-            auto_update_installed: false,
             ram_cleaner_state: RamCleanerState {
                 last_cleaned: None,
                 last_cleaned_display: String::new(),
@@ -1989,7 +1991,7 @@ impl SystemMonitorApp {
         }
     }
 
-    fn export_diagnostics(&self, destination: &std::path::Path) -> Result<std::path::PathBuf, std::io::Error> {
+    pub(crate) fn export_diagnostics(&self, destination: &std::path::Path) -> Result<std::path::PathBuf, std::io::Error> {
         let snapshot = self.latest_snapshot.as_ref().cloned().unwrap_or_else(|| snapshot_from_data(&self.data.lock()));
         persistence::diagnostics::export(destination, &snapshot, &self.settings)
     }
@@ -2083,6 +2085,15 @@ impl eframe::App for SystemMonitorApp {
         while let Ok(event) = self.app_channels.event_receiver.try_recv() {
             match event {
                 app::events::AppEvent::Snapshot(snapshot) => self.latest_snapshot = Some(snapshot),
+                app::events::AppEvent::ActionCompleted { action: _, message } => {
+                    self.action_pending = false;
+                    self.action_status = Some(message);
+                }
+                app::events::AppEvent::ActionFailed { action: _, error } => {
+                    self.action_pending = false;
+                    self.action_status = Some(error);
+                    if self.settings.enable_sounds { play_alert_sound(); }
+                }
                 event => self.action_events.push(event),
             }
         }
@@ -2120,6 +2131,7 @@ impl eframe::App for SystemMonitorApp {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
                 ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
                 self.is_hidden = false;
+                let _ = self.app_channels.monitoring_sender.send(app::commands::MonitoringCommand::SetHidden(false));
                 self.show_process_manager = true;
             } else if Some(&event.id) == self.tray_menu_pause_id.as_ref() {
                 let paused = {
@@ -2127,6 +2139,7 @@ impl eframe::App for SystemMonitorApp {
                     d.monitoring_paused = !d.monitoring_paused;
                     d.monitoring_paused
                 };
+                let _ = self.app_channels.monitoring_sender.send(app::commands::MonitoringCommand::SetPaused(paused));
                 if let Some(item) = &self.tray_menu_pause_item {
                     item.set_checked(paused);
                 }
@@ -2140,6 +2153,7 @@ impl eframe::App for SystemMonitorApp {
                 ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
                 ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
                 self.is_hidden = true;
+                let _ = self.app_channels.monitoring_sender.send(app::commands::MonitoringCommand::SetHidden(true));
             }
         }
 
@@ -2270,71 +2284,31 @@ impl eframe::App for SystemMonitorApp {
 
         // Handle process kill actions
         if let Some(pid) = self.selected_process_pid.take() {
+            self.action_pending = true;
             let _ = self.app_channels.action_sender.send(app::commands::ActionCommand::KillProcess(pid));
         }
 
         // Handle process tree kill actions (background thread; tree walk + kills can take seconds)
         if let Some(root) = self.kill_tree_pid.take() {
-            let ctx_clone = ctx.clone();
-            let enable_sounds = self.settings.enable_sounds;
-            thread::Builder::new()
-                .name("kill_tree".to_string())
-                .stack_size(8 * 1024 * 1024)
-                .spawn(move || {
-                    let mut monitor = SystemMonitor::new();
-                    monitor.sys.refresh_processes();
-                    let tree = processes::build_process_tree(&monitor.sys);
-                    let order = processes::kill_order(&tree, root);
-                    let total = order.len();
-                    let mut killed = 0usize;
-                    let mut failed_pids: Vec<u32> = Vec::new();
-                    for pid in order {
-                        if monitor.kill_process(pid) {
-                            killed += 1;
-                        } else {
-                            failed_pids.push(pid);
-                        }
-                    }
-                    let summary = if failed_pids.is_empty() {
-                        format!("Process tree killed successfully ({} processes).", killed)
-                    } else {
-                        format!(
-                            "Killed {} of {} processes. {} failed (Access Denied): {:?}",
-                            killed,
-                            total,
-                            failed_pids.len(),
-                            failed_pids
-                        )
-                    };
-                    let _ = notify_rust::Notification::new()
-                        .summary("Process Tree Kill")
-                        .body(&summary)
-                        .timeout(notify_rust::Timeout::Milliseconds(5000))
-                        .show();
-                    if enable_sounds {
-                        if failed_pids.is_empty() {
-                            play_success_sound();
-                        } else {
-                            play_alert_sound();
-                        }
-                    }
-                    ctx_clone.request_repaint();
-                })
-                .expect("failed to spawn kill tree thread");
+            self.action_pending = true;
+            let _ = self.app_channels.action_sender.send(app::commands::ActionCommand::KillProcessTree(root));
         }
 
         // Handle process suspend actions
         if let Some(pid) = self.suspend_process_pid.take() {
+            self.action_pending = true;
             let _ = self.app_channels.action_sender.send(app::commands::ActionCommand::SuspendProcess(pid));
         }
 
         // Handle process resume actions
         if let Some(pid) = self.resume_process_pid.take() {
+            self.action_pending = true;
             let _ = self.app_channels.action_sender.send(app::commands::ActionCommand::ResumeProcess(pid));
         }
 
         // Handle process priority changes
         if let Some((pid, priority)) = self.priority_change.take() {
+            self.action_pending = true;
             let _ = self.app_channels.action_sender.send(app::commands::ActionCommand::SetPriority { pid, priority });
         }
 

@@ -175,12 +175,29 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui) {
 
             if changed {
                 let _ = app.settings.save();
+                let _ = app.app_channels.monitoring_sender.send(crate::app::commands::MonitoringCommand::SetSettings(app.settings.clone()));
                 // Sync settings to the background thread
                 {
                     let mut shared = app.shared_settings.lock();
                     *shared = app.settings.clone();
                 }
             }
+
+                if app.action_pending {
+                    ui.spinner();
+                    ui.label("Action in progress...");
+                } else if let Some(status) = &app.action_status {
+                    ui.label(egui::RichText::new(status).small().color(ThemePalette::TEXT_LABEL));
+                }
+                ui.add_space(12.0);
+                if ui.button("Export Diagnostics").clicked() {
+                    if let Some(folder) = rfd::FileDialog::new().pick_folder() {
+                        app.action_status = Some(match app.export_diagnostics(&folder) {
+                            Ok(path) => format!("Diagnostics saved to {}", path.display()),
+                            Err(error) => format!("Diagnostics export failed: {error}"),
+                        });
+                    }
+                }
 
             // Apply theme change live
             if theme_changed {
