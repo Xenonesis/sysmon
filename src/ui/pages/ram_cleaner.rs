@@ -100,6 +100,16 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
                         }
                     });
                     ui.horizontal(|ui| {
+                        ui.label("Clean until usage drops below:");
+                        if ui.add(
+                            egui::Slider::new(&mut app.ram_cleaner_state.auto_clean_target, 30.0..=95.0)
+                                .suffix("%"),
+                        ).changed() {
+                            app.settings.auto_clean_target = app.ram_cleaner_state.auto_clean_target;
+                            settings_changed = true;
+                        }
+                    });
+                    ui.horizontal(|ui| {
                         ui.label("Minimum interval between cleans:");
                         if ui.add(
                             egui::Slider::new(&mut app.ram_cleaner_state.auto_clean_interval, 60..=1800)
@@ -109,6 +119,46 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
                             settings_changed = true;
                         }
                     });
+                    ui.horizontal(|ui| {
+                        ui.label("Max RAM freed per clean:");
+                        if ui.add(
+                            egui::Slider::new(&mut app.ram_cleaner_state.auto_clean_max_mb, 0..=2048)
+                                .suffix(" MB"),
+                        ).on_hover_text("0 = unlimited; caps how much memory one auto-clean can free")
+                        .changed() {
+                            app.settings.auto_clean_max_mb = app.ram_cleaner_state.auto_clean_max_mb;
+                            settings_changed = true;
+                        }
+                    });
+                    ui.add_space(5.0);
+                    if ui.checkbox(&mut app.ram_cleaner_state.auto_clean_idle_only, "Only clean when PC is idle")
+                        .on_hover_text("Skips auto-clean if you have used the PC within the last 2 minutes")
+                        .changed() {
+                        app.settings.auto_clean_idle_only = app.ram_cleaner_state.auto_clean_idle_only;
+                        settings_changed = true;
+                    }
+                    if ui.checkbox(&mut app.ram_cleaner_state.auto_clean_notify, "Show notification after each clean")
+                        .on_hover_text("Reports freed MB in a toast notification")
+                        .changed() {
+                        app.settings.auto_clean_notify = app.ram_cleaner_state.auto_clean_notify;
+                        settings_changed = true;
+                    }
+                    ui.add_space(5.0);
+                    ui.label("Excluded processes (never cleaned):");
+                    let mut exclusion_text = app.ram_cleaner_state.auto_clean_exclusions.join(", ");
+                    if ui.add(
+                        egui::TextEdit::singleline(&mut exclusion_text)
+                            .hint_text("e.g. chrome.exe, firefox.exe")
+                            .desired_width(320.0),
+                    ).changed() {
+                        app.ram_cleaner_state.auto_clean_exclusions = exclusion_text
+                            .split(',')
+                            .map(|s| s.trim().to_string())
+                            .filter(|s| !s.is_empty())
+                            .collect();
+                        app.settings.auto_clean_exclusions = app.ram_cleaner_state.auto_clean_exclusions.clone();
+                        settings_changed = true;
+                    }
                 }
 
                 if settings_changed {

@@ -207,6 +207,11 @@ pub(crate) struct RamCleanerState {
     pub(crate) auto_clean_enabled: bool,
     pub(crate) auto_clean_threshold: f32, // percentage threshold for auto-clean
     pub(crate) auto_clean_interval: u64,  // seconds between auto-cleans
+    pub(crate) auto_clean_target: f32,    // stop cleaning once usage drops below this
+    pub(crate) auto_clean_exclusions: Vec<String>, // process names never touched
+    pub(crate) auto_clean_idle_only: bool, // clean only after idle period
+    pub(crate) auto_clean_notify: bool,   // show freed-MB notification per auto-clean
+    pub(crate) auto_clean_max_mb: u64,    // max MB freed per pass (0 = unlimited)
     pub(crate) is_cleaning: bool,
     pub(crate) clean_count: u32,
 }
@@ -260,10 +265,28 @@ pub(crate) struct AppSettings {
     pub(crate) last_boot_diagnostics: Option<BootDiagnostics>,
     #[serde(default = "default_auto_clean_interval")]
     pub(crate) auto_clean_interval: u64,
+    #[serde(default = "default_auto_clean_target")]
+    pub(crate) auto_clean_target: f32,
+    #[serde(default)]
+    pub(crate) auto_clean_exclusions: Vec<String>,
+    #[serde(default)]
+    pub(crate) auto_clean_idle_only: bool,
+    #[serde(default = "default_auto_clean_notify")]
+    pub(crate) auto_clean_notify: bool,
+    #[serde(default)]
+    pub(crate) auto_clean_max_mb: u64,
 }
 
 fn default_auto_clean_interval() -> u64 {
     300
+}
+
+fn default_auto_clean_target() -> f32 {
+    70.0
+}
+
+fn default_auto_clean_notify() -> bool {
+    true
 }
 
 fn default_enable_sounds() -> bool {
@@ -282,6 +305,16 @@ fn default_auto_ram_clean() -> bool {
 }
 fn default_ram_clean_threshold() -> f32 {
     85.0
+}
+
+// RAM cleaner pure logic
+fn is_excluded(name: &str, exclusions: &[String]) -> bool {
+    let name = name.to_lowercase();
+    exclusions.iter().any(|ex| name == ex.to_lowercase())
+}
+
+fn should_stop_cleaning(usage_pct: f64, target: f64, freed: u64, budget_left: u64) -> bool {
+    usage_pct <= target || freed == 0 || freed >= budget_left
 }
 
 struct SystemMonitor {
@@ -328,6 +361,11 @@ impl Default for AppSettings {
             startup_optimization_history: Vec::new(),
             last_boot_diagnostics: None,
             auto_clean_interval: 300,
+            auto_clean_target: 70.0,
+            auto_clean_exclusions: Vec::new(),
+            auto_clean_idle_only: false,
+            auto_clean_notify: true,
+            auto_clean_max_mb: 0,
             show_cpu_cores: true,
             show_widget: false,
         }
@@ -611,20 +649,23 @@ impl SystemMonitor {
 
 
     #[cfg(target_os = "windows")]
-    fn clean_ram(&mut self) -> u64 {
+    fn clean_ram(&mut self, exclusions: &[String]) -> u64 {
         use windows::Win32::Foundation::CloseHandle;
         use windows::Win32::System::ProcessStatus::EmptyWorkingSet;
         use windows::Win32::System::Threading::{
             OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_ACCESS_RIGHTS,
         };
 
-        info!("RAM clean operation initiated (native API)");
+        info!(excluded = exclusions.len(), "RAM clean operation initiated (native API)");
         let mem_before = self.sys.used_memory();
         let mut success_count = 0;
         let mut fail_count = 0;
 
         unsafe {
-            for (pid, _) in self.sys.processes() {
+            for (pid, process) in self.sys.processes() {
+                if is_excluded(process.name(), exclusions) {
+                    continue;
+                }
                 let pid_u32 = pid.as_u32();
                 if let Ok(h) = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_ACCESS_RIGHTS(0x0100), false, pid_u32) {
                     if !h.is_invalid() {
@@ -656,7 +697,7 @@ impl SystemMonitor {
     }
 
     #[cfg(not(target_os = "windows"))]
-    fn clean_ram(&mut self) -> u64 {
+    fn clean_ram(&mut self, _exclusions: &[String]) -> u64 {
         0
     }
 
@@ -1142,6 +1183,7 @@ pub(crate) struct SystemData {
     pub(crate) is_hidden: bool,
     pub(crate) selected_tab: Tab,
     pub(crate) services: Vec<services::ServiceInfo>,
+    pub(crate) last_activity: Instant,
 }
 
 impl Default for SystemData {
@@ -1197,6 +1239,7 @@ impl Default for SystemData {
             disk_write_history: VecDeque::new(),
             is_hidden: false,
             selected_tab: Tab::Overview,
+            last_activity: Instant::now(),
             services: Vec::new(),
         }
     }
@@ -1942,6 +1985,11 @@ impl SystemMonitorApp {
                 auto_clean_enabled: settings.auto_ram_clean,
                 auto_clean_threshold: settings.ram_clean_threshold,
                 auto_clean_interval: settings.auto_clean_interval,
+                auto_clean_target: settings.auto_clean_target,
+                auto_clean_exclusions: settings.auto_clean_exclusions.clone(),
+                auto_clean_idle_only: settings.auto_clean_idle_only,
+                auto_clean_notify: settings.auto_clean_notify,
+                auto_clean_max_mb: settings.auto_clean_max_mb,
                 is_cleaning: false,
                 clean_count: 0,
             },
@@ -2085,6 +2133,7 @@ impl SystemMonitorApp {
 impl eframe::App for SystemMonitorApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let ctx_clone = ctx.clone();
+        self.data.lock().last_activity = Instant::now();
         while let Ok(event) = self.app_channels.event_receiver.try_recv() {
             match event {
                 app::events::AppEvent::Snapshot(snapshot) => self.latest_snapshot = Some(snapshot),
@@ -2316,13 +2365,18 @@ impl eframe::App for SystemMonitorApp {
 
         // Auto RAM cleaning
         if self.ram_cleaner_state.auto_clean_enabled && !self.ram_cleaner_state.is_cleaning {
+            let idle_ok = {
+                let d = self.data.lock();
+                !self.ram_cleaner_state.auto_clean_idle_only
+                    || d.last_activity.elapsed().as_secs() > 120
+            };
             let should_clean = if let Some(last) = self.ram_cleaner_state.last_cleaned {
                 last.elapsed().as_secs() >= self.ram_cleaner_state.auto_clean_interval
                     && data.memory_percentage >= self.ram_cleaner_state.auto_clean_threshold
             } else {
                 data.memory_percentage >= self.ram_cleaner_state.auto_clean_threshold
             };
-            if should_clean {
+            if should_clean && idle_ok {
                 self.ram_cleaner_state.is_cleaning = true;
                 self.ram_cleaner_state.last_cleaned = Some(Instant::now());
                 self.ram_cleaner_state.last_cleaned_display = Local::now().format("%H:%M:%S").to_string();
@@ -2330,17 +2384,50 @@ impl eframe::App for SystemMonitorApp {
                 let data_arc = Arc::clone(&self.data);
                 let repaint_ctx = ctx_clone.clone();
                 let enable_sounds = self.settings.enable_sounds;
+                let target = self.ram_cleaner_state.auto_clean_target;
+                let max_mb = self.ram_cleaner_state.auto_clean_max_mb;
+                let notify = self.ram_cleaner_state.auto_clean_notify;
+                let exclusions = self.ram_cleaner_state.auto_clean_exclusions.clone();
+                let total_ram = data.memory_total;
                 thread::Builder::new()
                     .name("ram_cleaner_auto".to_string())
                     .stack_size(8 * 1024 * 1024)
                     .spawn(move || {
+                        // ponytail: bounded passes + budget; a truly stuck
+                        // process set just stops after 5 passes
                         let mut monitor = SystemMonitor::new();
-                        let freed = monitor.clean_ram();
+                        let mut freed_total = 0u64;
+                        for _pass in 0..5 {
+                            let freed = monitor.clean_ram(&exclusions);
+                            let budget_left = if max_mb == 0 {
+                                u64::MAX
+                            } else {
+                                (max_mb * 1024 * 1024).saturating_sub(freed_total)
+                            };
+                            freed_total = freed_total.saturating_add(freed);
+                            monitor.sys.refresh_memory();
+                            let usage_pct = if total_ram > 0 {
+                                monitor.sys.used_memory() as f64 / total_ram as f64 * 100.0
+                            } else { 0.0 };
+                            if should_stop_cleaning(usage_pct, target as f64, freed, budget_left) {
+                                break;
+                            }
+                        }
                         if enable_sounds { play_success_sound(); }
+                        if notify {
+                            let _ = notify_rust::Notification::new()
+                                .summary("Auto RAM Clean")
+                                .body(&format!(
+                                    "Freed {:.1} MB of RAM",
+                                    freed_total as f64 / 1024.0 / 1024.0
+                                ))
+                                .timeout(notify_rust::Timeout::Milliseconds(5000))
+                                .show();
+                        }
                         // Store freed bytes in SystemData for the UI to pick up
                         {
                             let mut d = data_arc.lock();
-                            d.ram_clean_freed_bytes += freed;
+                            d.ram_clean_freed_bytes += freed_total;
                             d.ram_clean_is_cleaning = false;
                         }
                         repaint_ctx.request_repaint();
@@ -2790,7 +2877,7 @@ impl SystemMonitorApp {
             .stack_size(8 * 1024 * 1024)
             .spawn(move || {
                 let mut monitor = SystemMonitor::new();
-                let freed = monitor.clean_ram();
+                let freed = monitor.clean_ram(&[]);
                 if enable_sounds {
                     play_success_sound();
                 }
@@ -2917,7 +3004,7 @@ pub(crate) fn run_action_worker(
             app::commands::ActionCommand::SuspendProcess(pid) => monitor.suspend_process(pid).then_some(format!("Process {pid} suspended")).ok_or(ActionError::AccessDenied),
             app::commands::ActionCommand::ResumeProcess(pid) => monitor.resume_process(pid).then_some(format!("Process {pid} resumed")).ok_or(ActionError::AccessDenied),
             app::commands::ActionCommand::SetPriority { pid, priority } => SystemMonitor::set_process_priority(pid, &priority).then_some(format!("Process {pid} priority set to {priority}")).ok_or(ActionError::AccessDenied),
-            app::commands::ActionCommand::CleanRam => Ok(format!("Freed {} bytes", monitor.clean_ram())),
+            app::commands::ActionCommand::CleanRam => Ok(format!("Freed {} bytes", monitor.clean_ram(&[]))),
             app::commands::ActionCommand::ControlService { name, action } => services::send_service_control(&name, action).then_some(format!("Service {name} action completed")).ok_or(ActionError::Failed("Service action failed".into())),
             app::commands::ActionCommand::SetPowerPlan(guid) => power::set_active_power_plan(&guid).map(|_| "Power plan changed".into()).map_err(ActionError::Failed),
             app::commands::ActionCommand::KillProcessTree(root) => {
@@ -3246,5 +3333,43 @@ mod persistence_tests {
         let b = BatteryInfo::default();
         assert_eq!(b.design_capacity, 0);
         assert_eq!(b.present, false);
+    }
+}
+#[cfg(test)]
+mod ram_cleaner_tests {
+    use super::*;
+
+    fn ex(names: &[&str]) -> Vec<String> {
+        names.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn exclusion_matches_case_insensitively() {
+        assert!(is_excluded("Chrome.EXE", &ex(&["chrome.exe"])));
+        assert!(is_excluded("firefox", &ex(&["FireFox"])));
+        assert!(!is_excluded("notepad", &ex(&["chrome.exe"])));
+        assert!(!is_excluded("chrome", &ex(&["chrome.exe"])));
+    }
+
+    #[test]
+    fn stop_conditions_cover_target_budget_and_empty() {
+        assert!(should_stop_cleaning(65.0, 70.0, 10, 100));  // under target
+        assert!(!should_stop_cleaning(80.0, 70.0, 10, 100)); // still over target
+        assert!(should_stop_cleaning(90.0, 70.0, 0, 100));   // nothing freed
+        assert!(should_stop_cleaning(90.0, 70.0, 100, 100)); // budget exhausted
+    }
+
+    #[test]
+    fn settings_defaults_and_clamps() {
+        let s = AppSettings::default();
+        assert_eq!(s.auto_clean_target, 70.0);
+        assert!(s.auto_clean_notify);
+        assert_eq!(s.auto_clean_max_mb, 0);
+        let mut s2 = AppSettings::default();
+        s2.auto_clean_target = 10.0;
+        s2.auto_clean_max_mb = 99999;
+        let c = crate::persistence::settings::validated(s2);
+        assert_eq!(c.auto_clean_target, 30.0);
+        assert_eq!(c.auto_clean_max_mb, 4096);
     }
 }

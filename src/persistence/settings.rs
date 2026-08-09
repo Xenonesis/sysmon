@@ -18,6 +18,8 @@ pub(crate) fn validated(mut settings: AppSettings) -> AppSettings {
     settings.notification_memory_threshold = settings.notification_memory_threshold.clamp(50.0, 100.0);
     settings.notification_temp_threshold = settings.notification_temp_threshold.clamp(60, 105);
     settings.ram_clean_threshold = settings.ram_clean_threshold.clamp(50.0, 100.0);
+    settings.auto_clean_target = settings.auto_clean_target.clamp(30.0, 95.0);
+    settings.auto_clean_max_mb = settings.auto_clean_max_mb.min(4096);
     settings.auto_clean_interval = settings.auto_clean_interval.max(30);
     settings
 }
