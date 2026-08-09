@@ -281,6 +281,8 @@ struct SystemMonitor {
     #[cfg(target_os = "windows")]
     wmi_com: Option<std::rc::Rc<wmi::COMLibrary>>,
     #[cfg(target_os = "windows")]
+    wmi_thermal: Option<wmi::WMIConnection>,
+    #[cfg(target_os = "windows")]
     wmi_gpu_engine_class: Option<String>,
     #[cfg(target_os = "windows")]
     wmi_gpu_memory_class: Option<String>,
@@ -428,6 +430,9 @@ impl SystemMonitor {
             (com, engine_class, memory_class)
         };
 
+        #[cfg(target_os = "windows")]
+        let wmi_thermal = wmi_com.as_ref().and_then(|com| wmi::WMIConnection::with_namespace_path("ROOT\\WMI", com.clone()).ok());
+
         SystemMonitor {
             sys,
             disks,
@@ -436,6 +441,8 @@ impl SystemMonitor {
             nvml,
             #[cfg(target_os = "windows")]
             wmi_com,
+            #[cfg(target_os = "windows")]
+            wmi_thermal,
             #[cfg(target_os = "windows")]
             wmi_gpu_engine_class,
             #[cfg(target_os = "windows")]
@@ -857,16 +864,8 @@ impl SystemMonitor {
     }
 
     #[cfg(target_os = "windows")]
-    fn get_cpu_temperature_wmi() -> Option<f32> {
-        let com = match wmi::COMLibrary::new() {
-            Ok(c) => std::rc::Rc::new(c),
-            Err(_) => return None,
-        };
-        // The MSAcpi_ThermalZoneTemperature class is in the \root\wmi namespace
-        let wmi = match wmi::WMIConnection::with_namespace_path("ROOT\\WMI", com) {
-            Ok(w) => w,
-            Err(_) => return None,
-        };
+    fn get_cpu_temperature_wmi(&self) -> Option<f32> {
+        let wmi = self.wmi_thermal.as_ref()?;
 
         let results = wmi
             .raw_query::<std::collections::HashMap<String, wmi::Variant>>(
@@ -900,7 +899,7 @@ impl SystemMonitor {
     }
 
     #[cfg(not(target_os = "windows"))]
-    fn get_cpu_temperature_wmi() -> Option<f32> {
+    fn get_cpu_temperature_wmi(&self) -> Option<f32> {
         None
     }
 
@@ -1456,6 +1455,9 @@ impl SystemMonitorApp {
         let data_clone = Arc::clone(&data);
         let shared_settings = Arc::new(Mutex::new(settings.clone()));
         let shared_settings_clone = Arc::clone(&shared_settings);
+        let mut app_channels = app::AppChannels::new();
+        let monitoring_receiver = app_channels.monitoring_receiver.take().expect("monitoring receiver missing");
+        let monitoring_events = app_channels.event_sender.clone();
 
         // Background thread for monitoring
         thread::Builder::new()
@@ -1474,7 +1476,21 @@ impl SystemMonitorApp {
             let mut last_selected_tab = data_clone.lock().selected_tab;
 
             loop {
-                thread::sleep(Duration::from_millis(500));
+                let mut force_refresh = false;
+                while let Ok(command) = monitoring_receiver.try_recv() {
+                    match command {
+                        app::commands::MonitoringCommand::SetSettings(new_settings) => {
+                            *shared_settings_clone.lock() = new_settings;
+                        }
+                        app::commands::MonitoringCommand::SetPaused(paused) => data_clone.lock().monitoring_paused = paused,
+                        app::commands::MonitoringCommand::SetHidden(hidden) => data_clone.lock().is_hidden = hidden,
+                        app::commands::MonitoringCommand::RefreshNow => force_refresh = true,
+                        app::commands::MonitoringCommand::Shutdown => return,
+                    }
+                }
+                if !force_refresh {
+                    thread::sleep(Duration::from_millis(500));
+                }
 
                 // Read hidden status, current tab, and pause state
                 let (is_hidden, selected_tab, paused) = {
@@ -1530,7 +1546,7 @@ impl SystemMonitorApp {
                 };
 
                 let cpu_temperature = if need_cpu_temp && temperature_check_counter % 10 == 0 {
-                    SystemMonitor::get_cpu_temperature_wmi()
+                    monitor.get_cpu_temperature_wmi()
                 } else {
                     None
                 };
@@ -1774,6 +1790,9 @@ impl SystemMonitorApp {
                     }
                 }
 
+                let snapshot = snapshot_from_data(&data_clone.lock());
+                let _ = monitoring_events.send(app::events::AppEvent::Snapshot(snapshot));
+
                 // Process details for the selected row (recompute only when selection changed)
                 let selected_pid = { let d = data_clone.lock(); d.selected_process_pid };
                 if let Some(pid) = selected_pid {
@@ -1882,8 +1901,6 @@ impl SystemMonitorApp {
                 ctx_clone.request_repaint();
             })
             .ok();
-
-        let app_channels = app::AppChannels::new();
 
         Self {
             app_channels,
@@ -2931,6 +2948,53 @@ impl SystemMonitorApp {
 
 
 
+}
+
+fn snapshot_from_data(data: &SystemData) -> monitoring::SystemSnapshot {
+    monitoring::SystemSnapshot {
+        sampled_at: std::time::SystemTime::now(),
+        cpu_usage: data.cpu_usage,
+        cpu_cores: data.cpu_cores.iter().map(|core| core.usage).collect(),
+        cpu_temperature: data.cpu_temperature,
+        memory_total: data.memory_total,
+        memory_used: data.memory_used,
+        memory_percentage: data.memory_percentage,
+        swap: monitoring::snapshot::SwapSnapshot { total: data.swap_info.total, used: data.swap_info.used, percentage: data.swap_info.percentage },
+        gpus: data.gpu_info.iter().map(|gpu| monitoring::snapshot::GpuSnapshot {
+            name: gpu.name.clone(), utilization: gpu.utilization, memory_used: gpu.memory_used,
+            memory_total: gpu.memory_total, temperature: gpu.temperature, clock_mhz: gpu.clock_mhz,
+            power_watts: gpu.power_watts, fan_percent: gpu.fan_percent,
+        }).collect(),
+        disks: data.disk_info.iter().map(|disk| monitoring::snapshot::DiskSnapshot {
+            name: disk.name.clone(), mount_point: disk.mount_point.clone(), total_space: disk.total_space,
+            available_space: disk.available_space, usage_percentage: disk.usage_percentage,
+            file_system: disk.file_system.clone(), read_bytes_per_second: data.disk_read_rate,
+            written_bytes_per_second: data.disk_write_rate,
+        }).collect(),
+        networks: data.network_info.iter().map(|network| monitoring::snapshot::NetworkSnapshot {
+            interface: network.interface.clone(), received: network.received, transmitted: network.transmitted,
+            received_bytes_per_second: network.received_rate, transmitted_bytes_per_second: network.transmitted_rate,
+        }).collect(),
+        processes: data.top_processes.iter().map(|process| monitoring::snapshot::ProcessSnapshot {
+            pid: process.pid, name: process.name.clone(), cpu_usage: process.cpu_usage, memory: process.memory,
+            status: process.status.clone(), disk_read_bytes: process.disk_read_bytes,
+            disk_written_bytes: process.disk_written_bytes,
+        }).collect(),
+        battery: data.battery_info.as_ref().map(|battery| monitoring::snapshot::BatterySnapshot {
+            design_capacity: battery.design_capacity, full_charge_capacity: battery.full_charge_capacity,
+            status: battery.status, discharge_state: battery.discharge_state.clone(), present: battery.present,
+        }),
+        system: monitoring::snapshot::SystemInfoSnapshot {
+            os_name: data.system_info.os_name.clone(), os_version: data.system_info.os_version.clone(),
+            kernel_version: data.system_info.kernel_version.clone(), hostname: data.system_info.hostname.clone(),
+            uptime: data.system_info.uptime, cpu_count: data.system_info.cpu_count,
+            cpu_brand: data.system_info.cpu_brand.clone(), motherboard: data.system_info.motherboard.clone(),
+            bios_version: data.system_info.bios_version.clone(), gpu_driver: data.system_info.gpu_driver.clone(),
+            os_build: data.system_info.os_build.clone(),
+        },
+        provider_status: std::collections::HashMap::new(),
+        paused: data.monitoring_paused,
+    }
 }
 
 fn load_icon() -> Option<egui::IconData> {

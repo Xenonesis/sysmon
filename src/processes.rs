@@ -80,6 +80,9 @@ pub fn build_tree(parent_map: &HashMap<u32, u32>) -> HashMap<u32, Vec<u32>> {
     for (&pid, &parent) in parent_map {
         tree.entry(parent).or_default().push(pid);
     }
+    for children in tree.values_mut() {
+        children.sort_unstable();
+    }
     tree
 }
 
