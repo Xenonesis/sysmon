@@ -2163,25 +2163,12 @@ impl eframe::App for SystemMonitorApp {
             let mut updater = self.updater.clone();
             let ctx_clone = ctx.clone();
             let update_info_share = self.update_info_share.clone();
-            let auto_update_installed = self.auto_update_installed;
             thread::Builder::new()
                 .name("auto_updater_check".to_string())
                 .stack_size(8 * 1024 * 1024)
                 .spawn(move || {
                     if let Ok(update_info) = updater.check_for_updates() {
                         *update_info_share.lock() = Some(update_info.clone());
-                        if update_info.update_available && !auto_update_installed {
-                            let download_url = update_info.download_url.clone();
-                            thread::Builder::new()
-                                .name("updater_downloader".to_string())
-                                .stack_size(8 * 1024 * 1024)
-                                .spawn(move || {
-                                    if let Err(e) = updater::Updater::new().download_and_install_update(&download_url) {
-                                        eprintln!("Update failed: {}", e);
-                                    }
-                                })
-                                .expect("failed to spawn updater downloader thread");
-                        }
                     }
                 })
                 .expect("failed to spawn auto updater check thread");

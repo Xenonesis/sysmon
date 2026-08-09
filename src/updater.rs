@@ -4,6 +4,15 @@ use std::io::Read;
 
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 const UPDATE_CHECK_URL: &str = "https://api.github.com/repos/Xenonesis/sysmon/releases/latest";
+const MAX_INSTALLER_BYTES: u64 = 100 * 1024 * 1024;
+
+pub(crate) fn validate_asset_url(url: &str) -> Result<(), String> {
+    let lower = url.to_ascii_lowercase();
+    if !lower.starts_with("https://github.com/xenonesis/sysmon/releases/download/") || !lower.ends_with(".exe") {
+        return Err("Unexpected update asset URL".into());
+    }
+    Ok(())
+}
 
 // Must match the AppId in installer.iss.
 const INSTALLER_APP_ID: &str = "{3F2A9C41-8E7D-4B6A-9C21-5D8E4F1A7B62}";
@@ -153,13 +162,9 @@ impl Updater {
     }
 
     pub fn download_and_install_update(&self, download_url: &str) -> Result<(), String> {
-        let is_exe = download_url.to_lowercase().ends_with(".exe")
-            || download_url.to_lowercase().contains(".exe?");
-        if !is_exe {
-            return Err("Unsupported update format".to_string());
-        }
-
-        let installer_path = std::env::temp_dir().join("system-monitor-setup.exe");
+        validate_asset_url(download_url)?;
+        let unique = format!("system-monitor-setup-{}-{}.exe", std::process::id(), chrono::Utc::now().timestamp_millis());
+        let installer_path = std::env::temp_dir().join(unique);
 
         // Download the update using ureq
         let response = ureq::get(download_url)
@@ -168,10 +173,9 @@ impl Updater {
             .map_err(|e| format!("Failed to download update: {}", e))?;
 
         let mut bytes = Vec::new();
-        response
-            .into_reader()
-            .read_to_end(&mut bytes)
-            .map_err(|e| format!("Failed to read update file: {}", e))?;
+        response.into_reader().take(MAX_INSTALLER_BYTES + 1).read_to_end(&mut bytes)
+            .map_err(|e| format!("Failed to read update file: {e}"))?;
+        if bytes.len() as u64 > MAX_INSTALLER_BYTES { return Err("Update installer exceeds size limit".into()); };
 
         fs::write(&installer_path, &bytes)
             .map_err(|e| format!("Failed to write update file: {}", e))?;
@@ -184,12 +188,13 @@ impl Updater {
             {
                 use std::process::Command;
                 use std::os::windows::process::CommandExt;
+                verify_authenticode(&installer_path)?;
                 Command::new(&installer_path)
                     .creation_flags(0x08000000)
                     .args(["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"])
                     .spawn()
                     .map_err(|e| format!("Failed to spawn installer: {}", e))?;
-                std::process::exit(0);
+                Ok(())
             }
             #[cfg(not(target_os = "windows"))]
             {
@@ -213,5 +218,42 @@ impl Clone for UpdateInfo {
             update_available: self.update_available,
             download_url: self.download_url.clone(),
         }
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn verify_authenticode(path: &std::path::Path) -> Result<(), String> {
+    use std::os::windows::process::CommandExt;
+    let escaped = path.to_string_lossy().replace('"', "\"");
+    let script = format!("if ((Get-AuthenticodeSignature -LiteralPath \"{escaped}\").Status -eq 'Valid') {{ exit 0 }} else {{ exit 1 }}");
+    let status = std::process::Command::new("powershell")
+        .creation_flags(0x08000000)
+        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+        .status().map_err(|e| format!("Failed to verify installer signature: {e}"))?;
+    if status.success() { Ok(()) } else { Err("Installer Authenticode signature is invalid".into()) }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn verify_authenticode(_path: &std::path::Path) -> Result<(), String> {
+    Err("Installer verification is only supported on Windows".into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn accepts_expected_release_asset() {
+        assert!(validate_asset_url("https://github.com/Xenonesis/sysmon/releases/download/v2.6.0/SystemMonitor-2.6.0-setup.exe").is_ok());
+    }
+
+    #[test]
+    fn rejects_untrusted_asset_urls() {
+        for url in [
+            "http://github.com/Xenonesis/sysmon/releases/download/v2/a.exe",
+            "https://evil.example/a.exe",
+            "https://github.com/other/sysmon/releases/download/v2/a.exe",
+            "https://github.com/Xenonesis/sysmon/releases/download/v2/a.zip",
+        ] { assert!(validate_asset_url(url).is_err(), "accepted {url}"); }
     }
 }
