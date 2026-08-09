@@ -183,7 +183,7 @@ if ($LASTEXITCODE -eq 0) {
     $isccPath = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
     if (Test-Path $isccPath) {
         Write-Host "Inno Setup found. Compiling installer..." -ForegroundColor Cyan
-        & $isccPath "installer.iss" | Out-Null
+        & $isccPath "/DAppVersion=$version" "installer.iss" | Out-Null
         if ($LASTEXITCODE -eq 0) {
             Write-Host "[OK] Installer SystemMonitor-Setup.exe compiled to downloads folder." -ForegroundColor Green
             $installerExists = $true
@@ -233,10 +233,6 @@ if ($LASTEXITCODE -eq 0) {
     Write-Host "  - $docsDownloadsFolder\SystemMonitor-Setup.exe (latest, GitHub Pages)" -ForegroundColor White
     Write-Host ""
     Write-Host "Note: only installable builds are produced. No portable bare exe is shipped." -ForegroundColor Cyan
-    Write-Host ""
-    Write-Host "  - $downloadsFolder\$latestName (latest)" -ForegroundColor White
-    Write-Host "  - $docsDownloadsFolder\$versionedName (GitHub Pages)" -ForegroundColor White
-    Write-Host "  - $docsDownloadsFolder\$latestName (GitHub Pages)" -ForegroundColor White
     Write-Host ""
     
     Write-Host "Next steps:" -ForegroundColor Cyan

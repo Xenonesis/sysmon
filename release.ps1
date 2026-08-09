@@ -99,14 +99,21 @@ if ($Publish) {
     git push origin HEAD --tags
     Write-Ok "Committed and pushed $tag"
 
-    # GitHub release -> installed users' apps see it within 24h (update banner)
+    # GitHub release -> installed users' apps see it within 24h (update banner).
+    # Attach the Inno Setup.exe too: the in-app updater scans release assets for
+    # a "*-setup.exe" file to offer/install.
+    $setupAsset = @()
+    if (Test-Path "downloads\SystemMonitor-Setup-v$current.exe") {
+        $setupAsset = @("downloads\SystemMonitor-Setup-v$current.exe")
+    }
     if (Get-Command gh -ErrorAction SilentlyContinue) {
-        gh release create $tag "dist\SystemMonitor-v$current.zip" --title "SystemMonitor v$current" --notes "$Changelog"
+        gh release create $tag "dist\SystemMonitor-v$current.zip" @setupAsset --title "SystemMonitor v$current" --notes "$Changelog"
         Write-Ok "GitHub release created; installed apps will show the update notification"
     } else {
         Write-Host "[WARN] gh CLI not found. Create the release manually to notify installed users:" -ForegroundColor Yellow
         Write-Host "    gh release create $tag `"dist\SystemMonitor-v$current.zip`"" -ForegroundColor Yellow
-        Write-Host "    (or: https://github.com/Xenonesis/sysmon/releases/new -> tag $tag, attach dist\SystemMonitor-v$current.zip)" -ForegroundColor Yellow
+        if ($setupAsset) { Write-Host "        add `"$($setupAsset[0])`" so the in-app updater finds a setup.exe asset" -ForegroundColor Yellow }
+        Write-Host "    (or: https://github.com/Xenonesis/sysmon/releases/new -> tag $tag, attach artifacts)" -ForegroundColor Yellow
     }
 
     # Deploy website (docs/ to GitHub Pages)
