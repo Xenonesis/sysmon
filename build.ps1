@@ -204,24 +204,36 @@ if ($LASTEXITCODE -eq 0) {
         Write-Host "   Install Inno Setup 6 if you want to build the setup wizard." -ForegroundColor DarkGray
     }
     
-    # Copy executable to downloads folders with version naming
-    $versionedName = "SystemMonitor-v$version.exe"
-    $latestName = "SystemMonitor-latest.exe"
-    
-    # Remove old versions, keep only .gitkeep
-    Get-ChildItem "$downloadsFolder\*.exe" -ErrorAction SilentlyContinue | Remove-Item -Force
-    Get-ChildItem "$docsDownloadsFolder\*.exe" -ErrorAction SilentlyContinue | Remove-Item -Force
-    
-    # Root downloads folder
-    Copy-Item "target\release\system-monitor.exe" "$downloadsFolder\$versionedName" -Force
-    Copy-Item "target\release\system-monitor.exe" "$downloadsFolder\$latestName" -Force
-    
-    # Docs downloads folder (for GitHub Pages)
-    Copy-Item "target\release\system-monitor.exe" "$docsDownloadsFolder\$versionedName" -Force
-    Copy-Item "target\release\system-monitor.exe" "$docsDownloadsFolder\$latestName" -Force
-    
-    Write-Host "[OK] Build saved to downloads folders:" -ForegroundColor Green
-    Write-Host "  - $downloadsFolder\$versionedName" -ForegroundColor White
+    # -- Distribute ONLY the installer (never portable bare exe) --
+    # Fail closed: if no installer was produced, do not ship a bare exe.
+    if (-not $installerExists) {
+        Write-Host "" -ForegroundColor Yellow
+        Write-Host "[FAIL] No installer was built (Inno Setup ISCC.exe not found)." -ForegroundColor Red
+        Write-Host "  Refusing to ship a portable bare exe. Install Inno Setup 6 to release." -ForegroundColor Red
+        Write-Host "  Install: https://jrsoftware.org/isdl.php" -ForegroundColor Yellow
+        exit 1
+    }
+
+    # Remove old versioned installers (keep only current)
+    Get-ChildItem "$downloadsFolder\SystemMonitor-*-setup*.exe" -ErrorAction SilentlyContinue | Where-Object { $_.Name -notlike "*v$version*" } | Remove-Item -Force
+    Get-ChildItem "$docsDownloadsFolder\SystemMonitor-*-setup*.exe" -ErrorAction SilentlyContinue | Where-Object { $_.Name -notlike "*v$version*" } | Remove-Item -Force
+
+    # Also remove any stray portable exes that must not be distributed
+    Get-ChildItem "$downloadsFolder\SystemMonitor-v*.exe" -ErrorAction SilentlyContinue | Where-Object { $_.Name -notmatch '-setup' } | Remove-Item -Force
+    Get-ChildItem "$docsDownloadsFolder\SystemMonitor-v*.exe" -ErrorAction SilentlyContinue | Where-Object { $_.Name -notmatch '-setup' } | Remove-Item -Force
+
+    # Re-copy current installer to versioned + docs latest (installer only)
+    Copy-Item "$downloadsFolder\SystemMonitor-Setup.exe" "$downloadsFolder\SystemMonitor-Setup-v$version.exe" -Force
+    Copy-Item "$downloadsFolder\SystemMonitor-Setup.exe" "$docsDownloadsFolder\SystemMonitor-Setup-v$version.exe" -Force
+    Copy-Item "$downloadsFolder\SystemMonitor-Setup.exe" "$docsDownloadsFolder\SystemMonitor-Setup.exe" -Force
+
+    Write-Host "[OK] Installer saved to downloads folders:" -ForegroundColor Green
+    Write-Host "  - $downloadsFolder\SystemMonitor-Setup-v$version.exe" -ForegroundColor White
+    Write-Host "  - $docsDownloadsFolder\SystemMonitor-Setup-v$version.exe (GitHub Pages)" -ForegroundColor White
+    Write-Host "  - $docsDownloadsFolder\SystemMonitor-Setup.exe (latest, GitHub Pages)" -ForegroundColor White
+    Write-Host ""
+    Write-Host "Note: only installable builds are produced. No portable bare exe is shipped." -ForegroundColor Cyan
+    Write-Host ""
     Write-Host "  - $downloadsFolder\$latestName (latest)" -ForegroundColor White
     Write-Host "  - $docsDownloadsFolder\$versionedName (GitHub Pages)" -ForegroundColor White
     Write-Host "  - $docsDownloadsFolder\$latestName (GitHub Pages)" -ForegroundColor White
