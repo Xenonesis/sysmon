@@ -148,7 +148,12 @@ if (-not $NoZip) {
     
     Copy-Item $zipPath "$DownloadsDir\$AppName-v$Version.zip" -Force
     Copy-Item $zipPath "$DownloadsDir\$AppName-latest.zip" -Force
-    
+
+    # Remove old versioned builds, keep current + latest
+    Get-ChildItem $DownloadsDir -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -match "SystemMonitor-v\d+\.\d+\.\d+" -and $_.Name -notlike "*v$Version*" } |
+        Remove-Item -Force
+
     Write-Success "Installer saved to downloads folder"
     Write-Host "  - $DownloadsDir\$AppName-v$Version.zip" -ForegroundColor White
     Write-Host "  - $DownloadsDir\$AppName-latest.zip (latest)" -ForegroundColor White

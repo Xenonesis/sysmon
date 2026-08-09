@@ -66,14 +66,20 @@ if ($LASTEXITCODE -ne 0) { throw "create-installer.ps1 failed" }
 Write-Ok "Installer package created"
 
 # 6. Delete old builds, keep only the new one ----------------------------------
-Write-Step "Removing old builds from dist/"
+Write-Step "Removing old builds from dist/ and downloads/"
 Get-ChildItem "dist" -ErrorAction SilentlyContinue |
     Where-Object { $_.Name -notlike "*$current*" -and $_.Name -match 'SystemMonitor-v\d' } |
     ForEach-Object {
         Write-Host "   deleting $($_.Name)" -ForegroundColor DarkGray
         Remove-Item $_.FullName -Recurse -Force
     }
-Write-Ok "dist/ contains only v$current"
+Get-ChildItem "downloads" -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -match 'SystemMonitor-v\d+\.\d+\.\d+' -and $_.Name -notlike "*v$current*" } |
+    ForEach-Object {
+        Write-Host "   deleting $($_.Name)" -ForegroundColor DarkGray
+        Remove-Item $_.FullName -Force
+    }
+Write-Ok "dist/ and downloads/ contain only v$current"
 
 # 7. Optional Authenticode signing ----------------------------------------------
 if ($Sign) {
