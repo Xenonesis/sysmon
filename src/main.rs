@@ -165,6 +165,18 @@ pub(crate) struct AlertInfo {
     pub(crate) value: f32,
 }
 
+impl AlertInfo {
+    fn key(&self) -> String {
+        match self.alert_type {
+            AlertType::GpuTempHigh => format!("gpu:{}", self.message.rsplit_once('(').map(|(_, v)| v.trim_end_matches(')')).unwrap_or("unknown")),
+            AlertType::DiskSpaceLow => format!("disk:{}", self.message.split(" is almost full").next().unwrap_or(&self.message)),
+            AlertType::CpuHigh => "cpu".into(),
+            AlertType::MemoryHigh => "memory".into(),
+            AlertType::StartupHighImpact => "startup".into(),
+        }
+    }
+}
+
 #[derive(Clone, PartialEq, Eq, Hash)]
 enum AlertType {
     CpuHigh,
@@ -1202,6 +1214,7 @@ pub(crate) struct SystemMonitorApp {
     pub(crate) action_events: Vec<app::events::AppEvent>,
     pub(crate) action_pending: bool,
     pub(crate) action_status: Option<String>,
+    pub(crate) alert_cooldowns: std::collections::HashMap<AlertType, Instant>,
     pub(crate) settings: AppSettings,
     pub(crate) shared_settings: Arc<Mutex<AppSettings>>,
     pub(crate) selected_tab: Tab,
@@ -1678,7 +1691,9 @@ impl SystemMonitorApp {
                     data.network_sample_count += 1;
 
                     // Check for alerts
-                    let new_alerts = monitor.check_alerts(&settings_snapshot, &data);
+                    let mut new_alerts = monitor.check_alerts(&settings_snapshot, &data);
+                    let active_keys: std::collections::HashSet<String> = data.alerts.iter().map(AlertInfo::key).collect();
+                    new_alerts.retain(|alert| !active_keys.contains(&alert.key()));
 
                     if !new_alerts.is_empty() && settings_snapshot.enable_sounds {
                         play_alert_sound();
@@ -1708,18 +1723,17 @@ impl SystemMonitorApp {
                     if settings_snapshot.auto_clear_alerts {
                         let temp_gpu_info = data.gpu_info.clone();
                         let high_impact_count = data.high_impact_startup_count;
+                        let disk_alert_active = data.disk_info.iter().any(|disk| disk.usage_percentage > 90.0);
                         data.alerts.retain(|alert| {
                             match alert.alert_type {
                                 AlertType::CpuHigh => cpu_usage > settings_snapshot.notification_cpu_threshold,
                                 AlertType::MemoryHigh => {
                                     mem_percentage > settings_snapshot.notification_memory_threshold
                                 }
-                                AlertType::GpuTempHigh => {
-                                    temp_gpu_info.first()
-                                        .and_then(|g| g.temperature)
-                                        .map_or(false, |t| t > settings_snapshot.notification_temp_threshold)
-                                }
-                                AlertType::DiskSpaceLow => true, // disk alerts don't auto-clear
+                                AlertType::GpuTempHigh => temp_gpu_info.iter().any(|gpu| {
+                                    gpu.temperature.is_some_and(|temperature| temperature > settings_snapshot.notification_temp_threshold)
+                                }),
+                                AlertType::DiskSpaceLow => disk_alert_active,
                                 AlertType::StartupHighImpact => high_impact_count > 0,
                             }
                         });
@@ -1914,6 +1928,7 @@ impl SystemMonitorApp {
             action_events: Vec::new(),
             action_pending: false,
             action_status: None,
+            alert_cooldowns: std::collections::HashMap::new(),
             data,
             settings: settings.clone(),
             shared_settings,

@@ -70,7 +70,7 @@ pub fn sort_processes(items: &mut [ProcessInfo], column: ProcessSortColumn, asce
                 ascending,
             )
         }),
-        ProcessSortColumn::Status => items.sort_by(|a, b| ord(a.memory.cmp(&b.memory), ascending)),
+        ProcessSortColumn::Status => items.sort_by(|a, b| ord(a.status.cmp(&b.status), ascending)),
     }
 }
 
@@ -222,12 +222,12 @@ mod tests {
     }
 
     #[test]
-    fn sort_status_falls_back_to_memory() {
+    fn sort_status_alphabetically() {
         let mut items = vec![
-            p(1, "a", 0.0, 100, "Running"),
+            p(1, "a", 0.0, 100, "Sleeping"),
             p(2, "b", 0.0, 300, "Running"),
         ];
-        sort_processes(&mut items, ProcessSortColumn::Status, false);
+        sort_processes(&mut items, ProcessSortColumn::Status, true);
         assert_eq!(items[0].pid, 2);
     }
 
