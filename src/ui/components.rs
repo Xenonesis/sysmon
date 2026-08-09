@@ -1,6 +1,4 @@
 use eframe::egui;
-use eframe::egui::vec2;
-use chrono::{TimeZone, Local};
 use crate::ui::theme::ThemePalette;
 
 pub(crate) fn paint_section_header(ui: &mut egui::Ui, text: &str) {

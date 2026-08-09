@@ -2,9 +2,8 @@ use crate::*;
 use crate::ui::theme::ThemePalette;
 use crate::ui::components::*;
 use eframe::egui;
-use egui_plot::*;
 
-pub(crate) fn show(app: &crate::SystemMonitorApp, ui: &mut egui::Ui, data: &SystemData) {
+pub(crate) fn show(_app: &crate::SystemMonitorApp, ui: &mut egui::Ui, data: &SystemData) {
         paint_section_header(ui, "System Information");
 
         egui::ScrollArea::vertical().show(ui, |ui| {

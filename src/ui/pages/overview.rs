@@ -2,7 +2,6 @@ use crate::*;
 use crate::ui::theme::ThemePalette;
 use crate::ui::components::*;
 use eframe::egui;
-use egui_plot::*;
 
 pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &SystemData) {
         paint_section_header(ui, "System Overview");

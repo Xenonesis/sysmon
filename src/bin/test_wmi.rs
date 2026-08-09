@@ -2,7 +2,7 @@ use serde::Deserialize;
 use wmi::{WMIConnection, COMLibrary};
 
 #[derive(Deserialize, Debug)]
-#[allow(non_camel_case_types)]
+#[allow(non_camel_case_types, dead_code)]
 struct Win32_Service {
     name: String,
     display_name: Option<String>,

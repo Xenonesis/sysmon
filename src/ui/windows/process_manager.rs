@@ -2,7 +2,6 @@ use crate::*;
 use crate::ui::theme::ThemePalette;
 use crate::ui::components::*;
 use eframe::egui;
-use egui_plot::*;
 
 pub(crate) fn show(app: &mut crate::SystemMonitorApp, ctx: &egui::Context, data: &SystemData) {
         let mut show = app.show_process_manager;

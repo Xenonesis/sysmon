@@ -1,6 +1,6 @@
 use std::fs;
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use crate::AppSettings;
 
@@ -36,5 +36,3 @@ pub(crate) fn save(path: &Path, settings: &AppSettings) -> Result<(), SettingsEr
     fs::rename(tmp, path)?;
     Ok(())
 }
-
-pub(crate) fn default_path(base: &Path) -> PathBuf { base.join("settings.json") }

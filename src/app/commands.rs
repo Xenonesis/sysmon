@@ -5,7 +5,11 @@ pub(crate) enum MonitoringCommand {
     SetSettings(AppSettings),
     SetPaused(bool),
     SetHidden(bool),
+    // force refresh while paused; wired to UI later
+    #[allow(dead_code)]
     RefreshNow,
+    // graceful worker exit; test exercises it
+    #[allow(dead_code)]
     Shutdown,
 }
 
@@ -19,7 +23,7 @@ pub(crate) enum ActionCommand {
     CleanRam,
     ControlService { name: String, action: ServiceControlAction },
     SetPowerPlan(String),
-    DisableStartup { identity: String },
-    EnableStartup { identity: String },
-    RemoveStartup { identity: String },
+    // ponytail: startup item mutations (DisableStartup/EnableStartup/RemoveStartup)
+    // deferred — UI still calls startup::* directly; add variants here when
+    // transactional registry moves land.
 }

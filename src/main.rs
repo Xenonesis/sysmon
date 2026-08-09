@@ -15,7 +15,7 @@ mod power;
 use startup::{StartupItem, ImpactTier, Recommendation, StartupSortColumn, BootDiagnostics, StartupOptimizationEntry};
 use processes::{ProcessInfo, ProcessSortColumn};
 use eframe::egui;
-use egui_plot::{Line, Plot, PlotPoints};
+
 use tracing::{error, info, warn};
 use rfd::FileDialog;
 
@@ -28,7 +28,6 @@ pub(crate) struct Win32Battery {
     pub(crate) design_capacity: Option<u32>,
     pub(crate) full_charge_capacity: Option<u32>,
     pub(crate) battery_status: Option<u16>,
-    pub(crate) discharge_state: Option<String>,
 }
 
 #[cfg(target_os = "windows")]
@@ -973,17 +972,16 @@ impl SystemMonitor {
     }
 
     fn get_disk_io(&mut self, _refresh_interval: u64) -> (f64, f64) {
-        let elapsed = self.last_disk_update.elapsed().as_secs_f64();
+        let elapsed = self.last_disk_update.elapsed();
         let (total_read, total_written) = self.sys.processes().values().fold((0u64, 0u64), |(read, written), process| {
             let usage = process.disk_usage();
             (read.saturating_add(usage.read_bytes), written.saturating_add(usage.written_bytes))
         });
-        let read_delta = total_read.saturating_sub(self.previous_disk_totals.0);
-        let write_delta = total_written.saturating_sub(self.previous_disk_totals.1);
+        let read_rate = monitoring::rates::counter_rate(Some(self.previous_disk_totals.0), total_read, elapsed);
+        let write_rate = monitoring::rates::counter_rate(Some(self.previous_disk_totals.1), total_written, elapsed);
         self.previous_disk_totals = (total_read, total_written);
         self.last_disk_update = Instant::now();
-        if elapsed <= 0.0 { return (0.0, 0.0); }
-        (read_delta as f64 / elapsed / 1024.0 / 1024.0, write_delta as f64 / elapsed / 1024.0 / 1024.0)
+        (read_rate.value_per_second / 1024.0 / 1024.0, write_rate.value_per_second / 1024.0 / 1024.0)
     }
 
     fn check_alerts(&self, settings: &AppSettings, data: &SystemData) -> Vec<AlertInfo> {
@@ -1052,18 +1050,15 @@ impl SystemMonitor {
     }
 
     fn get_network_info(&mut self) -> Vec<NetworkInfo> {
-        let elapsed = self.last_network_update.elapsed().as_secs_f64();
+        let elapsed = self.last_network_update.elapsed();
         let mut current_totals = std::collections::HashMap::new();
         let network_info = self.networks.iter().map(|(interface, data)| {
             let current = (data.received(), data.transmitted());
             let previous = self.previous_network_totals.get(interface).copied();
             current_totals.insert(interface.clone(), current);
-            let (received_rate, transmitted_rate) = if elapsed > 0.0 {
-                let received = previous.map_or(0, |p| current.0.saturating_sub(p.0));
-                let transmitted = previous.map_or(0, |p| current.1.saturating_sub(p.1));
-                (received as f64 / elapsed / 1024.0 / 1024.0, transmitted as f64 / elapsed / 1024.0 / 1024.0)
-            } else { (0.0, 0.0) };
-            NetworkInfo { interface: interface.clone(), received: current.0, transmitted: current.1, received_rate, transmitted_rate }
+            let received_rate = monitoring::rates::counter_rate(previous.map(|p| p.0), current.0, elapsed);
+            let transmitted_rate = monitoring::rates::counter_rate(previous.map(|p| p.1), current.1, elapsed);
+            NetworkInfo { interface: interface.clone(), received: current.0, transmitted: current.1, received_rate: received_rate.value_per_second / 1024.0 / 1024.0, transmitted_rate: transmitted_rate.value_per_second / 1024.0 / 1024.0 }
         }).collect();
         self.previous_network_totals = current_totals;
         self.last_network_update = Instant::now();
@@ -1127,9 +1122,9 @@ pub(crate) struct SystemData {
     pub(crate) system_info: SystemInfo,
     pub(crate) cpu_temperature: Option<f32>,
     pub(crate) last_update: String,
-    pub(crate) cpu_history: VecDeque<DataPoint>,
-    pub(crate) memory_history: VecDeque<DataPoint>,
-    pub(crate) gpu_history: VecDeque<DataPoint>,
+    pub(crate) cpu_history: monitoring::history::BoundedHistory<DataPoint>,
+    pub(crate) memory_history: monitoring::history::BoundedHistory<DataPoint>,
+    pub(crate) gpu_history: monitoring::history::BoundedHistory<DataPoint>,
     pub(crate) network_download_history: VecDeque<DataPoint>,
     pub(crate) network_upload_history: VecDeque<DataPoint>,
     pub(crate) alerts: Vec<AlertInfo>,
@@ -1179,9 +1174,9 @@ impl Default for SystemData {
             },
             cpu_temperature: None,
             last_update: String::new(),
-            cpu_history: VecDeque::new(),
-            memory_history: VecDeque::new(),
-            gpu_history: VecDeque::new(),
+            cpu_history: monitoring::history::BoundedHistory::new(60),
+            memory_history: monitoring::history::BoundedHistory::new(60),
+            gpu_history: monitoring::history::BoundedHistory::new(60),
             network_download_history: VecDeque::new(),
             network_upload_history: VecDeque::new(),
             alerts: Vec::new(),
@@ -1214,7 +1209,6 @@ pub(crate) struct SystemMonitorApp {
     pub(crate) action_events: Vec<app::events::AppEvent>,
     pub(crate) action_pending: bool,
     pub(crate) action_status: Option<String>,
-    pub(crate) alert_cooldowns: std::collections::HashMap<AlertType, Instant>,
     pub(crate) settings: AppSettings,
     pub(crate) shared_settings: Arc<Mutex<AppSettings>>,
     pub(crate) selected_tab: Tab,
@@ -1270,10 +1264,14 @@ pub(crate) struct SystemMonitorApp {
     #[cfg(target_os = "windows")]
     pub(crate) tray_menu_pause_item: Option<tray_icon::menu::CheckMenuItem>,
     #[cfg(target_os = "windows")]
+    // kept alive for tray ownership; never read directly
+    #[allow(dead_code)]
     pub(crate) tray_menu_handle: Option<tray_icon::menu::Menu>,
     #[cfg(target_os = "windows")]
+    #[allow(dead_code)]
     pub(crate) tray_menu_power_item: Option<tray_icon::menu::Submenu>,
     #[cfg(target_os = "windows")]
+    #[allow(dead_code)]
     pub(crate) tray_menu_power_items: std::collections::HashMap<tray_icon::menu::MenuId, tray_icon::menu::CheckMenuItem>,
     #[cfg(target_os = "windows")]
     pub(crate) tray_menu_power_guids: std::collections::HashMap<tray_icon::menu::MenuId, String>,
@@ -1743,13 +1741,12 @@ impl SystemMonitorApp {
                     while data.alerts.len() > 10 {
                         data.alerts.remove(0);
                     }
-
-                    // Update history (keep last 60 data points = 2 minutes)
-                    data.cpu_history.push_back(DataPoint {
+                    // Update history (keep last 60 data points)
+                    data.cpu_history.push(DataPoint {
                         time: elapsed,
                         value: cpu_usage as f64,
                     });
-                    data.memory_history.push_back(DataPoint {
+                    data.memory_history.push(DataPoint {
                         time: elapsed,
                         value: mem_percentage as f64,
                     });
@@ -1757,7 +1754,7 @@ impl SystemMonitorApp {
                     if need_gpu_info {
                         let gpu_util = data.gpu_info.first().map(|gpu| gpu.utilization as f64);
                         if let Some(val) = gpu_util {
-                            data.gpu_history.push_back(DataPoint {
+                            data.gpu_history.push(DataPoint {
                                 time: elapsed,
                                 value: val,
                             });
@@ -1786,16 +1783,7 @@ impl SystemMonitorApp {
                         });
                     }
 
-                    // Keep only last 60 points
-                    while data.cpu_history.len() > 60 {
-                        data.cpu_history.pop_front();
-                    }
-                    while data.memory_history.len() > 60 {
-                        data.memory_history.pop_front();
-                    }
-                    while data.gpu_history.len() > 60 {
-                        data.gpu_history.pop_front();
-                    }
+                    // cpu_history capped at 60 by BoundedHistory; trim the rest
                     while data.network_download_history.len() > 60 {
                         data.network_download_history.pop_front();
                     }
@@ -1928,7 +1916,6 @@ impl SystemMonitorApp {
             action_events: Vec::new(),
             action_pending: false,
             action_status: None,
-            alert_cooldowns: std::collections::HashMap::new(),
             data,
             settings: settings.clone(),
             shared_settings,
@@ -2097,6 +2084,7 @@ impl SystemMonitorApp {
 }
 impl eframe::App for SystemMonitorApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        let ctx_clone = ctx.clone();
         while let Ok(event) = self.app_channels.event_receiver.try_recv() {
             match event {
                 app::events::AppEvent::Snapshot(snapshot) => self.latest_snapshot = Some(snapshot),
@@ -2190,7 +2178,6 @@ impl eframe::App for SystemMonitorApp {
         // Check for updates automatically (once every 24 hours)
         if self.update_check_time.is_none() || self.update_check_time.unwrap().elapsed().as_secs() > 86400 {
             let mut updater = self.updater.clone();
-            let ctx_clone = ctx.clone();
             let update_info_share = self.update_info_share.clone();
             thread::Builder::new()
                 .name("auto_updater_check".to_string())
@@ -2272,14 +2259,14 @@ impl eframe::App for SystemMonitorApp {
                 // Ctrl+U = Check for updates manually
                 let mut updater = self.updater.clone();
                 let update_info_share = self.update_info_share.clone();
-                let ctx_clone = ctx.clone();
+                let repaint_ctx = ctx_clone.clone();
                 thread::Builder::new()
                     .name("manual_updater_check".to_string())
                     .stack_size(8 * 1024 * 1024)
                     .spawn(move || {
                         if let Ok(update_info) = updater.check_for_updates() {
                             *update_info_share.lock() = Some(update_info);
-                            ctx_clone.request_repaint();
+                            repaint_ctx.request_repaint();
                         }
                     })
                     .expect("failed to spawn manual updater check thread");
@@ -2341,7 +2328,7 @@ impl eframe::App for SystemMonitorApp {
                 self.ram_cleaner_state.last_cleaned_display = Local::now().format("%H:%M:%S").to_string();
                 self.ram_cleaner_state.clean_count += 1;
                 let data_arc = Arc::clone(&self.data);
-                let ctx_clone = ctx.clone();
+                let repaint_ctx = ctx_clone.clone();
                 let enable_sounds = self.settings.enable_sounds;
                 thread::Builder::new()
                     .name("ram_cleaner_auto".to_string())
@@ -2356,7 +2343,7 @@ impl eframe::App for SystemMonitorApp {
                             d.ram_clean_freed_bytes += freed;
                             d.ram_clean_is_cleaning = false;
                         }
-                        ctx_clone.request_repaint();
+                        repaint_ctx.request_repaint();
                     })
                     .expect("failed to spawn auto ram cleaner thread");
                 // Mark cleaning in shared data too
@@ -2899,7 +2886,10 @@ use std::sync::mpsc::{Receiver, Sender};
 #[derive(Debug, Clone)]
 pub(crate) enum ActionError {
     AccessDenied,
+    // typed error contract; constructed once kill/service paths distinguish failures
+    #[allow(dead_code)]
     NotFound,
+    #[allow(dead_code)]
     Unavailable,
     Failed(String),
 }
@@ -2938,7 +2928,6 @@ pub(crate) fn run_action_worker(
                 let killed = order.into_iter().filter(|pid| monitor.kill_process(*pid)).count();
                 if killed == total { Ok(format!("Killed {killed} processes")) } else { Err(ActionError::Failed(format!("Killed {killed} of {total} processes"))) }
             }
-            app::commands::ActionCommand::DisableStartup { .. } | app::commands::ActionCommand::EnableStartup { .. } | app::commands::ActionCommand::RemoveStartup { .. } => Err(ActionError::Unavailable),
         };
         let event = match result {
             Ok(message) => app::events::AppEvent::ActionCompleted { action, message },
@@ -3021,7 +3010,14 @@ fn snapshot_from_data(data: &SystemData) -> monitoring::SystemSnapshot {
             bios_version: data.system_info.bios_version.clone(), gpu_driver: data.system_info.gpu_driver.clone(),
             os_build: data.system_info.os_build.clone(),
         },
-        provider_status: std::collections::HashMap::new(),
+        provider_status: std::collections::HashMap::from([
+            ("cpu".into(), monitoring::snapshot::ProviderStatus { available: true, stale: data.monitoring_paused, error: None }),
+            ("memory".into(), monitoring::snapshot::ProviderStatus { available: true, stale: data.monitoring_paused, error: None }),
+            ("disk".into(), monitoring::snapshot::ProviderStatus { available: !data.disk_info.is_empty(), stale: data.monitoring_paused, error: None }),
+            ("network".into(), monitoring::snapshot::ProviderStatus { available: !data.network_info.is_empty(), stale: data.monitoring_paused, error: None }),
+            ("gpu".into(), monitoring::snapshot::ProviderStatus { available: !data.gpu_info.is_empty(), stale: data.monitoring_paused, error: None }),
+            ("battery".into(), monitoring::snapshot::ProviderStatus { available: data.battery_info.is_some(), stale: data.monitoring_paused, error: None }),
+        ]),
         paused: data.monitoring_paused,
     }
 }
