@@ -1457,7 +1457,14 @@ impl SystemMonitorApp {
         let shared_settings_clone = Arc::clone(&shared_settings);
         let mut app_channels = app::AppChannels::new();
         let monitoring_receiver = app_channels.monitoring_receiver.take().expect("monitoring receiver missing");
+        let action_receiver = app_channels.action_receiver.take().expect("action receiver missing");
+        let action_events = app_channels.event_sender.clone();
         let monitoring_events = app_channels.event_sender.clone();
+
+        thread::Builder::new()
+            .name("actions".to_string())
+            .spawn(move || run_action_worker(action_receiver, action_events))
+            .expect("failed to spawn action worker");
 
         // Background thread for monitoring
         thread::Builder::new()
@@ -2105,7 +2112,7 @@ impl eframe::App for SystemMonitorApp {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
                 self.is_hidden = false;
             } else if Some(&event.id) == self.tray_menu_clean_id.as_ref() {
-                self.start_ram_clean(ctx);
+                let _ = self.app_channels.action_sender.send(app::commands::ActionCommand::CleanRam);
             } else if Some(&event.id) == self.tray_menu_procman_id.as_ref() {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
                 ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
@@ -2121,8 +2128,7 @@ impl eframe::App for SystemMonitorApp {
                     item.set_checked(paused);
                 }
             } else if let Some(plan_guid) = self.tray_menu_power_guids.get(&event.id) {
-                let _ = power::set_active_power_plan(plan_guid);
-                let _ = power::get_power_plans();
+                let _ = self.app_channels.action_sender.send(app::commands::ActionCommand::SetPowerPlan(plan_guid.clone()));
             }
         }
 
@@ -2274,17 +2280,7 @@ impl eframe::App for SystemMonitorApp {
 
         // Handle process kill actions
         if let Some(pid) = self.selected_process_pid.take() {
-            let mut monitor = SystemMonitor::new();
-            if monitor.kill_process(pid) {
-                if self.settings.enable_sounds { play_success_sound(); }
-            } else {
-                if self.settings.enable_sounds { play_alert_sound(); }
-                let _ = notify_rust::Notification::new()
-                    .summary("Action Failed")
-                    .body("Failed to kill process. Access Denied (requires Administrator privileges).")
-                    .timeout(notify_rust::Timeout::Milliseconds(5000))
-                    .show();
-            }
+            let _ = self.app_channels.action_sender.send(app::commands::ActionCommand::KillProcess(pid));
         }
 
         // Handle process tree kill actions (background thread; tree walk + kills can take seconds)
@@ -2339,48 +2335,17 @@ impl eframe::App for SystemMonitorApp {
 
         // Handle process suspend actions
         if let Some(pid) = self.suspend_process_pid.take() {
-            let mut monitor = SystemMonitor::new();
-            if monitor.suspend_process(pid) {
-                self.suspended_pids.insert(pid);
-                if self.settings.enable_sounds { play_success_sound(); }
-            } else {
-                if self.settings.enable_sounds { play_alert_sound(); }
-                let _ = notify_rust::Notification::new()
-                    .summary("Action Failed")
-                    .body("Failed to suspend process. Access Denied (requires Administrator privileges).")
-                    .timeout(notify_rust::Timeout::Milliseconds(5000))
-                    .show();
-            }
+            let _ = self.app_channels.action_sender.send(app::commands::ActionCommand::SuspendProcess(pid));
         }
 
         // Handle process resume actions
         if let Some(pid) = self.resume_process_pid.take() {
-            let mut monitor = SystemMonitor::new();
-            if monitor.resume_process(pid) {
-                self.suspended_pids.remove(&pid);
-                if self.settings.enable_sounds { play_success_sound(); }
-            } else {
-                if self.settings.enable_sounds { play_alert_sound(); }
-                let _ = notify_rust::Notification::new()
-                    .summary("Action Failed")
-                    .body("Failed to resume process. Access Denied (requires Administrator privileges).")
-                    .timeout(notify_rust::Timeout::Milliseconds(5000))
-                    .show();
-            }
+            let _ = self.app_channels.action_sender.send(app::commands::ActionCommand::ResumeProcess(pid));
         }
 
         // Handle process priority changes
         if let Some((pid, priority)) = self.priority_change.take() {
-            if SystemMonitor::set_process_priority(pid, &priority) {
-                if self.settings.enable_sounds { play_success_sound(); }
-            } else {
-                if self.settings.enable_sounds { play_alert_sound(); }
-                let _ = notify_rust::Notification::new()
-                    .summary("Action Failed")
-                    .body("Failed to set process priority. Access Denied (requires Administrator privileges).")
-                    .timeout(notify_rust::Timeout::Milliseconds(5000))
-                    .show();
-            }
+            let _ = self.app_channels.action_sender.send(app::commands::ActionCommand::SetPriority { pid, priority });
         }
 
         // Auto RAM cleaning
@@ -2948,6 +2913,60 @@ impl SystemMonitorApp {
 
 
 
+}
+
+use std::sync::mpsc::{Receiver, Sender};
+
+#[derive(Debug, Clone)]
+pub(crate) enum ActionError {
+    AccessDenied,
+    NotFound,
+    Unavailable,
+    Failed(String),
+}
+
+impl std::fmt::Display for ActionError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::AccessDenied => write!(f, "Access denied; administrator privileges may be required"),
+            Self::NotFound => write!(f, "Process or service not found"),
+            Self::Unavailable => write!(f, "Operation unavailable on this system"),
+            Self::Failed(message) => f.write_str(message),
+        }
+    }
+}
+
+pub(crate) fn run_action_worker(
+    commands: Receiver<app::commands::ActionCommand>,
+    events: Sender<app::events::AppEvent>,
+) {
+    let mut monitor = SystemMonitor::new();
+    while let Ok(command) = commands.recv() {
+        let action = format!("{command:?}");
+        let result: Result<String, ActionError> = match command {
+            app::commands::ActionCommand::KillProcess(pid) => monitor.kill_process(pid).then_some(format!("Process {pid} killed")).ok_or(ActionError::AccessDenied),
+            app::commands::ActionCommand::SuspendProcess(pid) => monitor.suspend_process(pid).then_some(format!("Process {pid} suspended")).ok_or(ActionError::AccessDenied),
+            app::commands::ActionCommand::ResumeProcess(pid) => monitor.resume_process(pid).then_some(format!("Process {pid} resumed")).ok_or(ActionError::AccessDenied),
+            app::commands::ActionCommand::SetPriority { pid, priority } => SystemMonitor::set_process_priority(pid, &priority).then_some(format!("Process {pid} priority set to {priority}")).ok_or(ActionError::AccessDenied),
+            app::commands::ActionCommand::CleanRam => Ok(format!("Freed {} bytes", monitor.clean_ram())),
+            app::commands::ActionCommand::ControlService { name, action } => services::send_service_control(&name, action).then_some(format!("Service {name} action completed")).ok_or(ActionError::Failed("Service action failed".into())),
+            app::commands::ActionCommand::SetPowerPlan(guid) => power::set_active_power_plan(&guid).map(|_| "Power plan changed".into()).map_err(ActionError::Failed),
+            app::commands::ActionCommand::KillProcessTree(root) => {
+                monitor.sys.refresh_processes();
+                let tree = processes::build_process_tree(&monitor.sys);
+                let order = processes::kill_order(&tree, root);
+                let total = order.len();
+                let killed = order.into_iter().filter(|pid| monitor.kill_process(*pid)).count();
+                if killed == total { Ok(format!("Killed {killed} processes")) } else { Err(ActionError::Failed(format!("Killed {killed} of {total} processes"))) }
+            }
+            app::commands::ActionCommand::DisableStartup { .. } | app::commands::ActionCommand::EnableStartup { .. } | app::commands::ActionCommand::RemoveStartup { .. } => Err(ActionError::Unavailable),
+        };
+        let event = match result {
+            Ok(message) => app::events::AppEvent::ActionCompleted { action, message },
+            Err(error) => app::events::AppEvent::ActionFailed { action, error: error.to_string() },
+        };
+        let _ = events.send(event);
+    }
 }
 
 fn snapshot_from_data(data: &SystemData) -> monitoring::SystemSnapshot {

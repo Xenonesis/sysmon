@@ -51,7 +51,7 @@ pub fn send_service_control(name: &str, action: ServiceControlAction) -> bool {
             let _ = std::thread::sleep(std::time::Duration::from_millis(250));
             let empty: Vec<String> = Vec::new();
             let start_ok = service.start(&empty).is_ok();
-            stop_ok || start_ok
+            stop_ok && start_ok
         }
     }
 }
