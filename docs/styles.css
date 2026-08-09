@@ -259,11 +259,6 @@ h1, h2, h3, h4 {
 
 /* ── Changelog ────────────────────────────────────────────── */
 /* -- Screenshots gallery ------------------------------------------ */
-.shots { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); }
-.shot-frame { margin: 0; border: 1px solid var(--rule); border-radius: var(--radius-md); overflow: hidden; background: var(--paper-2); }
-.shot-frame img { width: 100%; height: auto; display: block; }
-.shot-frame figcaption { font-size: var(--text-xs); color: var(--ink-2); padding: var(--space-3) var(--space-4); border-top: var(--hairline); }
-.shot-wide { grid-column: span 2; }
 
 .changelog-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-4); }
 .change-item { border-top: 2px solid var(--ink); padding-top: var(--space-4); }
@@ -330,8 +325,6 @@ h1, h2, h3, h4 {
   .module-item { border-right: 0; }
   .section-title { font-size: var(--text-2xl); }
   .hero-title { font-size: var(--text-3xl); }
-  .shots { grid-template-columns: minmax(0, 1fr); }
-  .shot-wide { grid-column: span 1; }
   .changelog-grid { grid-template-columns: minmax(0, 1fr); }
   .change-major { grid-column: span 1; }
   .footer-grid { grid-template-columns: 1fr; }
