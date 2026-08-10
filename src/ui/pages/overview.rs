@@ -53,9 +53,9 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
             let net_total_rate = data.network_info.iter().map(|n| n.received_rate + n.transmitted_rate).sum::<f64>();
             let net_download_rate = data.network_info.iter().map(|n| n.received_rate).sum::<f64>();
             let net_upload_rate = data.network_info.iter().map(|n| n.transmitted_rate).sum::<f64>();
-            let net_c = if net_total_rate > 5_000_000.0 {
+            let net_c = if net_total_rate > 5.0 {
                 ThemePalette::STATUS_WARNING
-            } else if net_total_rate > 1_000_000.0 {
+            } else if net_total_rate > 1.0 {
                 ThemePalette::STATUS_HEALTHY
             } else {
                 ThemePalette::TEXT_LABEL_SUB
@@ -113,7 +113,7 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
                     "DISK I/O",
                     format_rate(data.disk_read_rate + data.disk_write_rate),
                     format!("R: {}  W: {}", format_rate(data.disk_read_rate), format_rate(data.disk_write_rate)),
-                    ((data.disk_read_rate + data.disk_write_rate) / 200.0).clamp(0.0, 1.0) as f32,
+                    (((data.disk_read_rate + data.disk_write_rate) / 200.0).clamp(0.0, 1.0) as f32),
                     ThemePalette::TEXT_LABEL_SUB,
                 ),
                 (
@@ -232,6 +232,30 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
             });
 
             ui.add_space(12.0);
+
+            // ── Per-core CPU usage bars ──
+            if app.settings.show_per_core_cpu && !data.cpu_cores.is_empty() {
+                ui.group(|ui| {
+                    ui.label(egui::RichText::new("PER-CORE CPU USAGE")
+                        .size(10.0)
+                        .color(ThemePalette::TEXT_DIMMED));
+                    ui.add_space(4.0);
+                    let cols = data.cpu_cores.len().min(16);
+                    ui.columns(cols, |col_uis| {
+                        for (i, core) in data.cpu_cores.iter().take(cols).enumerate() {
+                            let frac = (core.usage / 100.0).clamp(0.0, 1.0);
+                            let c = get_usage_color(core.usage);
+                            col_uis[i].label(egui::RichText::new(format!("C{}", core.core_id))
+                                .size(9.0).color(ThemePalette::TEXT_LABEL));
+                            paint_progress_bar(&mut col_uis[i], frac, c, 4.0);
+                            col_uis[i].label(egui::RichText::new(format!("{:.0}%", core.usage))
+                                .size(9.0).color(ThemePalette::TEXT_SECONDARY));
+                        }
+                    });
+                });
+                ui.add_space(12.0);
+            }
+
 
             // ── Startup Health ──
             {

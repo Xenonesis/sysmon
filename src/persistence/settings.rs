@@ -21,6 +21,7 @@ pub(crate) fn validated(mut settings: AppSettings) -> AppSettings {
     settings.auto_clean_target = settings.auto_clean_target.clamp(30.0, 95.0);
     settings.auto_clean_max_mb = settings.auto_clean_max_mb.min(4096);
     settings.auto_clean_interval = settings.auto_clean_interval.max(30);
+    settings.notification_disk_threshold = settings.notification_disk_threshold.clamp(50.0, 100.0);
     settings
 }
 

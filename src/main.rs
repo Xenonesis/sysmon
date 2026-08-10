@@ -44,7 +44,7 @@ fn battery_status_label(status: u16) -> Option<&'static str> {
         9 => Some("Charging and Critical"),
         10 => Some("Undefined"),
         11 => Some("Partially Charged"),
-        _ => None,
+        _ => Some("Unknown"),
     }
 }
 
@@ -275,6 +275,12 @@ pub(crate) struct AppSettings {
     pub(crate) auto_clean_notify: bool,
     #[serde(default)]
     pub(crate) auto_clean_max_mb: u64,
+    #[serde(default = "default_notification_disk_threshold")]
+    pub(crate) notification_disk_threshold: f32,
+}
+
+fn default_notification_disk_threshold() -> f32 {
+    90.0
 }
 
 fn default_auto_clean_interval() -> u64 {
@@ -368,6 +374,7 @@ impl Default for AppSettings {
             auto_clean_max_mb: 0,
             show_cpu_cores: true,
             show_widget: false,
+            notification_disk_threshold: 90.0,
         }
     }
 }
@@ -519,6 +526,7 @@ impl SystemMonitor {
     }
 
     fn get_top_processes(&self, count: usize) -> Vec<ProcessInfo> {
+        let cpu_count = self.sys.cpus().len().max(1) as f32;
         let mut processes: Vec<_> = self
             .sys
             .processes()
@@ -537,7 +545,7 @@ impl SystemMonitor {
                 ProcessInfo {
                     pid: pid.as_u32(),
                     name: name_str,
-                    cpu_usage: process.cpu_usage(),
+                    cpu_usage: process.cpu_usage() / cpu_count,
                     memory: process.memory(),
                     status: format!("{:?}", process.status()),
                     disk_read_bytes: process.disk_usage().read_bytes,
@@ -653,7 +661,7 @@ impl SystemMonitor {
         use windows::Win32::Foundation::CloseHandle;
         use windows::Win32::System::ProcessStatus::EmptyWorkingSet;
         use windows::Win32::System::Threading::{
-            OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_ACCESS_RIGHTS,
+            OpenProcess, PROCESS_QUERY_INFORMATION,
         };
 
         info!(excluded = exclusions.len(), "RAM clean operation initiated (native API)");
@@ -667,7 +675,7 @@ impl SystemMonitor {
                     continue;
                 }
                 let pid_u32 = pid.as_u32();
-                if let Ok(h) = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_ACCESS_RIGHTS(0x0100), false, pid_u32) {
+                if let Ok(h) = OpenProcess(PROCESS_QUERY_INFORMATION, false, pid_u32) {
                     if !h.is_invalid() {
                         if EmptyWorkingSet(h).is_ok() {
                             success_count += 1;
@@ -1130,14 +1138,14 @@ impl SystemMonitor {
 }
 
 // Historical data point
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Serialize)]
 pub(crate) struct DataPoint {
     pub(crate) time: f64,
     pub(crate) value: f64,
 }
 
 // Shared state between threads
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize)]
 pub(crate) struct BatteryInfo {
     pub(crate) design_capacity: u32,
     pub(crate) full_charge_capacity: u32,
@@ -1166,6 +1174,7 @@ pub(crate) struct SystemData {
     pub(crate) cpu_history: monitoring::history::BoundedHistory<DataPoint>,
     pub(crate) memory_history: monitoring::history::BoundedHistory<DataPoint>,
     pub(crate) gpu_history: monitoring::history::BoundedHistory<DataPoint>,
+    pub(crate) cpu_temp_history: monitoring::history::BoundedHistory<DataPoint>,
     pub(crate) network_download_history: VecDeque<DataPoint>,
     pub(crate) network_upload_history: VecDeque<DataPoint>,
     pub(crate) alerts: Vec<AlertInfo>,
@@ -1219,6 +1228,7 @@ impl Default for SystemData {
             cpu_history: monitoring::history::BoundedHistory::new(60),
             memory_history: monitoring::history::BoundedHistory::new(60),
             gpu_history: monitoring::history::BoundedHistory::new(60),
+            cpu_temp_history: monitoring::history::BoundedHistory::new(60),
             network_download_history: VecDeque::new(),
             network_upload_history: VecDeque::new(),
             alerts: Vec::new(),
@@ -1263,6 +1273,8 @@ pub(crate) struct SystemMonitorApp {
     pub(crate) details_pid: Option<u32>,
     pub(crate) kill_tree_pid: Option<u32>,
     pub(crate) pending_service_action: Option<services::ServiceAction>,
+    pub(crate) service_search: String,
+    pub(crate) service_state_filter: Option<String>,
     pub(crate) process_search: String,
     pub(crate) process_sort_column: ProcessSortColumn,
     pub(crate) process_sort_ascending: bool,
@@ -1271,6 +1283,7 @@ pub(crate) struct SystemMonitorApp {
     pub(crate) update_info_share: Arc<Mutex<Option<updater::UpdateInfo>>>,
     pub(crate) show_update_notification: bool,
     pub(crate) update_check_time: Option<Instant>,
+    pub(crate) update_check_running: Arc<std::sync::atomic::AtomicBool>,
     pub(crate) ram_cleaner_state: RamCleanerState,
     pub(crate) startup_items: Vec<StartupItem>,
     pub(crate) startup_items_loaded: bool,
@@ -1978,6 +1991,7 @@ impl SystemMonitorApp {
             update_info_share: Arc::new(Mutex::new(None)),
             show_update_notification: true,
             update_check_time: None,
+            update_check_running: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             ram_cleaner_state: RamCleanerState {
                 last_cleaned: None,
                 last_cleaned_display: String::new(),
@@ -2012,6 +2026,8 @@ impl SystemMonitorApp {
             resume_process_pid: None,
             suspended_pids: std::collections::HashSet::new(),
             priority_change: None,
+            service_search: String::new(),
+            service_state_filter: None,
             pending_service_action: None,
             #[cfg(target_os = "windows")]
             tray_icon,
@@ -2109,6 +2125,12 @@ impl SystemMonitorApp {
             startup_item_count: usize,
             high_impact_startup_count: usize,
             boot_diagnostics: Option<BootDiagnostics>,
+            swap_info: SwapInfo,
+            battery_info: Option<BatteryInfo>,
+            network_download_history: Vec<DataPoint>,
+            network_upload_history: Vec<DataPoint>,
+            disk_read_history: Vec<DataPoint>,
+            disk_write_history: Vec<DataPoint>,
         }
 
         let export = ExportData {
@@ -2125,6 +2147,12 @@ impl SystemMonitorApp {
             startup_item_count: self.startup_items.len(),
             high_impact_startup_count: startup::high_impact_count(&self.startup_items),
             boot_diagnostics: self.boot_diagnostics.clone(),
+            swap_info: data.swap_info.clone(),
+            battery_info: data.battery_info.clone(),
+            network_download_history: data.network_download_history.iter().copied().collect(),
+            network_upload_history: data.network_upload_history.iter().copied().collect(),
+            disk_read_history: data.disk_read_history.iter().copied().collect(),
+            disk_write_history: data.disk_write_history.iter().copied().collect(),
         };
 
         Ok(serde_json::to_string_pretty(&export)?)
@@ -2294,6 +2322,25 @@ impl eframe::App for SystemMonitorApp {
                     data.cpu_history.clear();
                     data.memory_history.clear();
                     data.gpu_history.clear();
+                }
+            }
+            if i.modifiers.ctrl {
+                let mut new_tab = None;
+                if i.key_pressed(egui::Key::Num1) { new_tab = Some(Tab::Overview); }
+                if i.key_pressed(egui::Key::Num2) { new_tab = Some(Tab::Performance); }
+                if i.key_pressed(egui::Key::Num3) { new_tab = Some(Tab::Processes); }
+                if i.key_pressed(egui::Key::Num4) { new_tab = Some(Tab::CpuCores); }
+                if i.key_pressed(egui::Key::Num5) { new_tab = Some(Tab::Storage); }
+                if i.key_pressed(egui::Key::Num6) { new_tab = Some(Tab::Network); }
+                if i.key_pressed(egui::Key::Num7) { new_tab = Some(Tab::SystemInfo); }
+                if i.key_pressed(egui::Key::Num8) { new_tab = Some(Tab::Alerts); }
+                if i.key_pressed(egui::Key::Num9) { new_tab = Some(Tab::RamCleaner); }
+                if i.key_pressed(egui::Key::Num0) { new_tab = Some(Tab::StartupManager); }
+                
+                if let Some(tab) = new_tab {
+                    if tab != Tab::CpuCores || self.settings.show_cpu_cores {
+                        self.selected_tab = tab;
+                    }
                 }
             }
             if i.modifiers.ctrl && i.key_pressed(egui::Key::E) {

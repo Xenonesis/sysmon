@@ -23,7 +23,24 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ctx: &egui::Context, data:
                         }
                     });
                 });
+                // Search box
+                ui.horizontal(|ui| {
+                    ui.label("Search:");
+                    ui.add(egui::TextEdit::singleline(&mut app.process_search)
+                        .hint_text("Filter by name or PID…")
+                        .desired_width(200.0));
+                    if ui.button("x").clicked() {
+                        app.process_search.clear();
+                    }
+                });
 
+                ui.add_space(5.0);
+
+                // Filter & Sort processes
+                let mut filtered_processes = processes::filter_processes(&data.top_processes, &app.process_search);
+                processes::sort_processes(&mut filtered_processes, app.process_sort_column, app.process_sort_ascending);
+
+                ui.label(format!("Showing {} of {} processes", filtered_processes.len(), data.top_processes.len()));
                 ui.add_space(5.0);
 
                 egui::ScrollArea::vertical().show(ui, |ui| {
@@ -32,17 +49,33 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ctx: &egui::Context, data:
                         .spacing([10.0, 4.0])
                         .min_col_width(60.0)
                         .show(ui, |ui| {
-                            // Header
-                            ui.strong("PID");
-                            ui.strong("Process Name");
-                            ui.strong("Memory");
-                            ui.strong("CPU %");
-                            ui.strong("Status");
+                            let sort_arrow = |col: ProcessSortColumn, current: ProcessSortColumn, asc: bool| -> &'static str {
+                                if col == current {
+                                    if asc { " ^" } else { " v" }
+                                } else {
+                                    ""
+                                }
+                            };
+                            let sort_col = app.process_sort_column;
+                            let sort_asc = app.process_sort_ascending;
+
+                            if ui.button(format!("PID{}", sort_arrow(ProcessSortColumn::Pid, sort_col, sort_asc))).clicked() {
+                                if app.process_sort_column == ProcessSortColumn::Pid { app.process_sort_ascending = !app.process_sort_ascending; } else { app.process_sort_column = ProcessSortColumn::Pid; app.process_sort_ascending = true; }
+                            }
+                            if ui.button(format!("Process Name{}", sort_arrow(ProcessSortColumn::Name, sort_col, sort_asc))).clicked() {
+                                if app.process_sort_column == ProcessSortColumn::Name { app.process_sort_ascending = !app.process_sort_ascending; } else { app.process_sort_column = ProcessSortColumn::Name; app.process_sort_ascending = true; }
+                            }
+                            if ui.button(format!("Memory{}", sort_arrow(ProcessSortColumn::Memory, sort_col, sort_asc))).clicked() {
+                                if app.process_sort_column == ProcessSortColumn::Memory { app.process_sort_ascending = !app.process_sort_ascending; } else { app.process_sort_column = ProcessSortColumn::Memory; app.process_sort_ascending = false; }
+                            }
+                            if ui.button(format!("CPU %{}", sort_arrow(ProcessSortColumn::Cpu, sort_col, sort_asc))).clicked() {
+                                if app.process_sort_column == ProcessSortColumn::Cpu { app.process_sort_ascending = !app.process_sort_ascending; } else { app.process_sort_column = ProcessSortColumn::Cpu; app.process_sort_ascending = false; }
+                            }
                             ui.strong("Actions");
                             ui.end_row();
 
                             // Processes
-                            for process in &data.top_processes {
+                            for process in &filtered_processes {
                                 let memory_mb = bytes_to_mb(process.memory);
                                 let memory_color = if memory_mb > 500.0 {
                                     ThemePalette::STATUS_CRITICAL

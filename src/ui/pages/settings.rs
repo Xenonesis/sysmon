@@ -120,6 +120,12 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui) {
                             .add(egui::Slider::new(&mut app.settings.notification_temp_threshold, 60..=105).suffix("°C"))
                             .changed();
                         ui.end_row();
+
+                        ui.label("Disk Usage % Alert:");
+                        changed |= ui
+                            .add(egui::Slider::new(&mut app.settings.notification_disk_threshold, 50.0..=100.0).suffix("%"))
+                            .changed();
+                        ui.end_row();
                     });
             });
             ui.add_space(12.0);
@@ -147,6 +153,19 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui) {
                     changed |= ui
                         .checkbox(&mut app.settings.start_minimized, "Start minimized on launch")
                         .changed();
+                    
+                    ui.add_space(8.0);
+                    ui.horizontal(|ui| {
+                        let elevated = crate::privilege::is_app_elevated();
+                        if elevated {
+                            ui.colored_label(ThemePalette::STATUS_HEALTHY, "Running as Administrator");
+                        } else {
+                            ui.label("Running as Standard User");
+                            if ui.button("🛡 Relaunch as Administrator").clicked() {
+                                crate::privilege::relaunch_as_admin();
+                            }
+                        }
+                    });
                 });
                 ui.add_space(12.0);
             }

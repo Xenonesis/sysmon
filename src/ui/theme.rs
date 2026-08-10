@@ -36,6 +36,6 @@ impl ThemePalette {
     pub(crate) const TEXT_DIMMED: egui::Color32 = egui::Color32::from_rgb(86, 85, 85);
 
     pub(crate) const GPU_UNAVAILABLE: egui::Color32 = egui::Color32::from_rgb(86, 85, 85);
-    pub(crate) const ACCENT_PURPLE: egui::Color32 = egui::Color32::from_rgb(198, 198, 199); // Map purple to primary grey
-    pub(crate) const ACCENT_CYAN: egui::Color32 = egui::Color32::from_rgb(198, 198, 199); // Map cyan to primary grey
+    pub(crate) const ACCENT_PURPLE: egui::Color32 = egui::Color32::from_rgb(139, 124, 245); // #8B7CF5 muted purple
+    pub(crate) const ACCENT_CYAN: egui::Color32 = egui::Color32::from_rgb(91, 200, 212);   // #5BC8D4 cyan-teal
 }

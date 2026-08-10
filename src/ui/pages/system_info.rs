@@ -226,10 +226,6 @@ pub(crate) fn show(_app: &crate::SystemMonitorApp, ui: &mut egui::Ui, data: &Sys
                             ui.label("Discharge/Charge State:");
                             ui.strong(bat.discharge_state.as_deref().unwrap_or("N/A").to_string());
                         });
-                        ui.horizontal(|ui| {
-                            ui.label("Discharge/Charge State:");
-                            ui.strong(bat.discharge_state.as_deref().unwrap_or("N/A").to_string());
-                        });
                     });
                     ui.add_space(12.0);
                 }

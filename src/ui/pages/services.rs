@@ -12,6 +12,49 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
             return;
         }
 
+        // Search + state filter bar
+        ui.horizontal(|ui| {
+            ui.label("Search:");
+            ui.add(egui::TextEdit::singleline(&mut app.service_search)
+                .hint_text("Filter by name…")
+                .desired_width(200.0));
+            ui.add_space(16.0);
+            ui.label("State:");
+            egui::ComboBox::from_id_source("svc_state_filter")
+                .selected_text(app.service_state_filter.as_deref().unwrap_or("All"))
+                .show_ui(ui, |ui| {
+                    if ui.selectable_label(app.service_state_filter.is_none(), "All").clicked() {
+                        app.service_state_filter = None;
+                    }
+                    for state in &["Running", "Stopped", "Start Pending", "Stop Pending", "Paused"] {
+                        let selected = app.service_state_filter.as_deref() == Some(state);
+                        if ui.selectable_label(selected, *state).clicked() {
+                            app.service_state_filter = Some(state.to_string());
+                        }
+                    }
+                });
+            if ui.small_button("✕ Clear").clicked() {
+                app.service_search.clear();
+                app.service_state_filter = None;
+            }
+        });
+        ui.add_space(8.0);
+
+        // Apply filters
+        let query = app.service_search.to_lowercase();
+        let filtered: Vec<_> = data.services.iter().filter(|svc| {
+            let name_match = query.is_empty()
+                || svc.name.to_lowercase().contains(&query)
+                || svc.display_name.to_lowercase().contains(&query);
+            let state_match = app.service_state_filter.as_deref()
+                .map_or(true, |s| svc.state == s);
+            name_match && state_match
+        }).collect();
+
+        ui.label(egui::RichText::new(format!("{} / {} services", filtered.len(), data.services.len()))
+            .size(11.0).color(ThemePalette::TEXT_DIMMED));
+        ui.add_space(4.0);
+
         egui::ScrollArea::vertical().show(ui, |ui| {
             egui::Grid::new("services_grid")
                 .striped(true)
@@ -23,7 +66,7 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
                     ui.strong("Actions");
                     ui.end_row();
 
-                    for svc in &data.services {
+                    for svc in &filtered {
                         ui.label(&svc.display_name);
                         ui.label(&svc.name);
                         let color = if svc.state == "Running" {

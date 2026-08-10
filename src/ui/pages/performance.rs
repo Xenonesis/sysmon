@@ -118,6 +118,61 @@ pub(crate) fn show(app: &crate::SystemMonitorApp, ui: &mut egui::Ui, data: &Syst
                             });
                     });
                 });
+
+                ui.add_space(10.0);
+
+                ui.columns(2, |cols| {
+                    // Network Graph
+                    cols[0].group(|ui| {
+                        ui.label(
+                            egui::RichText::new("Network Traffic History")
+                                .size(15.0)
+                                .strong()
+                                .color(ThemePalette::ACCENT_CYAN),
+                        );
+                        let down_points: PlotPoints = data.network_download_history.iter().map(|p| [p.time, p.value]).collect();
+                        let up_points: PlotPoints = data.network_upload_history.iter().map(|p| [p.time, p.value]).collect();
+
+                        let line_down = Line::new(down_points).name("Download MB/s").color(ThemePalette::ACCENT_CYAN);
+                        let line_up = Line::new(up_points).name("Upload MB/s").color(ThemePalette::STATUS_WARNING);
+
+                        Plot::new("network_plot")
+                            .height(200.0)
+                            .allow_zoom(false)
+                            .allow_drag(false)
+                            .allow_scroll(false)
+                            .legend(egui_plot::Legend::default())
+                            .y_axis_label("MB/s")
+                            .show(ui, |plot_ui| {
+                                plot_ui.line(line_down);
+                                plot_ui.line(line_up);
+                            });
+                    });
+
+                    // CPU Temp Graph
+                    cols[1].group(|ui| {
+                        ui.label(
+                            egui::RichText::new("CPU Temperature History")
+                                .size(15.0)
+                                .strong()
+                                .color(ThemePalette::STATUS_CRITICAL),
+                        );
+                        let temp_points: PlotPoints = data.cpu_temp_history.iter().map(|p| [p.time, p.value]).collect();
+
+                        let line_temp = Line::new(temp_points).name("Temperature °C").color(ThemePalette::STATUS_CRITICAL);
+
+                        Plot::new("cpu_temp_plot")
+                            .height(200.0)
+                            .allow_zoom(false)
+                            .allow_drag(false)
+                            .allow_scroll(false)
+                            .include_y(0.0)
+                            .y_axis_label("°C")
+                            .show(ui, |plot_ui| {
+                                plot_ui.line(line_temp);
+                            });
+                    });
+                });
             } else {
                 ui.label("Performance graphs are disabled. Enable them in View menu.");
             }
