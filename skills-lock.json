@@ -1,6 +1,42 @@
 {
   "version": 1,
   "skills": {
+    "cargo-workflows": {
+      "source": "mohitmishra786/low-level-dev-skills",
+      "sourceType": "github",
+      "skillPath": "skills/rust/cargo-workflows/SKILL.md",
+      "computedHash": "fcf6916c11d438af2b8ca60fdfed48e2640b9a84a589ac824aa1dcabc66439e4"
+    },
+    "clean-architecture": {
+      "source": "mindrally/skills",
+      "sourceType": "github",
+      "skillPath": "clean-architecture/SKILL.md",
+      "computedHash": "39cf5addffbea70a7f8d09c323eb3cc5637c0b746656f9111d657eb7a9efa559"
+    },
+    "error-handling-patterns": {
+      "source": "wshobson/agents",
+      "sourceType": "github",
+      "skillPath": "plugins/developer-essentials/skills/error-handling-patterns/SKILL.md",
+      "computedHash": "61c0f8496afccbc0b9c46cf0878fac064892cb80981eb6b64ebc5892c71cfec7"
+    },
+    "rust": {
+      "source": "mindrally/skills",
+      "sourceType": "github",
+      "skillPath": "rust/SKILL.md",
+      "computedHash": "e85ae0543321e3c76af185df298265d3c4db69d2fea70e9a4b8f37b49a89c2a5"
+    },
+    "rust-profiling": {
+      "source": "mohitmishra786/low-level-dev-skills",
+      "sourceType": "github",
+      "skillPath": "skills/rust/rust-profiling/SKILL.md",
+      "computedHash": "5897319a536596b53b18e4f079ffe7daaf47be29cd8096dc482890b528cf51c0"
+    },
+    "security-best-practices": {
+      "source": "mindrally/skills",
+      "sourceType": "github",
+      "skillPath": "security-best-practices/SKILL.md",
+      "computedHash": "8298d5af2d44c61b69aee0641160f8e83f0a5e284cfc501e1f1db1838e8057d9"
+    },
     "tauri-window": {
       "source": "full-statck-skills/tauri-skills",
       "sourceType": "github",

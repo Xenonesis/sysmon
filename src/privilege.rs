@@ -7,9 +7,19 @@ pub fn is_app_elevated() -> bool {
     use windows::Win32::Security::{GetTokenInformation, TokenElevation, TOKEN_ELEVATION, TOKEN_QUERY};
     use std::mem;
 
+    struct HandleGuard(windows::Win32::Foundation::HANDLE);
+    impl Drop for HandleGuard {
+        fn drop(&mut self) {
+            unsafe {
+                let _ = CloseHandle(self.0);
+            }
+        }
+    }
+
     unsafe {
         let mut token = windows::Win32::Foundation::HANDLE::default();
         if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token).is_ok() {
+            let _guard = HandleGuard(token);
             let mut elevation = TOKEN_ELEVATION::default();
             let mut size = mem::size_of::<TOKEN_ELEVATION>() as u32;
             let res = GetTokenInformation(
@@ -19,7 +29,6 @@ pub fn is_app_elevated() -> bool {
                 size,
                 &mut size,
             );
-            let _ = CloseHandle(token);
             if res.is_ok() {
                 return elevation.TokenIsElevated != 0;
             }
@@ -30,7 +39,6 @@ pub fn is_app_elevated() -> bool {
 
 #[cfg(target_os = "windows")]
 pub fn relaunch_as_admin() -> bool {
-    use std::ptr;
     use std::ffi::OsStr;
     use std::os::windows::ffi::OsStrExt;
     use windows::Win32::UI::Shell::ShellExecuteExW;
@@ -38,7 +46,7 @@ pub fn relaunch_as_admin() -> bool {
     use windows::Win32::UI::WindowsAndMessaging::SW_SHOW;
 
     if let Ok(path) = std::env::current_exe() {
-        let mut path_w: Vec<u16> = path.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
+        let path_w: Vec<u16> = path.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
         let verb: Vec<u16> = OsStr::new("runas").encode_wide().chain(std::iter::once(0)).collect();
         
         let mut info = SHELLEXECUTEINFOW::default();
@@ -49,7 +57,8 @@ pub fn relaunch_as_admin() -> bool {
 
         unsafe {
             if ShellExecuteExW(&mut info).is_ok() {
-                std::process::exit(0);
+                // Return true, let caller handle graceful exit (drop app state) instead of hard exit
+                return true;
             }
         }
     }

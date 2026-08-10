@@ -162,7 +162,9 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui) {
                         } else {
                             ui.label("Running as Standard User");
                             if ui.button("🛡 Relaunch as Administrator").clicked() {
-                                crate::privilege::relaunch_as_admin();
+                                if crate::privilege::relaunch_as_admin() {
+                                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                                }
                             }
                         }
                     });
@@ -224,38 +226,38 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui) {
                     visuals.window_fill = ThemePalette::BG_SURFACE;
                     visuals.extreme_bg_color = ThemePalette::BG_DEEPEST;
                     visuals.selection.bg_fill = ThemePalette::ACCENT_PRIMARY;
-                    visuals.selection.stroke = egui::Stroke::new(1.0, ThemePalette::ACCENT_ACTIVE);
+                    visuals.selection.stroke = egui::Stroke::NONE;
                     visuals.hyperlink_color = ThemePalette::ACCENT_PRIMARY;
                     visuals.widgets.noninteractive.bg_fill = ThemePalette::BG_CARD;
                     visuals.widgets.noninteractive.bg_stroke = egui::Stroke::new(1.0, ThemePalette::BORDER);
                     visuals.widgets.noninteractive.fg_stroke = egui::Stroke::new(1.0, ThemePalette::TEXT_PRIMARY);
                     visuals.widgets.inactive.bg_fill = ThemePalette::WIDGET_INACTIVE;
-                    visuals.widgets.inactive.bg_stroke = egui::Stroke::new(1.0, ThemePalette::BORDER);
+                    visuals.widgets.inactive.bg_stroke = egui::Stroke::NONE;
                     visuals.widgets.inactive.fg_stroke = egui::Stroke::new(1.0, ThemePalette::TEXT_SECONDARY);
                     visuals.widgets.hovered.bg_fill = ThemePalette::WIDGET_HOVERED;
                     visuals.widgets.hovered.bg_stroke = egui::Stroke::new(1.0, ThemePalette::BORDER_LIGHT);
                     visuals.widgets.hovered.fg_stroke = egui::Stroke::new(1.0, ThemePalette::TEXT_SELECTED);
                     visuals.widgets.active.bg_fill = ThemePalette::ACCENT_ACTIVE;
-                    visuals.widgets.active.bg_stroke = egui::Stroke::new(1.0, ThemePalette::ACCENT_PRIMARY);
+                    visuals.widgets.active.bg_stroke = egui::Stroke::NONE;
                     visuals.widgets.active.fg_stroke = egui::Stroke::new(1.0, ThemePalette::TEXT_SELECTED);
-                    visuals.window_rounding = egui::Rounding::same(8.0);
-                    visuals.menu_rounding = egui::Rounding::same(8.0);
-                    visuals.widgets.noninteractive.rounding = egui::Rounding::same(8.0);
-                    visuals.widgets.inactive.rounding = egui::Rounding::same(8.0);
-                    visuals.widgets.hovered.rounding = egui::Rounding::same(8.0);
-                    visuals.widgets.active.rounding = egui::Rounding::same(8.0);
-                    visuals.window_stroke = egui::Stroke::new(1.0, ThemePalette::BORDER_LIGHT);
+                    visuals.window_rounding = egui::Rounding::same(4.0);
+                    visuals.menu_rounding = egui::Rounding::same(4.0);
+                    visuals.widgets.noninteractive.rounding = egui::Rounding::same(4.0);
+                    visuals.widgets.inactive.rounding = egui::Rounding::same(4.0);
+                    visuals.widgets.hovered.rounding = egui::Rounding::same(4.0);
+                    visuals.widgets.active.rounding = egui::Rounding::same(4.0);
+                    visuals.window_stroke = egui::Stroke::new(1.0, ThemePalette::BORDER);
                     visuals.window_shadow = egui::epaint::Shadow {
-                        offset: egui::vec2(0.0, 12.0),
-                        blur: 32.0,
-                        spread: -4.0,
-                        color: egui::Color32::from_rgba_premultiplied(0, 0, 0, 180),
+                        offset: egui::vec2(0.0, 4.0),
+                        blur: 16.0,
+                        spread: 0.0,
+                        color: egui::Color32::from_rgba_premultiplied(0, 0, 0, 40),
                     };
                     visuals.popup_shadow = egui::epaint::Shadow {
-                        offset: egui::vec2(0.0, 8.0),
-                        blur: 24.0,
-                        spread: -2.0,
-                        color: egui::Color32::from_rgba_premultiplied(0, 0, 0, 150),
+                        offset: egui::vec2(0.0, 4.0),
+                        blur: 16.0,
+                        spread: 0.0,
+                        color: egui::Color32::from_rgba_premultiplied(0, 0, 0, 40),
                     };
                     ui.ctx().set_visuals(visuals);
                 } else {

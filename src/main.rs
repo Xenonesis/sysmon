@@ -1449,9 +1449,9 @@ impl SystemMonitorApp {
             visuals.selection.stroke = egui::Stroke::NONE;
             visuals.hyperlink_color = ThemePalette::ACCENT_PRIMARY;
 
-            // Subtle borders & widgets (No borders)
+            // Subtle borders & widgets
             visuals.widgets.noninteractive.bg_fill = ThemePalette::BG_CARD;
-            visuals.widgets.noninteractive.bg_stroke = egui::Stroke::NONE;
+            visuals.widgets.noninteractive.bg_stroke = egui::Stroke::new(1.0, ThemePalette::BORDER);
             visuals.widgets.noninteractive.fg_stroke = egui::Stroke::new(1.0, ThemePalette::TEXT_PRIMARY);
 
             // Inactive
@@ -1461,7 +1461,7 @@ impl SystemMonitorApp {
 
             // Hovered
             visuals.widgets.hovered.bg_fill = ThemePalette::WIDGET_HOVERED;
-            visuals.widgets.hovered.bg_stroke = egui::Stroke::NONE;
+            visuals.widgets.hovered.bg_stroke = egui::Stroke::new(1.0, ThemePalette::BORDER_LIGHT);
             visuals.widgets.hovered.fg_stroke = egui::Stroke::new(1.0, ThemePalette::TEXT_SELECTED);
 
             // Active
@@ -1469,21 +1469,21 @@ impl SystemMonitorApp {
             visuals.widgets.active.bg_stroke = egui::Stroke::NONE;
             visuals.widgets.active.fg_stroke = egui::Stroke::new(1.0, ThemePalette::TEXT_SELECTED);
 
-            // Rounding (Premium 8px)
-            visuals.window_rounding = egui::Rounding::same(8.0);
-            visuals.menu_rounding = egui::Rounding::same(8.0);
-            visuals.widgets.noninteractive.rounding = egui::Rounding::same(8.0);
-            visuals.widgets.inactive.rounding = egui::Rounding::same(8.0);
-            visuals.widgets.hovered.rounding = egui::Rounding::same(8.0);
-            visuals.widgets.active.rounding = egui::Rounding::same(8.0);
+            // Rounding (Terminal Noir Minimal 4px)
+            visuals.window_rounding = egui::Rounding::same(4.0);
+            visuals.menu_rounding = egui::Rounding::same(4.0);
+            visuals.widgets.noninteractive.rounding = egui::Rounding::same(4.0);
+            visuals.widgets.inactive.rounding = egui::Rounding::same(4.0);
+            visuals.widgets.hovered.rounding = egui::Rounding::same(4.0);
+            visuals.widgets.active.rounding = egui::Rounding::same(4.0);
 
             // Window chrome and depth
-            visuals.window_stroke = egui::Stroke::NONE;
+            visuals.window_stroke = egui::Stroke::new(1.0, ThemePalette::BORDER);
             visuals.window_shadow = egui::epaint::Shadow {
-                offset: egui::vec2(0.0, 8.0),
-                blur: 40.0,
+                offset: egui::vec2(0.0, 4.0),
+                blur: 16.0,
                 spread: 0.0,
-                color: egui::Color32::from_rgba_premultiplied(0, 0, 0, 20), // Ambient 8%
+                color: egui::Color32::from_rgba_premultiplied(0, 0, 0, 40),
             };
 
             visuals.popup_shadow = egui::epaint::Shadow {
@@ -2253,7 +2253,7 @@ impl eframe::App for SystemMonitorApp {
         ctx.request_repaint_after(std::time::Duration::from_millis(500));
 
         // Check for updates automatically (once every 24 hours)
-        if self.update_check_time.is_none() || self.update_check_time.unwrap().elapsed().as_secs() > 86400 {
+        if self.update_check_time.map_or(true, |t| t.elapsed().as_secs() > 86400) {
             let mut updater = self.updater.clone();
             let update_info_share = self.update_info_share.clone();
             thread::Builder::new()
@@ -2269,15 +2269,9 @@ impl eframe::App for SystemMonitorApp {
         }
 
         // Show update notification banner
-        let update_available = {
-            let info = self.update_info_share.lock();
-            info.as_ref().map_or(false, |i| i.update_available)
-        };
-        if update_available && self.show_update_notification {
-            let update_info = {
-                let info = self.update_info_share.lock();
-                info.as_ref().unwrap().clone()
-            };
+        let update_info_opt = self.update_info_share.lock().clone();
+        if let Some(update_info) = update_info_opt {
+            if update_info.update_available && self.show_update_notification {
                 let mut frame = egui::Frame::none().fill(ThemePalette::BG_SURFACE);
                 frame.inner_margin = egui::Margin::symmetric(16.0, 12.0);
                 
@@ -2311,6 +2305,7 @@ impl eframe::App for SystemMonitorApp {
                         });
                     });
                 });
+            }
         }
 
         // Keyboard shortcuts
@@ -3077,7 +3072,7 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn temp_path(name: &str) -> std::path::PathBuf {
-        std::env::temp_dir().join(format!("sysmon-{name}-{}", SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()))
+        std::env::temp_dir().join(format!("sysmon-{name}-{}", SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos()))
     }
 
     #[test]
