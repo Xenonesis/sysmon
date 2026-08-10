@@ -65,7 +65,7 @@
                 </div>
                 <div class="hero-spec">
                     <div class="spec-item"><span class="spec-key">Platform</span><span class="spec-val">Windows 10/11 · x64</span></div>
-                    <div class="spec-item"><span class="spec-key">Latest</span><span class="spec-val mono" id="latestVersion">v2.6.1</span></div>
+                    <div class="spec-item"><span class="spec-key">Latest</span><span class="spec-val mono" id="latestVersion">v3.0.0</span></div>
                     <div class="spec-item"><span class="spec-key">Installer</span><span class="spec-val">~5 MB</span></div>
                     <div class="spec-item"><span class="spec-key">Refresh</span><span class="spec-val">1–10 s</span></div>
                 </div>
@@ -82,18 +82,18 @@
                 <div class="strip" style="margin-top: var(--space-8);">
                     <div class="stat-item">
                         <span class="stat-value">100%</span>
-                        <span class="stat-label">Rust — no GC pauses</span>
+                        <span class="stat-label">Rust — zero GC pauses</span>
                     </div>
                     <div class="stat-item">
                         <span class="stat-value">~5 MB</span>
                         <span class="stat-label">Installer footprint</span>
                     </div>
                     <div class="stat-item">
-                        <span class="stat-value">2 s</span>
-                        <span class="stat-label">Default refresh rate</span>
+                        <span class="stat-value">60 FPS</span>
+                        <span class="stat-label">TelemetryHub UI rendering</span>
                     </div>
                     <div class="stat-item">
-                        <span class="stat-value">11</span>
+                        <span class="stat-value">11+</span>
                         <span class="stat-label">Built-in modules</span>
                     </div>
                 </div>
@@ -110,9 +110,9 @@
                     <div class="bento">
                         <article class="feature-card feature-wide">
                             <div class="feature-icon"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></div>
-                            <span class="feature-tag">Core</span>
-                            <h3 class="feature-title">Real-time dashboard &amp; graphs</h3>
-                            <p class="feature-desc">Live CPU, memory and GPU utilisation with colour-coded progress bars, plus rolling line charts to spot anomalies and trends. Adaptive thresholds respond to your system's state.</p>
+                            <span class="feature-tag is-new">TelemetryHub</span>
+                            <h3 class="feature-title">Multi-Tier TelemetryHub &amp; Provider Architecture</h3>
+                            <p class="feature-desc">Dedicated background polling engine separating 60 FPS UI rendering from 1–5 Hz hardware sampling. Includes vendor-independent provider abstractions (Sysinfo, NVML, WMI) and bounded multi-resolution ring buffers.</p>
                         </article>
 
                         <article class="feature-card">

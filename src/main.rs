@@ -12,6 +12,8 @@ mod privilege;
 mod processes;
 mod services;
 mod power;
+pub mod telemetry;
+pub mod providers;
 use startup::{StartupItem, ImpactTier, Recommendation, StartupSortColumn, BootDiagnostics, StartupOptimizationEntry};
 use processes::{ProcessInfo, ProcessSortColumn};
 use eframe::egui;

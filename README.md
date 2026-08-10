@@ -7,7 +7,7 @@ A comprehensive, professional system monitoring application built with Rust feat
 [![License: MIT](https://img.shields.io/badge/License-MIT-gray.svg?style=flat-square)](https://opensource.org/licenses/MIT)
 [![Rust](https://img.shields.io/badge/Rust-1.70%2B-gray.svg?style=flat-square)](https://www.rust-lang.org/)
 [![Platform](https://img.shields.io/badge/Platform-Windows-gray.svg?style=flat-square)](https://www.microsoft.com/windows)
-[![Version](https://img.shields.io/badge/Version-2.6.0-gray.svg?style=flat-square)](https://github.com/Xenonesis/sysmon/releases/latest)
+[![Version](https://img.shields.io/badge/Version-3.0.0-gray.svg?style=flat-square)](https://github.com/Xenonesis/sysmon/releases/latest)
 
 ---
 
@@ -15,7 +15,7 @@ A comprehensive, professional system monitoring application built with Rust feat
 
 The recommended distribution is our standalone Windows installer, providing automatic updates and seamless system integration.
 
-**[Download SysMon Installer (v2.6.0)](https://systemmonitor.xenonesis.dev)**
+**[Download SysMon Installer (v3.0.0)](https://systemmonitor.xenonesis.dev)**
 
 **Installer Features:**
 * **Native Integration:** Installs to `Program Files` with a searchable Start Menu entry.
@@ -33,7 +33,10 @@ The recommended distribution is our standalone Windows installer, providing auto
 * **Adaptive Layout:** Resizable interface with a quick-stats sidebar and multi-tab structure.
 * **Visual States:** Color-coded usage indicators and smooth transition animations.
 
-### Real-Time Monitoring
+### Real-Time Monitoring & TelemetryHub
+* **TelemetryHub Engine:** Dedicated background polling engine separating 60 FPS UI rendering from 1–5 Hz hardware sampling.
+* **Vendor-Independent Providers:** Modular `TelemetryProvider` abstraction supporting `sysinfo`, `nvml` (NVIDIA), and `wmi` data sources.
+* **Multi-Resolution Ring Buffers:** Bounded `MetricHistory` circular buffers with live min/max/avg/peak metrics over 60s, 5m, 30m, and 1hr spans.
 * **Processor (CPU):** Usage monitoring with per-core analysis and thermal tracking.
 * **Memory (RAM):** Comprehensive breakdown with threshold-based auto-cleaning.
 * **Graphics (GPU):** Full NVIDIA NVML integration (Utilization, VRAM, Temp, Clock Speed, Power Draw, Fan Speed).
@@ -72,6 +75,14 @@ The compiled executable will be located at: `target/release/system-monitor.exe`.
 ---
 
 ## Changelog
+
+### [3.0.0] — TelemetryHub & Provider Architecture
+* **TelemetryHub:** Background polling hub separating 60 FPS UI rendering from hardware polling rates (1–5 Hz).
+* **Provider Abstraction:** Modular `TelemetryProvider` trait for `sysinfo`, `nvml-wrapper`, and `wmi` sources.
+* **Multi-Resolution Ring Buffers:** Fixed-capacity circular buffers tracking min/max/avg/peak statistics across 60s, 5m, 30m, and 1hr windows.
+* **Polling Scheduler:** `PollingScheduler` with 5x reduced background/tray polling for low idle power/CPU usage.
+* **Fault Isolation:** Individual provider errors (e.g., missing NVIDIA GPU) are safely isolated without application crashes.
+* **Automated Integration Tests:** Deep telemetry flow automated integration tests.
 
 ### [2.6.0] — Stability Rewrite
 * **Architecture:** Long-lived monitoring and action workers with command/event boundaries; typed action results.

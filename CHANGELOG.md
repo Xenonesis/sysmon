@@ -5,7 +5,17 @@ All notable changes to System Monitor will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.0.0] - 2024-12-15
+## [3.0.0] - 2026-08-10
+
+### Added
+- **TelemetryHub Architecture:** Multi-tier telemetry hub running on dedicated background threads, separating UI render frequency (60 FPS) from hardware polling (1-5 Hz).
+- **Provider Abstraction:** Modular `TelemetryProvider` trait supporting vendor-independent data sources (`SysinfoProvider`, `NvmlProvider`, `WmiProvider`).
+- **Multi-Resolution Ring Buffers:** `MetricHistory` bounded circular buffers with running statistics (min, max, avg, peak time) across 60s, 5m, 30m, and 1hr time windows.
+- **Polling Scheduler:** `PollingScheduler` with background/tray mode throttling (5x reduced polling when minimized to conserve CPU/power).
+- **Graceful Error Isolation:** Independent provider failure handling — individual provider errors (e.g. missing NVML/WMI) no longer affect main telemetry or application stability.
+- **Integration Test Suite:** Automated deep telemetry flow integration test suite (`test_deep_telemetry_flow`).
+
+## [2.6.0] - 2026-01-20
 
 ### Added
 - **Storage Monitoring Tab** - Monitor all storage devices with capacity and usage
