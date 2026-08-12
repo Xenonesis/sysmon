@@ -79,6 +79,7 @@ jobs:
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
         with:
+          replace: true
           generate_release_notes: true
           files: |
             downloads/SystemMonitor-${{ env.APP_VERSION }}-setup.exe
