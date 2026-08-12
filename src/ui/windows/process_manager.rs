@@ -169,10 +169,8 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ctx: &egui::Context, data:
                                     if ui.small_button("Resume").on_hover_text("Resume Process").clicked() {
                                         app.resume_process_pid = Some(process.pid);
                                     }
-                                } else {
-                                    if ui.small_button("Suspend").on_hover_text("Suspend Process").clicked() {
-                                        app.suspend_process_pid = Some(process.pid);
-                                    }
+                                } else if ui.small_button("Suspend").on_hover_text("Suspend Process").clicked() {
+                                    app.suspend_process_pid = Some(process.pid);
                                 }
                                 // Priority menu
                                 ui.menu_button("Priority", |ui| {

@@ -145,10 +145,10 @@ impl Updater {
             let curr = current_parts.get(i).unwrap_or(&0);
             let lat = latest_parts.get(i).unwrap_or(&0);
 
-            if lat > curr {
-                return true;
-            } else if lat < curr {
-                return false;
+            match lat.cmp(curr) {
+                std::cmp::Ordering::Greater => return true,
+                std::cmp::Ordering::Less => return false,
+                std::cmp::Ordering::Equal => {}
             }
         }
 

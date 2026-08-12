@@ -202,14 +202,12 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
                             {
                                 app.resume_process_pid = Some(process.pid);
                             }
-                        } else {
-                            if ui
-                                .small_button("Suspend")
-                                .on_hover_text("Freeze process execution (Windows only)")
-                                .clicked()
-                            {
-                                app.suspend_process_pid = Some(process.pid);
-                            }
+                        } else if ui
+                            .small_button("Suspend")
+                            .on_hover_text("Freeze process execution (Windows only)")
+                            .clicked()
+                        {
+                            app.suspend_process_pid = Some(process.pid);
                         }
                         ui.menu_button("Priority", |ui| {
                             ui.label("Set Priority:");
