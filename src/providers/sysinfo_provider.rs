@@ -20,6 +20,12 @@ impl SysinfoProvider {
     }
 }
 
+impl Default for SysinfoProvider {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TelemetryProvider for SysinfoProvider {
     fn name(&self) -> &str {
         "sysinfo"
@@ -51,33 +57,18 @@ impl TelemetryProvider for SysinfoProvider {
                 format!("cpu.core.{}.usage", i),
                 MetricValue::Float(cpu.cpu_usage() as f64),
             );
-            data.insert(
-                format!("cpu.core.{}.frequency", i),
-                MetricValue::UInt(cpu.frequency()),
-            );
+            data.insert(format!("cpu.core.{}.frequency", i), MetricValue::UInt(cpu.frequency()));
         }
 
         // Memory
-        data.insert(
-            "memory.total".into(),
-            MetricValue::UInt(self.system.total_memory()),
-        );
-        data.insert(
-            "memory.used".into(),
-            MetricValue::UInt(self.system.used_memory()),
-        );
+        data.insert("memory.total".into(), MetricValue::UInt(self.system.total_memory()));
+        data.insert("memory.used".into(), MetricValue::UInt(self.system.used_memory()));
         data.insert(
             "memory.available".into(),
             MetricValue::UInt(self.system.available_memory()),
         );
-        data.insert(
-            "memory.total_swap".into(),
-            MetricValue::UInt(self.system.total_swap()),
-        );
-        data.insert(
-            "memory.used_swap".into(),
-            MetricValue::UInt(self.system.used_swap()),
-        );
+        data.insert("memory.total_swap".into(), MetricValue::UInt(self.system.total_swap()));
+        data.insert("memory.used_swap".into(), MetricValue::UInt(self.system.used_swap()));
 
         Ok(data)
     }

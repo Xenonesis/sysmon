@@ -1,11 +1,12 @@
 [package]
 name = "system-monitor"
-version = "3.0.0"
+version = "3.5.0"
 edition = "2021"
+rust-version = "1.85"
 authors = ["System Monitor Contributors"]
 description = "A professional system monitoring application for Windows with GUI"
 license = "MIT"
-repository = "https://github.com/yourusername/system-monitor"
+repository = "https://github.com/Xenonesis/sysmon"
 
 [[bin]]
 name = "system-monitor"

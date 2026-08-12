@@ -4,7 +4,7 @@
 //! and maintains running statistics (min, max, average, peak time).
 
 use std::collections::VecDeque;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 /// A single timestamped metric measurement.
 #[derive(Clone, Debug)]
@@ -61,28 +61,14 @@ impl MetricHistory {
             }
         }
 
-        self.buffer.push_back(MetricPoint {
-            timestamp: now,
-            value,
-        });
+        self.buffer.push_back(MetricPoint { timestamp: now, value });
 
-        // Update running statistics
+        // Update running statistics. Min/max are recalculated from the bounded
+        // window so evicted peaks do not leak into current-window summaries.
         self.sum += value;
         self.stats.current = value;
         self.stats.sample_count += 1;
-
-        if value < self.stats.min {
-            self.stats.min = value;
-        }
-        if value > self.stats.max {
-            self.stats.max = value;
-            self.stats.peak_time = Some(now);
-        }
-
-        // Recalculate average from buffer contents (not lifetime)
-        if !self.buffer.is_empty() {
-            self.stats.avg = self.sum / self.buffer.len() as f64;
-        }
+        self.recalculate_window_stats();
     }
 
     /// Current running statistics.
@@ -151,14 +137,33 @@ impl MetricHistory {
                 break;
             }
         }
-        // Recalculate avg after trim
-        if !self.buffer.is_empty() {
-            self.stats.avg = self.sum / self.buffer.len() as f64;
+        self.recalculate_window_stats();
+    }
+
+    fn recalculate_window_stats(&mut self) {
+        if self.buffer.is_empty() {
+            self.stats.current = 0.0;
+            self.stats.min = 0.0;
+            self.stats.max = 0.0;
+            self.stats.avg = 0.0;
+            self.stats.peak_time = None;
+            return;
+        }
+
+        self.stats.current = self.buffer.back().map_or(0.0, |point| point.value);
+        self.stats.avg = self.sum / self.buffer.len() as f64;
+        if let Some(minimum) = self.buffer.iter().min_by(|a, b| a.value.total_cmp(&b.value)) {
+            self.stats.min = minimum.value;
+        }
+        if let Some(maximum) = self.buffer.iter().max_by(|a, b| a.value.total_cmp(&b.value)) {
+            self.stats.max = maximum.value;
+            self.stats.peak_time = Some(maximum.timestamp);
         }
     }
 }
 
 /// Pre-configured history buffers for common time ranges.
+#[derive(Clone, Debug)]
 pub struct MultiResolutionHistory {
     /// Last 60 seconds (~5Hz = 300 points)
     pub short: MetricHistory,
@@ -168,6 +173,9 @@ pub struct MultiResolutionHistory {
     pub long: MetricHistory,
     /// Last hour (~0.1Hz = 360 points)
     pub extended: MetricHistory,
+    last_medium: Option<Instant>,
+    last_long: Option<Instant>,
+    last_extended: Option<Instant>,
 }
 
 impl MultiResolutionHistory {
@@ -177,16 +185,32 @@ impl MultiResolutionHistory {
             medium: MetricHistory::new(300),   // 5min @ 1Hz
             long: MetricHistory::new(360),     // 30min @ 0.2Hz
             extended: MetricHistory::new(360), // 1hr @ 0.1Hz
+            last_medium: None,
+            last_long: None,
+            last_extended: None,
         }
     }
 
-    /// Push to all resolution tiers. Callers should gate medium/long/extended
-    /// pushes based on their own tick counters.
-    pub fn push_all(&mut self, value: f64) {
+    /// Push at the native rate and downsample longer windows automatically.
+    pub fn push(&mut self, value: f64) {
+        let now = Instant::now();
         self.short.push(value);
-        self.medium.push(value);
-        self.long.push(value);
-        self.extended.push(value);
+        if Self::due(self.last_medium, now, Duration::from_secs(1)) {
+            self.medium.push(value);
+            self.last_medium = Some(now);
+        }
+        if Self::due(self.last_long, now, Duration::from_secs(5)) {
+            self.long.push(value);
+            self.last_long = Some(now);
+        }
+        if Self::due(self.last_extended, now, Duration::from_secs(10)) {
+            self.extended.push(value);
+            self.last_extended = Some(now);
+        }
+    }
+
+    fn due(previous: Option<Instant>, now: Instant, interval: Duration) -> bool {
+        previous.is_none_or(|sampled| now.duration_since(sampled) >= interval)
     }
 }
 
@@ -258,5 +282,25 @@ mod tests {
         assert_eq!(mr.medium.capacity(), 300);
         assert_eq!(mr.long.capacity(), 360);
         assert_eq!(mr.extended.capacity(), 360);
+    }
+
+    #[test]
+    fn evicted_peak_no_longer_affects_stats() {
+        let mut history = MetricHistory::new(2);
+        history.push(100.0);
+        history.push(2.0);
+        history.push(3.0);
+        assert_eq!(history.stats().max, 3.0);
+        assert_eq!(history.stats().min, 2.0);
+    }
+
+    #[test]
+    fn multi_resolution_pushes_short_window_immediately() {
+        let mut history = MultiResolutionHistory::new();
+        history.push(42.0);
+        assert_eq!(history.short.len(), 1);
+        assert_eq!(history.medium.len(), 1);
+        assert_eq!(history.long.len(), 1);
+        assert_eq!(history.extended.len(), 1);
     }
 }

@@ -5,6 +5,19 @@ use std::io::Read;
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 const UPDATE_CHECK_URL: &str = "https://api.github.com/repos/Xenonesis/sysmon/releases/latest";
 const MAX_INSTALLER_BYTES: u64 = 100 * 1024 * 1024;
+const MAX_RELEASE_METADATA_BYTES: u64 = 1024 * 1024;
+const SIGNER_THUMBPRINT: &str = match option_env!("SYSMON_SIGNER_THUMBPRINT") {
+    Some(value) => value,
+    None => "",
+};
+
+fn http_agent() -> ureq::Agent {
+    ureq::AgentBuilder::new()
+        .timeout_connect(std::time::Duration::from_secs(10))
+        .timeout_read(std::time::Duration::from_secs(60))
+        .timeout_write(std::time::Duration::from_secs(30))
+        .build()
+}
 
 pub(crate) fn validate_asset_url(url: &str) -> Result<(), String> {
     let lower = url.to_ascii_lowercase();
@@ -80,8 +93,7 @@ impl Updater {
                 let current_version = CURRENT_VERSION;
 
                 self.update_info.latest_version = latest_version.to_string();
-                self.update_info.update_available =
-                    self.is_newer_version(current_version, latest_version);
+                self.update_info.update_available = self.is_newer_version(current_version, latest_version);
 
                 // Clear any URL from a previous check in this session.
                 self.update_info.download_url.clear();
@@ -95,8 +107,8 @@ impl Updater {
                         break;
                     }
                 }
-                self.update_info.update_available = self.update_info.update_available
-                    && !self.update_info.download_url.is_empty();
+                self.update_info.update_available =
+                    self.update_info.update_available && !self.update_info.download_url.is_empty();
 
                 Ok(self.update_info.clone())
             }
@@ -105,7 +117,8 @@ impl Updater {
     }
 
     fn fetch_latest_release(&self) -> Result<GitHubRelease, String> {
-        let response = ureq::get(UPDATE_CHECK_URL)
+        let response = http_agent()
+            .get(UPDATE_CHECK_URL)
             .set("Accept", "application/vnd.github.v3+json")
             .set("User-Agent", "SystemMonitor/1.0")
             .call()
@@ -114,8 +127,12 @@ impl Updater {
         let mut body = String::new();
         response
             .into_reader()
+            .take(MAX_RELEASE_METADATA_BYTES + 1)
             .read_to_string(&mut body)
             .map_err(|e| format!("Failed to read response body: {}", e))?;
+        if body.len() as u64 > MAX_RELEASE_METADATA_BYTES {
+            return Err("Release metadata exceeds size limit".into());
+        }
 
         serde_json::from_str(&body).map_err(|e| format!("Failed to parse GitHub response: {}", e))
     }
@@ -163,22 +180,38 @@ impl Updater {
 
     pub fn download_and_install_update(&self, download_url: &str) -> Result<(), String> {
         validate_asset_url(download_url)?;
-        let unique = format!("system-monitor-setup-{}-{}.exe", std::process::id(), chrono::Utc::now().timestamp_millis());
+        let unique = format!(
+            "system-monitor-setup-{}-{}.exe",
+            std::process::id(),
+            chrono::Utc::now().timestamp_millis()
+        );
         let installer_path = std::env::temp_dir().join(unique);
 
         // Download the update using ureq
-        let response = ureq::get(download_url)
+        let response = http_agent()
+            .get(download_url)
             .set("User-Agent", "SystemMonitor/1.0")
             .call()
             .map_err(|e| format!("Failed to download update: {}", e))?;
+        if response
+            .header("Content-Length")
+            .and_then(|value| value.parse::<u64>().ok())
+            .is_some_and(|size| size > MAX_INSTALLER_BYTES)
+        {
+            return Err("Update installer exceeds size limit".into());
+        }
 
         let mut bytes = Vec::new();
-        response.into_reader().take(MAX_INSTALLER_BYTES + 1).read_to_end(&mut bytes)
+        response
+            .into_reader()
+            .take(MAX_INSTALLER_BYTES + 1)
+            .read_to_end(&mut bytes)
             .map_err(|e| format!("Failed to read update file: {e}"))?;
-        if bytes.len() as u64 > MAX_INSTALLER_BYTES { return Err("Update installer exceeds size limit".into()); };
+        if bytes.len() as u64 > MAX_INSTALLER_BYTES {
+            return Err("Update installer exceeds size limit".into());
+        };
 
-        fs::write(&installer_path, &bytes)
-            .map_err(|e| format!("Failed to write update file: {}", e))?;
+        fs::write(&installer_path, &bytes).map_err(|e| format!("Failed to write update file: {}", e))?;
 
         // Silent install — replaces the exe, shortcuts, and uninstall entry in
         // one pass. Only installer assets are offered; the process exits so the
@@ -186,9 +219,12 @@ impl Updater {
         {
             #[cfg(target_os = "windows")]
             {
-                use std::process::Command;
                 use std::os::windows::process::CommandExt;
-                verify_authenticode(&installer_path)?;
+                use std::process::Command;
+                if let Err(error) = verify_authenticode(&installer_path) {
+                    let _ = fs::remove_file(&installer_path);
+                    return Err(error);
+                }
                 Command::new(&installer_path)
                     .creation_flags(0x08000000)
                     .args(["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"])
@@ -201,7 +237,6 @@ impl Updater {
                 return Err("Installer updates are only supported on Windows".to_string());
             }
         }
-
     }
 
     #[allow(dead_code)]
@@ -221,34 +256,26 @@ impl Clone for UpdateInfo {
     }
 }
 
-// Thumbprint of the self-signed code-signing cert (see sign-binary.ps1,
-// subject CN=System Monitor Dev). Pin it so installs pass even though the
-// root is untrusted, while still rejecting tamper/corruption (HashMismatch).
-// ponytail: thumbprint pin instead of purchased CA. Swap for a real cert's
-// thumbprint when you get Azure Trusted Signing / DigiCert etc.
-const SIGNER_THUMBPRINT: &str = "770D302796B6FE5A5E7D3D428998ED2F7EC657FA";
-
-/// Pure decision: is a signature status + signer thumbprint acceptable?
-/// Accepts fully-trusted 'Valid', or untrusted-root self-signed whose signer
-/// exactly matches our pinned thumbprint. Tamper/corruption (HashMismatch,
-/// NotSigned, NoSignature) always rejected.
-fn sig_acceptable(status: &str, thumbprint: Option<&str>) -> bool {
-    match status {
-        "Valid" => true,
-        "UnknownError" | "NotTrusted" => thumbprint == Some(SIGNER_THUMBPRINT),
-        _ => false,
+fn sig_acceptable_with_expected(status: &str, thumbprint: Option<&str>, expected: &str) -> bool {
+    if expected.trim().is_empty() || status != "Valid" {
+        return false;
     }
+    thumbprint.is_some_and(|actual| actual.replace(' ', "").eq_ignore_ascii_case(&expected.replace(' ', "")))
+}
+
+fn sig_acceptable(status: &str, thumbprint: Option<&str>) -> bool {
+    sig_acceptable_with_expected(status, thumbprint, SIGNER_THUMBPRINT)
 }
 
 #[cfg(target_os = "windows")]
 fn verify_authenticode(path: &std::path::Path) -> Result<(), String> {
     use std::os::windows::process::CommandExt;
-    let escaped = path.to_string_lossy().replace('"', "\"");
+    let escaped = path.to_string_lossy().replace('\'', "''");
     // PowerShell only reports status + signer thumbprint; the acceptance
     // decision lives in Rust (sig_acceptable) so it is testable and is the
     // single source of truth.
     let script = format!(
-        "$sig = Get-AuthenticodeSignature -LiteralPath \"{escaped}\"; \
+        "$sig = Get-AuthenticodeSignature -LiteralPath '{escaped}'; \
          $tp = if ($sig.SignerCertificate) {{ $sig.SignerCertificate.Thumbprint }} else {{ '' }}; \
          Write-Output ('STATUS=' + $sig.Status); Write-Output ('THUMB=' + $tp)"
     );
@@ -257,11 +284,19 @@ fn verify_authenticode(path: &std::path::Path) -> Result<(), String> {
         .args(["-NoProfile", "-NonInteractive", "-Command", &script])
         .output()
         .map_err(|e| format!("Failed to verify installer signature: {e}"))?;
+    if !out.status.success() {
+        return Err(format!(
+            "PowerShell signature verification failed: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
+    }
     let text = String::from_utf8_lossy(&out.stdout);
     let mut status: Option<String> = None;
     let mut thumb: Option<String> = None;
     for line in text.lines() {
-        if let Some(v) = line.strip_prefix("STATUS=") { status = Some(v.trim().to_string()); }
+        if let Some(v) = line.strip_prefix("STATUS=") {
+            status = Some(v.trim().to_string());
+        }
         if let Some(v) = line.strip_prefix("THUMB=") {
             let t = v.trim();
             thumb = if t.is_empty() { None } else { Some(t.to_string()) };
@@ -286,7 +321,10 @@ mod tests {
 
     #[test]
     fn accepts_expected_release_asset() {
-        assert!(validate_asset_url("https://github.com/Xenonesis/sysmon/releases/download/v2.6.0/SystemMonitor-2.6.0-setup.exe").is_ok());
+        assert!(validate_asset_url(
+            "https://github.com/Xenonesis/sysmon/releases/download/v2.6.0/SystemMonitor-2.6.0-setup.exe"
+        )
+        .is_ok());
     }
 
     #[test]
@@ -296,25 +334,35 @@ mod tests {
             "https://evil.example/a.exe",
             "https://github.com/other/sysmon/releases/download/v2/a.exe",
             "https://github.com/Xenonesis/sysmon/releases/download/v2/a.zip",
-        ] { assert!(validate_asset_url(url).is_err(), "accepted {url}"); }
+        ] {
+            assert!(validate_asset_url(url).is_err(), "accepted {url}");
+        }
     }
 
     #[test]
-    fn signature_accepts_pinned_self_signed() {
-        assert!(sig_acceptable("Valid", None));
-        assert!(sig_acceptable("Valid", Some("other")));
-        assert!(sig_acceptable("UnknownError", Some(SIGNER_THUMBPRINT)));
-        assert!(sig_acceptable("NotTrusted", Some(SIGNER_THUMBPRINT)));
+    fn signature_accepts_only_expected_publisher() {
+        let expected = "AABBCC";
+        assert!(sig_acceptable_with_expected("Valid", Some("aa bb cc"), expected));
+        assert!(!sig_acceptable_with_expected("NotTrusted", Some("AABBCC"), expected));
+        assert!(!sig_acceptable_with_expected("Valid", Some("other"), expected));
+        assert!(!sig_acceptable_with_expected("Valid", None, expected));
+        assert!(!sig_acceptable_with_expected("Valid", Some(expected), ""));
     }
 
     #[test]
     fn signature_rejects_tamper_wrong_signer_and_unsigned() {
         // tamper/unsigned -> wrong status, never pinned-check bypass
-        assert!(!sig_acceptable("HashMismatch", Some(SIGNER_THUMBPRINT)));
-        assert!(!sig_acceptable("NotSigned", Some(SIGNER_THUMBPRINT)));
-        assert!(!sig_acceptable("NoSignature", Some(SIGNER_THUMBPRINT)));
-        // untrusted-root but wrong signer -> reject
-        assert!(!sig_acceptable("UnknownError", Some("DEADBEEF")));
-        assert!(!sig_acceptable("UnknownError", None));
+        let expected = "AABBCC";
+        assert!(!sig_acceptable_with_expected("HashMismatch", Some(expected), expected));
+        assert!(!sig_acceptable_with_expected("NotSigned", Some(expected), expected));
+        assert!(!sig_acceptable_with_expected("NoSignature", Some(expected), expected));
+        // Trust failures are rejected even if a certificate is present.
+        assert!(!sig_acceptable_with_expected("UnknownError", Some(expected), expected));
+        assert!(!sig_acceptable_with_expected(
+            "UnknownError",
+            Some("DEADBEEF"),
+            expected
+        ));
+        assert!(!sig_acceptable_with_expected("UnknownError", None, expected));
     }
 }

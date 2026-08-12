@@ -266,6 +266,16 @@ h1, h2, h3, h4 {
 .change-type { font-family: var(--font-mono); font-size: var(--text-sm); color: var(--accent-ink); }
 .change-desc { color: var(--ink-2); font-size: var(--text-sm); margin: var(--space-2) 0 0; max-width: 72ch; }
 
+.version-compare { margin-top: var(--space-8); }
+.compare-title { font-family: var(--font-mono); font-size: var(--text-sm); color: var(--accent-ink); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: var(--space-4); }
+.compare-table { width: 100%; border-collapse: collapse; font-size: var(--text-sm); }
+.compare-table th, .compare-table td { text-align: left; padding: var(--space-3) var(--space-4); border-bottom: var(--hairline); }
+.compare-table th { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--ink-2); text-transform: uppercase; letter-spacing: 0.06em; }
+.compare-table td:first-child { font-family: var(--font-mono); color: var(--ink-2); white-space: nowrap; }
+.compare-table tbody tr:hover td { background: color-mix(in oklch, var(--accent) 6%, transparent); }
+@media (max-width: 720px) { .compare-table { font-size: var(--text-xs); } .compare-table th, .compare-table td { padding: var(--space-2); } }
+
+
 /* ── Docs cards ───────────────────────────────────────────── */
 .docs-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-4); }
 .doc-card {

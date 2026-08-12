@@ -1,99 +1,114 @@
-//! TelemetryHub — the central orchestrator for all telemetry providers.
+//! TelemetryHub is the central orchestrator for hardware and OS providers.
 //!
-//! Replaces the monolithic `SystemMonitor` with a modular, multi-tier
-//! architecture that polls providers at independent rates and delivers
-//! normalized snapshots to the UI via bounded channels.
+//! Providers run at independent rates, history is bounded and downsampled,
+//! and consumers read a replaceable latest snapshot instead of replaying a
+//! queue of stale samples.
 
 pub mod ring_buffer;
 pub mod scheduler;
 
 use crate::providers::TelemetryProvider;
-use ring_buffer::MetricHistory;
+use ring_buffer::{MetricStats, MultiResolutionHistory};
 use scheduler::PollingScheduler;
 use std::collections::HashMap;
-use std::sync::mpsc;
+use std::sync::{mpsc, Arc, RwLock};
 use std::time::Duration;
 
-/// Aggregated telemetry snapshot delivered to the UI each tick.
 #[derive(Clone, Debug, Default)]
-pub struct TelemetrySnapshot {
-    /// All latest metric values keyed by "provider.metric_name".
-    pub metrics: HashMap<String, f64>,
-    /// Provider availability status.
-    pub provider_status: HashMap<String, bool>,
+pub struct HistoryStats {
+    pub sixty_seconds: MetricStats,
+    pub five_minutes: MetricStats,
+    pub thirty_minutes: MetricStats,
+    pub one_hour: MetricStats,
 }
 
-/// Commands the UI can send to the TelemetryHub.
+/// Aggregated telemetry snapshot delivered to the application.
+#[derive(Clone, Debug, Default)]
+pub struct TelemetrySnapshot {
+    /// Latest numeric values keyed by a stable provider-independent name.
+    pub metrics: HashMap<String, f64>,
+    /// Latest textual identity values such as GPU, BIOS and board names.
+    pub labels: HashMap<String, String>,
+    /// Provider availability as of the most recent attempted poll.
+    pub provider_status: HashMap<String, bool>,
+    /// Bounded statistics calculated independently for each time range.
+    pub history_stats: HashMap<String, HistoryStats>,
+}
+
+#[derive(Clone, Debug, Default)]
+struct SnapshotSlot {
+    generation: u64,
+    snapshot: TelemetrySnapshot,
+}
+
+/// Single-consumer view of the latest telemetry snapshot.
+pub struct LatestSnapshotReader {
+    slot: Arc<RwLock<SnapshotSlot>>,
+    observed_generation: u64,
+}
+
+impl LatestSnapshotReader {
+    pub fn latest_if_updated(&mut self) -> Option<TelemetrySnapshot> {
+        let slot = self.slot.read().ok()?;
+        if slot.generation == self.observed_generation {
+            return None;
+        }
+        self.observed_generation = slot.generation;
+        Some(slot.snapshot.clone())
+    }
+}
+
+/// Commands sent from the application to the telemetry worker.
 pub enum HubCommand {
-    /// Switch to background/tray mode (reduced polling).
     SetBackgroundMode(bool),
-    /// Force an immediate poll of all providers.
     ForceRefresh,
-    /// Shut down the hub gracefully.
     Shutdown,
 }
 
-/// The TelemetryHub manages all providers, the polling scheduler,
-/// and metric history buffers. It runs on a dedicated background thread.
 pub struct TelemetryHub {
     providers: Vec<Box<dyn TelemetryProvider>>,
     scheduler: PollingScheduler,
-    histories: HashMap<String, MetricHistory>,
+    histories: HashMap<String, MultiResolutionHistory>,
     latest: TelemetrySnapshot,
-    snapshot_sender: mpsc::SyncSender<TelemetrySnapshot>,
+    snapshot_slot: Arc<RwLock<SnapshotSlot>>,
     command_receiver: mpsc::Receiver<HubCommand>,
-    /// Default history capacity per metric.
-    history_capacity: usize,
 }
 
 impl TelemetryHub {
-    /// Create a new hub. Returns the hub plus channels for snapshot delivery and commands.
-    pub fn new() -> (
-        Self,
-        mpsc::Receiver<TelemetrySnapshot>,
-        mpsc::SyncSender<HubCommand>,
-    ) {
-        // Bounded channel capacity 2 — UI always gets latest, never replays stale
-        let (snapshot_tx, snapshot_rx) = mpsc::sync_channel(2);
+    pub fn new() -> (Self, LatestSnapshotReader, mpsc::SyncSender<HubCommand>) {
         let (command_tx, command_rx) = mpsc::sync_channel(16);
-
+        let snapshot_slot = Arc::new(RwLock::new(SnapshotSlot::default()));
         let hub = Self {
             providers: Vec::new(),
             scheduler: PollingScheduler::new(),
             histories: HashMap::new(),
             latest: TelemetrySnapshot::default(),
-            snapshot_sender: snapshot_tx,
+            snapshot_slot: Arc::clone(&snapshot_slot),
             command_receiver: command_rx,
-            history_capacity: 300, // ~60s at 5Hz
         };
-
-        (hub, snapshot_rx, command_tx)
+        let reader = LatestSnapshotReader {
+            slot: snapshot_slot,
+            observed_generation: 0,
+        };
+        (hub, reader, command_tx)
     }
 
-    /// Register a telemetry provider with the hub.
     pub fn add_provider(&mut self, provider: Box<dyn TelemetryProvider>) {
         let name = provider.name().to_string();
-        let interval = provider.poll_interval();
-        self.scheduler.register(&name, interval);
-        self.latest
-            .provider_status
-            .insert(name.clone(), provider.is_available());
+        self.scheduler.register(&name, provider.poll_interval());
+        self.latest.provider_status.insert(name, provider.is_available());
         self.providers.push(provider);
     }
 
-    /// Run the hub loop on the current thread (blocking).
-    /// Call this from a dedicated background thread.
+    /// Run the hub on its dedicated worker thread until shutdown.
     pub fn run(&mut self) {
         loop {
-            // Process any pending commands
-            while let Ok(cmd) = self.command_receiver.try_recv() {
-                match cmd {
-                    HubCommand::SetBackgroundMode(bg) => {
-                        self.scheduler.set_background_mode(bg);
+            while let Ok(command) = self.command_receiver.try_recv() {
+                match command {
+                    HubCommand::SetBackgroundMode(background) => {
+                        self.scheduler.set_background_mode(background);
                     }
-                    HubCommand::ForceRefresh => {
-                        self.poll_all();
-                    }
+                    HubCommand::ForceRefresh => self.poll_all(),
                     HubCommand::Shutdown => {
                         self.shutdown_providers();
                         return;
@@ -101,40 +116,22 @@ impl TelemetryHub {
                 }
             }
 
-            // Poll providers that are due
-            let mut any_polled = false;
-            for provider in &mut self.providers {
-                let name = provider.name().to_string();
-                if self.scheduler.is_due(&name) {
-                    match provider.poll() {
-                        Ok(data) => {
-                            self.latest.provider_status.insert(name.clone(), true);
-                            for (key, value) in data {
-                                let f = value.as_f64();
-                                self.latest.metrics.insert(key.clone(), f);
-                                let history = self
-                                    .histories
-                                    .entry(key)
-                                    .or_insert_with(|| MetricHistory::new(self.history_capacity));
-                                history.push(f);
-                            }
-                        }
-                        Err(e) => {
-                            tracing::warn!(provider = %name, error = %e, "Provider poll failed");
-                            self.latest.provider_status.insert(name.clone(), false);
-                        }
-                    }
-                    self.scheduler.mark_polled(&name);
-                    any_polled = true;
+            let mut updated = false;
+            for index in 0..self.providers.len() {
+                let name = self.providers[index].name().to_string();
+                if !self.scheduler.is_due(&name) {
+                    continue;
                 }
+                let result = self.providers[index].poll();
+                self.apply_provider_result(&name, result);
+                self.scheduler.mark_polled(&name);
+                updated = true;
             }
 
-            // Send snapshot if anything was updated
-            if any_polled {
-                let _ = self.snapshot_sender.try_send(self.latest.clone());
+            if updated {
+                self.publish_snapshot();
             }
 
-            // Sleep until next provider is due
             let wait = self.scheduler.time_until_next_poll();
             if wait > Duration::ZERO {
                 std::thread::sleep(wait.min(Duration::from_millis(100)));
@@ -142,34 +139,63 @@ impl TelemetryHub {
         }
     }
 
-    /// Poll all providers regardless of schedule.
     fn poll_all(&mut self) {
-        for provider in &mut self.providers {
-            let name = provider.name().to_string();
-            match provider.poll() {
-                Ok(data) => {
-                    self.latest.provider_status.insert(name.clone(), true);
-                    for (key, value) in data {
-                        let f = value.as_f64();
-                        self.latest.metrics.insert(key.clone(), f);
-                        let history = self
-                            .histories
-                            .entry(key)
-                            .or_insert_with(|| MetricHistory::new(self.history_capacity));
-                        history.push(f);
-                    }
-                }
-                Err(e) => {
-                    tracing::warn!(provider = %name, error = %e, "Provider poll failed");
-                    self.latest.provider_status.insert(name.clone(), false);
-                }
-            }
+        for index in 0..self.providers.len() {
+            let name = self.providers[index].name().to_string();
+            let result = self.providers[index].poll();
+            self.apply_provider_result(&name, result);
             self.scheduler.mark_polled(&name);
         }
-        let _ = self.snapshot_sender.try_send(self.latest.clone());
+        self.publish_snapshot();
     }
 
-    /// Gracefully shut down all providers.
+    fn apply_provider_result(
+        &mut self,
+        provider_name: &str,
+        result: Result<crate::providers::ProviderData, crate::providers::ProviderError>,
+    ) {
+        match result {
+            Ok(data) => {
+                self.latest.provider_status.insert(provider_name.to_string(), true);
+                for (key, value) in data {
+                    match value {
+                        crate::providers::MetricValue::Text(text) => {
+                            self.latest.labels.insert(key, text);
+                        }
+                        numeric if numeric.is_numeric() => self.record_metric(key, numeric.as_f64()),
+                        _ => {}
+                    }
+                }
+            }
+            Err(error) => {
+                tracing::warn!(provider = provider_name, error = %error, "Provider poll failed");
+                self.latest.provider_status.insert(provider_name.to_string(), false);
+            }
+        }
+    }
+
+    fn record_metric(&mut self, key: String, value: f64) {
+        self.latest.metrics.insert(key.clone(), value);
+        let history = self.histories.entry(key.clone()).or_default();
+        history.push(value);
+        self.latest.history_stats.insert(
+            key,
+            HistoryStats {
+                sixty_seconds: history.short.stats().clone(),
+                five_minutes: history.medium.stats().clone(),
+                thirty_minutes: history.long.stats().clone(),
+                one_hour: history.extended.stats().clone(),
+            },
+        );
+    }
+
+    fn publish_snapshot(&self) {
+        if let Ok(mut slot) = self.snapshot_slot.write() {
+            slot.generation = slot.generation.wrapping_add(1);
+            slot.snapshot = self.latest.clone();
+        }
+    }
+
     fn shutdown_providers(&mut self) {
         for provider in &mut self.providers {
             provider.shutdown();
@@ -180,7 +206,7 @@ impl TelemetryHub {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::providers::{MetricValue, ProviderError};
+    use crate::providers::{MetricValue, ProviderData, ProviderError};
 
     struct MockProvider {
         poll_count: u32,
@@ -198,10 +224,7 @@ mod tests {
         fn poll(&mut self) -> Result<ProviderData, ProviderError> {
             self.poll_count += 1;
             let mut data = ProviderData::new();
-            data.insert(
-                "mock.value".into(),
-                MetricValue::Float(self.poll_count as f64),
-            );
+            data.insert("mock.value".into(), MetricValue::Float(self.poll_count as f64));
             Ok(data)
         }
 
@@ -211,72 +234,58 @@ mod tests {
     }
 
     #[test]
-    fn hub_creates_channels() {
-        let (hub, _rx, _tx) = TelemetryHub::new();
-        assert!(hub.providers.is_empty());
-    }
-
-    #[test]
     fn hub_registers_provider() {
-        let (mut hub, _rx, _tx) = TelemetryHub::new();
+        let (mut hub, _reader, _sender) = TelemetryHub::new();
         hub.add_provider(Box::new(MockProvider { poll_count: 0 }));
         assert_eq!(hub.providers.len(), 1);
-        assert_eq!(
-            hub.latest.provider_status.get("mock"),
-            Some(&true)
-        );
+        assert_eq!(hub.latest.provider_status.get("mock"), Some(&true));
     }
 
     #[test]
-    #[ignore] // Run manually with: cargo test test_deep_telemetry_flow -- --nocapture --ignored
-    fn test_deep_telemetry_flow() {
-        use crate::providers::sysinfo_provider::SysinfoProvider;
+    fn hub_publishes_latest_data_and_history() {
+        let (mut hub, mut reader, command_sender) = TelemetryHub::new();
+        hub.add_provider(Box::new(MockProvider { poll_count: 0 }));
+        let handle = std::thread::spawn(move || hub.run());
+
+        let deadline = std::time::Instant::now() + Duration::from_secs(1);
+        let snapshot = loop {
+            if let Some(snapshot) = reader.latest_if_updated() {
+                break snapshot;
+            }
+            assert!(std::time::Instant::now() < deadline, "telemetry snapshot timed out");
+            std::thread::sleep(Duration::from_millis(10));
+        };
+
+        command_sender.send(HubCommand::Shutdown).unwrap();
+        handle.join().unwrap();
+        assert!(snapshot.metrics.contains_key("mock.value"));
+        assert_eq!(snapshot.history_stats["mock.value"].sixty_seconds.sample_count, 1);
+    }
+
+    #[test]
+    #[ignore] // Hardware-dependent smoke test; deterministic flow is covered above.
+    fn hardware_telemetry_smoke_test() {
         use crate::providers::nvml_provider::NvmlProvider;
+        use crate::providers::sysinfo_provider::SysinfoProvider;
         use crate::providers::wmi_provider::WmiProvider;
 
-        println!("--- Deep Testing TelemetryHub ---");
-
-        let (mut hub, snapshot_rx, command_tx) = TelemetryHub::new();
-
-        println!("Registering SysinfoProvider...");
+        let (mut hub, mut reader, command_sender) = TelemetryHub::new();
         hub.add_provider(Box::new(SysinfoProvider::new()));
-        
-        println!("Registering NvmlProvider...");
         hub.add_provider(Box::new(NvmlProvider::new()));
-        
-        println!("Registering WmiProvider...");
         hub.add_provider(Box::new(WmiProvider::new()));
+        let handle = std::thread::spawn(move || hub.run());
 
-        let hub_handle = std::thread::spawn(move || {
-            hub.run();
-        });
-
-        println!("Waiting for telemetry snapshots (collecting for 3 seconds)...");
-        let start = std::time::Instant::now();
-        let mut snapshot_count = 0;
-
-        while start.elapsed() < Duration::from_secs(3) {
-            if let Ok(snapshot) = snapshot_rx.recv_timeout(Duration::from_millis(500)) {
-                snapshot_count += 1;
-                println!("\n--- Snapshot {} ---", snapshot_count);
-                
-                println!("Provider Status:");
-                for (provider, status) in &snapshot.provider_status {
-                    println!("  {}: {}", provider, if *status { "OK" } else { "FAIL/UNAVAILABLE" });
-                }
-
-                println!("Selected Metrics:");
-                for key in &["cpu.global_usage", "memory.used", "gpu.0.temperature", "board.manufacturer", "cpu.name"] {
-                    if let Some(val) = snapshot.metrics.get(*key) {
-                        println!("  {}: {:.2}", key, val);
-                    }
-                }
+        let deadline = std::time::Instant::now() + Duration::from_secs(3);
+        let mut snapshots = 0;
+        while std::time::Instant::now() < deadline {
+            if reader.latest_if_updated().is_some() {
+                snapshots += 1;
             }
+            std::thread::sleep(Duration::from_millis(25));
         }
 
-        println!("\nTotal snapshots received: {}", snapshot_count);
-        let _ = command_tx.send(HubCommand::Shutdown);
-        let _ = hub_handle.join();
-        assert!(snapshot_count > 0, "Failed to receive any snapshots!");
+        command_sender.send(HubCommand::Shutdown).unwrap();
+        handle.join().unwrap();
+        assert!(snapshots > 0);
     }
 }

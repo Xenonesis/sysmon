@@ -1,8 +1,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use serde::Serialize;
 use crate::{monitoring::SystemSnapshot, AppSettings};
+use serde::Serialize;
 
 #[derive(Serialize)]
 struct Diagnostics<'a> {
@@ -12,9 +12,17 @@ struct Diagnostics<'a> {
 }
 
 #[derive(Serialize)]
-struct RedactedSettings { refresh_interval: u64, theme_dark: bool, show_notifications: bool }
+struct RedactedSettings {
+    refresh_interval: u64,
+    theme_dark: bool,
+    show_notifications: bool,
+}
 
-pub(crate) fn export(destination: &Path, snapshot: &SystemSnapshot, settings: &AppSettings) -> Result<PathBuf, std::io::Error> {
+pub(crate) fn export(
+    destination: &Path,
+    snapshot: &SystemSnapshot,
+    settings: &AppSettings,
+) -> Result<PathBuf, std::io::Error> {
     fs::create_dir_all(destination)?;
     let output = destination.join("sysmon-diagnostics.json");
     let document = Diagnostics {

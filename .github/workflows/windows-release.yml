@@ -1,86 +1,117 @@
-name: Build Windows Release and Publish
+name: Build Signed Windows Release
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
   push:
     tags:
-      - 'v*'
+      - "v*"
 
 permissions:
   contents: write
+  id-token: write
+  attestations: write
 
 jobs:
   build-windows:
     runs-on: windows-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+      - name: Install pinned Rust toolchain
+        uses: dtolnay/rust-toolchain@1.85.0
         with:
-          toolchain: stable
+          targets: x86_64-pc-windows-msvc
+          components: rustfmt, clippy
 
-      - name: Install MSVC build tools
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Verify tag matches Cargo version
         shell: pwsh
         run: |
-          choco install -y visualstudio2019-buildtools --no-progress || true
+          $cargo = Get-Content Cargo.toml -Raw
+          if ($cargo -notmatch '(?m)^version\s*=\s*"([^"]+)"') { throw 'Cargo version not found' }
+          $version = $Matches[1]
+          if ('${{ github.ref_name }}' -ne "v$version") { throw "Tag ${{ github.ref_name }} does not match Cargo version v$version" }
+          "APP_VERSION=$version" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
 
-      - name: Cache cargo registry
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+      - name: Import production signing certificate
+        shell: pwsh
+        env:
+          SIGNING_PFX_BASE64: ${{ secrets.WINDOWS_SIGNING_PFX_BASE64 }}
+          SIGNING_PFX_PASSWORD: ${{ secrets.WINDOWS_SIGNING_PFX_PASSWORD }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:SIGNING_PFX_BASE64)) { throw 'WINDOWS_SIGNING_PFX_BASE64 is required' }
+          if ([string]::IsNullOrWhiteSpace($env:SIGNING_PFX_PASSWORD)) { throw 'WINDOWS_SIGNING_PFX_PASSWORD is required' }
+          $pfx = Join-Path $env:RUNNER_TEMP 'sysmon-signing.pfx'
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:SIGNING_PFX_BASE64))
+          $password = ConvertTo-SecureString $env:SIGNING_PFX_PASSWORD -AsPlainText -Force
+          $certificate = Import-PfxCertificate -FilePath $pfx -CertStoreLocation Cert:\CurrentUser\My -Password $password -Exportable:$false
+          if (-not $certificate.HasPrivateKey) { throw 'Imported certificate has no private key' }
+          "SYSMON_SIGNER_THUMBPRINT=$($certificate.Thumbprint)" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          "SIGNING_CERT_THUMBPRINT=$($certificate.Thumbprint)" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          Remove-Item -LiteralPath $pfx -Force
 
-      - name: Set up environment for release
+      - name: Verify source quality
         shell: pwsh
         run: |
-          rustup default stable
+          cargo metadata --locked --format-version 1 --no-deps | Out-Null
+          cargo fmt --all -- --check
+          cargo clippy --locked --all-targets -- -D warnings
+          cargo test --locked --all-targets
 
-      - name: Build release
-        shell: pwsh
-        run: |
-          cargo build --release --target x86_64-pc-windows-msvc
+      - name: Build release binary
+        run: cargo build --locked --release --target x86_64-pc-windows-msvc --bin system-monitor
 
-      - name: Copy exe to host release path for installer
+      - name: Prepare and sign application binary
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force target\release | Out-Null
           Copy-Item target\x86_64-pc-windows-msvc\release\system-monitor.exe target\release\system-monitor.exe
-
-      - name: Compute version from tag
-        id: version
-        shell: pwsh
-        run: |
-          $v = "${{ github.ref_name }}".TrimStart('v')
-          echo "version=$v" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          $certificate = Get-Item "Cert:\CurrentUser\My\$env:SIGNING_CERT_THUMBPRINT"
+          $signature = Set-AuthenticodeSignature -FilePath target\release\system-monitor.exe -Certificate $certificate -TimestampServer 'http://timestamp.digicert.com' -HashAlgorithm SHA256
+          if ($signature.Status -ne 'Valid') { throw "Binary signing failed: $($signature.StatusMessage)" }
 
       - name: Install Inno Setup
         shell: pwsh
         run: choco install innosetup -y --no-progress
 
-      - name: Build installer
+      - name: Build and sign installer
         shell: pwsh
         run: |
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer.iss /DAppVersion=${{ steps.version.outputs.version }}
+          & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' installer.iss /DAppVersion=$env:APP_VERSION
+          $installer = "downloads\SystemMonitor-$env:APP_VERSION-setup.exe"
+          $certificate = Get-Item "Cert:\CurrentUser\My\$env:SIGNING_CERT_THUMBPRINT"
+          $signature = Set-AuthenticodeSignature -FilePath $installer -Certificate $certificate -TimestampServer 'http://timestamp.digicert.com' -HashAlgorithm SHA256
+          if ($signature.Status -ne 'Valid') { throw "Installer signing failed: $($signature.StatusMessage)" }
+          if ($signature.SignerCertificate.Thumbprint -ne $env:SYSMON_SIGNER_THUMBPRINT) { throw 'Installer signer does not match updater pin' }
+          $hash = (Get-FileHash $installer -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash *$(Split-Path $installer -Leaf)" | Set-Content "$installer.sha256" -Encoding ascii
 
-      - name: Upload installer artifact
-        uses: actions/upload-artifact@v4
+      - name: Generate installer SBOM
+        uses: anchore/sbom-action@v0
         with:
-          name: system-monitor-installer
-          path: downloads\SystemMonitor-*-setup.exe
+          path: downloads
+          format: spdx-json
+          output-file: downloads/SystemMonitor-${{ env.APP_VERSION }}.spdx.json
 
-      - name: Publish GitHub Release (only on tag push)
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Attest release provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: downloads/SystemMonitor-${{ env.APP_VERSION }}-setup.exe
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: system-monitor-${{ env.APP_VERSION }}
+          path: |
+            downloads/SystemMonitor-${{ env.APP_VERSION }}-setup.exe
+            downloads/SystemMonitor-${{ env.APP_VERSION }}-setup.exe.sha256
+            downloads/SystemMonitor-${{ env.APP_VERSION }}.spdx.json
+
+      - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          tag_name: ${{ github.ref_name }}
-          name: ${{ github.ref_name }}
-          body: "Automated release for ${{ github.ref_name }}"
-          draft: false
-          prerelease: false
+          generate_release_notes: true
           files: |
-            downloads/SystemMonitor-${{ steps.version.outputs.version }}-setup.exe
+            downloads/SystemMonitor-${{ env.APP_VERSION }}-setup.exe
+            downloads/SystemMonitor-${{ env.APP_VERSION }}-setup.exe.sha256
+            downloads/SystemMonitor-${{ env.APP_VERSION }}.spdx.json

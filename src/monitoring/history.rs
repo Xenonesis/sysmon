@@ -8,7 +8,10 @@ pub struct BoundedHistory<T> {
 
 impl<T> BoundedHistory<T> {
     pub fn new(capacity: usize) -> Self {
-        Self { capacity, values: VecDeque::with_capacity(capacity) }
+        Self {
+            capacity,
+            values: VecDeque::with_capacity(capacity),
+        }
     }
 
     pub fn push(&mut self, value: T) {
@@ -21,9 +24,15 @@ impl<T> BoundedHistory<T> {
         self.values.push_back(value);
     }
 
-    pub fn is_empty(&self) -> bool { self.values.is_empty() }
-    pub fn clear(&mut self) { self.values.clear() }
-    pub fn iter(&self) -> impl Iterator<Item = &T> { self.values.iter() }
+    pub fn is_empty(&self) -> bool {
+        self.values.is_empty()
+    }
+    pub fn clear(&mut self) {
+        self.values.clear()
+    }
+    pub fn iter(&self) -> impl Iterator<Item = &T> {
+        self.values.iter()
+    }
 }
 
 #[cfg(test)]

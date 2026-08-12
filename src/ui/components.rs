@@ -1,5 +1,5 @@
-use eframe::egui;
 use crate::ui::theme::ThemePalette;
+use eframe::egui;
 
 pub(crate) fn paint_section_header(ui: &mut egui::Ui, text: &str) {
     ui.add_space(4.0);
@@ -49,13 +49,20 @@ pub(crate) fn paint_progress_bar(ui: &mut egui::Ui, fraction: f32, fill: egui::C
     }
 }
 
-pub(crate) fn paint_circular_gauge(ui: &mut egui::Ui, center: egui::Pos2, radius: f32, fraction: f32, color: egui::Color32, label: &str) {
+pub(crate) fn paint_circular_gauge(
+    ui: &mut egui::Ui,
+    center: egui::Pos2,
+    radius: f32,
+    fraction: f32,
+    color: egui::Color32,
+    label: &str,
+) {
     let p = ui.painter();
     let track_color = ThemePalette::BG_TRACK;
-    
+
     // Track
     p.circle_stroke(center, radius, egui::Stroke::new(6.0, track_color));
-    
+
     // Animate fraction if we had time context, but for now we draw the arc
     let frac = fraction.clamp(0.0, 1.0);
     if frac > 0.005 {
@@ -63,12 +70,14 @@ pub(crate) fn paint_circular_gauge(ui: &mut egui::Ui, center: egui::Pos2, radius
         // Start from top (-PI/2), sweep clockwise
         let start_angle = -PI / 2.0;
         let end_angle = start_angle + (frac * 2.0 * PI);
-        
-        let path: Vec<egui::Pos2> = (0..=30).map(|i| {
-            let t = i as f32 / 30.0;
-            let angle = start_angle + (end_angle - start_angle) * t;
-            center + egui::vec2(angle.cos() * radius, angle.sin() * radius)
-        }).collect();
+
+        let path: Vec<egui::Pos2> = (0..=30)
+            .map(|i| {
+                let t = i as f32 / 30.0;
+                let angle = start_angle + (end_angle - start_angle) * t;
+                center + egui::vec2(angle.cos() * radius, angle.sin() * radius)
+            })
+            .collect();
 
         // Outer glow
         p.add(egui::Shape::line(
@@ -77,12 +86,9 @@ pub(crate) fn paint_circular_gauge(ui: &mut egui::Ui, center: egui::Pos2, radius
         ));
 
         // Main arc
-        p.add(egui::Shape::line(
-            path,
-            egui::Stroke::new(6.0, color),
-        ));
+        p.add(egui::Shape::line(path, egui::Stroke::new(6.0, color)));
     }
-    
+
     // Label in center
     let text_color = ThemePalette::TEXT_PRIMARY;
     p.text(

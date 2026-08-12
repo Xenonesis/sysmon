@@ -2,7 +2,7 @@ use crate::{services::ServiceControlAction, AppSettings};
 
 #[derive(Debug, Clone)]
 pub(crate) enum MonitoringCommand {
-    SetSettings(AppSettings),
+    SetSettings(Box<AppSettings>),
     SetPaused(bool),
     SetHidden(bool),
     // force refresh while paused; wired to UI later

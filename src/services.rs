@@ -1,6 +1,6 @@
 // src/services.rs
 use serde::Deserialize;
-use wmi::{WMIConnection, COMLibrary};
+use wmi::{COMLibrary, WMIConnection};
 
 #[derive(Debug, Clone)]
 pub struct ServiceInfo {
@@ -31,11 +31,16 @@ struct Win32_Service {
 }
 
 pub fn send_service_control(name: &str, action: ServiceControlAction) -> bool {
-    let manager = match windows_service::service_manager::ServiceManager::local_computer(None::<&str>, windows_service::service_manager::ServiceManagerAccess::CONNECT) {
+    let manager = match windows_service::service_manager::ServiceManager::local_computer(
+        None::<&str>,
+        windows_service::service_manager::ServiceManagerAccess::CONNECT,
+    ) {
         Ok(m) => m,
         Err(_) => return false,
     };
-    let desired_access = windows_service::service::ServiceAccess::QUERY_STATUS | windows_service::service::ServiceAccess::START | windows_service::service::ServiceAccess::STOP;
+    let desired_access = windows_service::service::ServiceAccess::QUERY_STATUS
+        | windows_service::service::ServiceAccess::START
+        | windows_service::service::ServiceAccess::STOP;
     let service = match manager.open_service(name, desired_access) {
         Ok(s) => s,
         Err(_) => return false,
@@ -48,17 +53,29 @@ pub fn send_service_control(name: &str, action: ServiceControlAction) -> bool {
         ServiceControlAction::Stop => service.stop().is_ok(),
         ServiceControlAction::Restart => {
             let stop_ok = service.stop().is_ok();
-            if !stop_ok { return false; }
+            if !stop_ok {
+                return false;
+            }
             let stopped = (0..20).any(|_| {
                 std::thread::sleep(std::time::Duration::from_millis(100));
-                service.query_status().map(|s| matches!(s.current_state, windows_service::service::ServiceState::Stopped)).unwrap_or(false)
+                service
+                    .query_status()
+                    .map(|s| matches!(s.current_state, windows_service::service::ServiceState::Stopped))
+                    .unwrap_or(false)
             });
-            if !stopped { return false; }
+            if !stopped {
+                return false;
+            }
             let empty: Vec<String> = Vec::new();
-            if service.start(&empty).is_err() { return false; }
+            if service.start(&empty).is_err() {
+                return false;
+            }
             (0..20).any(|_| {
                 std::thread::sleep(std::time::Duration::from_millis(100));
-                service.query_status().map(|s| matches!(s.current_state, windows_service::service::ServiceState::Running)).unwrap_or(false)
+                service
+                    .query_status()
+                    .map(|s| matches!(s.current_state, windows_service::service::ServiceState::Running))
+                    .unwrap_or(false)
             })
         }
     }

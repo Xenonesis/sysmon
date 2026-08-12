@@ -29,7 +29,8 @@ impl PollingScheduler {
     pub fn register(&mut self, name: &str, interval: Duration) {
         self.intervals.insert(name.to_string(), interval);
         // Set last_poll to epoch so first poll fires immediately
-        self.last_poll.insert(name.to_string(), Instant::now() - interval - Duration::from_secs(1));
+        self.last_poll
+            .insert(name.to_string(), Instant::now() - interval - Duration::from_secs(1));
     }
 
     /// Check if a provider is due for polling.

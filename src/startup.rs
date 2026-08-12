@@ -5,23 +5,48 @@ use serde::{Deserialize, Serialize};
 // ─── Data Models ─────────────────────────────────────────────
 
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
-pub enum ImpactTier { Low, Medium, High, Unknown }
+pub enum ImpactTier {
+    Low,
+    Medium,
+    High,
+    Unknown,
+}
 
 impl ImpactTier {
     pub fn label(&self) -> &str {
-        match self { Self::Low => "LOW", Self::Medium => "MED", Self::High => "HIGH", Self::Unknown => "?" }
+        match self {
+            Self::Low => "LOW",
+            Self::Medium => "MED",
+            Self::High => "HIGH",
+            Self::Unknown => "?",
+        }
     }
     pub fn sort_key(&self) -> u8 {
-        match self { Self::High => 0, Self::Medium => 1, Self::Unknown => 2, Self::Low => 3 }
+        match self {
+            Self::High => 0,
+            Self::Medium => 1,
+            Self::Unknown => 2,
+            Self::Low => 3,
+        }
     }
 }
 
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
-pub enum Recommendation { Keep, Review, Disable, Cleanup }
+pub enum Recommendation {
+    Keep,
+    Review,
+    Disable,
+    Cleanup,
+}
 
 impl Recommendation {
     pub fn label(&self) -> &str {
-        match self { Self::Keep => "Keep", Self::Review => "Review", Self::Disable => "Disable", Self::Cleanup => "Cleanup" }
+        match self {
+            Self::Keep => "Keep",
+            Self::Review => "Review",
+            Self::Disable => "Disable",
+            Self::Cleanup => "Cleanup",
+        }
     }
 }
 
@@ -62,7 +87,12 @@ pub struct StartupOptimizationEntry {
 }
 
 #[derive(PartialEq, Clone, Copy)]
-pub enum StartupSortColumn { Name, Impact, Source, Publisher }
+pub enum StartupSortColumn {
+    Name,
+    Impact,
+    Source,
+    Publisher,
+}
 
 // ─── Path Parsing ────────────────────────────────────────────
 
@@ -102,13 +132,17 @@ fn expand_env_vars(path: &str) -> String {
 
 pub fn parse_exe_from_command(cmd: &str) -> Option<String> {
     let t = cmd.trim();
-    if t.is_empty() { return None; }
+    if t.is_empty() {
+        return None;
+    }
 
     // "C:\path\app.exe" --args
-    if t.starts_with('"') {
-        if let Some(end) = t[1..].find('"') {
-            let p = &t[1..end + 1];
-            if !p.is_empty() { return Some(p.to_string()); }
+    if let Some(stripped) = t.strip_prefix('"') {
+        if let Some(end) = stripped.find('"') {
+            let p = &stripped[..end];
+            if !p.is_empty() {
+                return Some(p.to_string());
+            }
         }
     }
 
@@ -119,7 +153,9 @@ pub fn parse_exe_from_command(cmd: &str) -> Option<String> {
         let after = t[skip..].trim().trim_start_matches('"');
         if let Some(comma) = after.find(',') {
             let dll = after[..comma].trim().trim_end_matches('"');
-            if !dll.is_empty() { return Some(dll.to_string()); }
+            if !dll.is_empty() {
+                return Some(dll.to_string());
+            }
         }
     }
 
@@ -137,9 +173,16 @@ pub fn parse_exe_from_command(cmd: &str) -> Option<String> {
 
 fn new_item(name: String, command: String, enabled: bool, source: String) -> StartupItem {
     StartupItem {
-        name, command, enabled, source,
-        exe_path: None, exe_exists: false, publisher: None, is_signed: None,
-        impact_tier: ImpactTier::Unknown, recommendation: Recommendation::Review,
+        name,
+        command,
+        enabled,
+        source,
+        exe_path: None,
+        exe_exists: false,
+        publisher: None,
+        is_signed: None,
+        impact_tier: ImpactTier::Unknown,
+        recommendation: Recommendation::Review,
         reason: String::new(),
     }
 }
@@ -181,39 +224,72 @@ fn collect_registry_items(items: &mut Vec<StartupItem>, path: &str, source: &str
 pub fn get_startup_items() -> Vec<StartupItem> {
     let mut items = Vec::new();
 
-    collect_registry_items(&mut items, r"HKCU:\Software\Microsoft\Windows\CurrentVersion\Run", "Registry (HKCU)", true);
-    collect_registry_items(&mut items, r"HKLM:\Software\Microsoft\Windows\CurrentVersion\Run", "Registry (HKLM)", true);
+    collect_registry_items(
+        &mut items,
+        r"HKCU:\Software\Microsoft\Windows\CurrentVersion\Run",
+        "Registry (HKCU)",
+        true,
+    );
+    collect_registry_items(
+        &mut items,
+        r"HKLM:\Software\Microsoft\Windows\CurrentVersion\Run",
+        "Registry (HKLM)",
+        true,
+    );
     // Collect disabled registry items
-    collect_registry_items(&mut items, r"HKCU:\Software\Microsoft\Windows\CurrentVersion\Run_Disabled", "Registry (HKCU)", false);
+    collect_registry_items(
+        &mut items,
+        r"HKCU:\Software\Microsoft\Windows\CurrentVersion\Run_Disabled",
+        "Registry (HKCU)",
+        false,
+    );
 
     // Startup folder
-    if let Some(text) = ps_run(r#"Get-ChildItem "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup" -ErrorAction SilentlyContinue | ForEach-Object { "$($_.BaseName)|$($_.FullName)" }"#) {
+    if let Some(text) = ps_run(
+        r#"Get-ChildItem "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup" -ErrorAction SilentlyContinue | ForEach-Object { "$($_.BaseName)|$($_.FullName)" }"#,
+    ) {
         for line in text.lines() {
             let parts: Vec<&str> = line.splitn(2, '|').collect();
             if parts.len() == 2 {
-                items.push(new_item(parts[0].trim().into(), parts[1].trim().into(), true, "Startup Folder".into()));
+                items.push(new_item(
+                    parts[0].trim().into(),
+                    parts[1].trim().into(),
+                    true,
+                    "Startup Folder".into(),
+                ));
             }
         }
     }
     // Disabled startup folder
-    if let Some(text) = ps_run(r#"Get-ChildItem "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\_disabled" -ErrorAction SilentlyContinue | ForEach-Object { "$($_.BaseName)|$($_.FullName)" }"#) {
+    if let Some(text) = ps_run(
+        r#"Get-ChildItem "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\_disabled" -ErrorAction SilentlyContinue | ForEach-Object { "$($_.BaseName)|$($_.FullName)" }"#,
+    ) {
         for line in text.lines() {
             let parts: Vec<&str> = line.splitn(2, '|').collect();
             if parts.len() == 2 {
-                items.push(new_item(parts[0].trim().into(), parts[1].trim().into(), false, "Startup Folder".into()));
+                items.push(new_item(
+                    parts[0].trim().into(),
+                    parts[1].trim().into(),
+                    false,
+                    "Startup Folder".into(),
+                ));
             }
         }
     }
 
     // Task Scheduler (logon triggers)
-    if let Some(text) = ps_run(r#"Get-ScheduledTask -ErrorAction SilentlyContinue | Where-Object { $_.Triggers | Where-Object { $_ -is [Microsoft.Management.Infrastructure.CimInstance] -and $_.CimClass.CimClassName -eq 'MSFT_TaskLogonTrigger' } } | ForEach-Object { $a = ($_.Actions | Select-Object -First 1).Execute; "$($_.TaskName)|$a|$($_.State)" }"#) {
+    if let Some(text) = ps_run(
+        r#"Get-ScheduledTask -ErrorAction SilentlyContinue | Where-Object { $_.Triggers | Where-Object { $_ -is [Microsoft.Management.Infrastructure.CimInstance] -and $_.CimClass.CimClassName -eq 'MSFT_TaskLogonTrigger' } } | ForEach-Object { $a = ($_.Actions | Select-Object -First 1).Execute; "$($_.TaskName)|$a|$($_.State)" }"#,
+    ) {
         for line in text.lines() {
             let parts: Vec<&str> = line.splitn(3, '|').collect();
             if parts.len() >= 2 && !parts[0].trim().is_empty() {
                 let state = if parts.len() == 3 { parts[2].trim() } else { "Ready" };
                 items.push(new_item(
-                    parts[0].trim().into(), parts[1].trim().into(),
-                    state != "Disabled", "Task Scheduler".into(),
+                    parts[0].trim().into(),
+                    parts[1].trim().into(),
+                    state != "Disabled",
+                    "Task Scheduler".into(),
                 ));
             }
         }
@@ -231,12 +307,14 @@ pub fn get_startup_items() -> Vec<StartupItem> {
 }
 
 #[cfg(not(target_os = "windows"))]
-pub fn get_startup_items() -> Vec<StartupItem> { Vec::new() }
+pub fn get_startup_items() -> Vec<StartupItem> {
+    Vec::new()
+}
 
 // ─── Enrichment ──────────────────────────────────────────────
 
 #[cfg(target_os = "windows")]
-fn enrich_startup_items(items: &mut Vec<StartupItem>) {
+fn enrich_startup_items(items: &mut [StartupItem]) {
     // Resolve paths & existence (no PowerShell needed)
     for item in items.iter_mut() {
         let expanded_cmd = expand_env_vars(&item.command);
@@ -250,13 +328,23 @@ fn enrich_startup_items(items: &mut Vec<StartupItem>) {
     }
 
     // Batch publisher lookup
-    let paths: Vec<(usize, String)> = items.iter().enumerate()
-        .filter_map(|(i, it)| if it.exe_exists { it.exe_path.as_ref().map(|p| (i, p.clone())) } else { None })
+    let paths: Vec<(usize, String)> = items
+        .iter()
+        .enumerate()
+        .filter_map(|(i, it)| {
+            if it.exe_exists {
+                it.exe_path.as_ref().map(|p| (i, p.clone()))
+            } else {
+                None
+            }
+        })
         .collect();
 
     if !paths.is_empty() {
         let mut ps = String::from("$paths = @(\n");
-        for (_, p) in &paths { ps.push_str(&format!("  '{}'\n", p.replace('\'', "''"))); }
+        for (_, p) in &paths {
+            ps.push_str(&format!("  '{}'\n", p.replace('\'', "''")));
+        }
         ps.push_str(")\nforeach ($p in $paths) { try { $vi = (Get-Item $p -EA SilentlyContinue).VersionInfo; $c = if($vi.CompanyName){$vi.CompanyName}elseif($vi.FileDescription){$vi.FileDescription}else{'Unknown'}; \"$p|$c\" } catch { \"$p|Unknown\" } }\n");
 
         if let Some(text) = ps_run(&ps) {
@@ -275,7 +363,9 @@ fn enrich_startup_items(items: &mut Vec<StartupItem>) {
 
         // Batch signature check
         let mut ps = String::from("$paths = @(\n");
-        for (_, p) in &paths { ps.push_str(&format!("  '{}'\n", p.replace('\'', "''"))); }
+        for (_, p) in &paths {
+            ps.push_str(&format!("  '{}'\n", p.replace('\'', "''")));
+        }
         ps.push_str(")\nforeach ($p in $paths) { try { $s = Get-AuthenticodeSignature $p -EA SilentlyContinue; $r = if($s.Status -eq 'Valid'){'Signed'}else{'Unsigned'}; \"$p|$r\" } catch { \"$p|Unknown\" } }\n");
 
         if let Some(text) = ps_run(&ps) {
@@ -286,7 +376,9 @@ fn enrich_startup_items(items: &mut Vec<StartupItem>) {
                     for (idx, p) in &paths {
                         if p.eq_ignore_ascii_case(path) {
                             items[*idx].is_signed = match status {
-                                "Signed" => Some(true), "Unsigned" => Some(false), _ => None,
+                                "Signed" => Some(true),
+                                "Unsigned" => Some(false),
+                                _ => None,
                             };
                         }
                     }
@@ -297,11 +389,11 @@ fn enrich_startup_items(items: &mut Vec<StartupItem>) {
 }
 
 #[cfg(not(target_os = "windows"))]
-fn enrich_startup_items(_items: &mut Vec<StartupItem>) {}
+fn enrich_startup_items(_items: &mut [StartupItem]) {}
 
 // ─── Impact Scoring ──────────────────────────────────────────
 
-fn score_startup_items(items: &mut Vec<StartupItem>, degrading: &[String]) {
+fn score_startup_items(items: &mut [StartupItem], degrading: &[String]) {
     let ms_keywords = ["microsoft", "windows", "microsoft corporation", ".net"];
 
     for item in items.iter_mut() {
@@ -312,7 +404,7 @@ fn score_startup_items(items: &mut Vec<StartupItem>, degrading: &[String]) {
         if !item.exe_exists && item.exe_path.is_some() {
             item.impact_tier = ImpactTier::High;
             item.recommendation = Recommendation::Cleanup;
-            item.reason = format!("File not found — broken startup entry");
+            item.reason = "File not found — broken startup entry".to_string();
         } else if is_degrading {
             item.impact_tier = ImpactTier::High;
             item.recommendation = Recommendation::Review;
@@ -324,7 +416,7 @@ fn score_startup_items(items: &mut Vec<StartupItem>, degrading: &[String]) {
         } else if item.is_signed == Some(true) && is_ms {
             item.impact_tier = ImpactTier::Low;
             item.recommendation = Recommendation::Keep;
-            item.reason = format!("Verified Microsoft component");
+            item.reason = "Verified Microsoft component".to_string();
         } else if item.is_signed == Some(true) && !pub_lower.is_empty() && pub_lower != "unknown" {
             item.impact_tier = ImpactTier::Medium;
             item.recommendation = Recommendation::Review;
@@ -392,16 +484,18 @@ try {
 }
 
 #[cfg(not(target_os = "windows"))]
-pub fn get_boot_diagnostics() -> Option<BootDiagnostics> { None }
+pub fn get_boot_diagnostics() -> Option<BootDiagnostics> {
+    None
+}
 
 // ─── Actions ─────────────────────────────────────────────────
 
 #[cfg(target_os = "windows")]
 pub fn remove_startup_item(name: &str, source: &str) -> bool {
     if source.contains("HKCU") {
-        use winreg::RegKey;
         use winreg::enums::HKEY_CURRENT_USER;
-        
+        use winreg::RegKey;
+
         let hkcu = RegKey::predef(HKEY_CURRENT_USER);
         let path = r"Software\Microsoft\Windows\CurrentVersion\Run";
         if let Ok(run_key) = hkcu.open_subkey_with_flags(path, winreg::enums::KEY_WRITE) {
@@ -410,9 +504,9 @@ pub fn remove_startup_item(name: &str, source: &str) -> bool {
             false
         }
     } else if source.contains("HKLM") {
-        use winreg::RegKey;
         use winreg::enums::HKEY_LOCAL_MACHINE;
-        
+        use winreg::RegKey;
+
         let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
         let path = r"Software\Microsoft\Windows\CurrentVersion\Run";
         if let Ok(run_key) = hklm.open_subkey_with_flags(path, winreg::enums::KEY_WRITE) {
@@ -434,7 +528,10 @@ pub fn remove_startup_item(name: &str, source: &str) -> bool {
             false
         }
     } else if source.contains("Task Scheduler") {
-        let script = format!("Unregister-ScheduledTask -TaskName '{}' -Confirm:$false -EA SilentlyContinue; if ($?) {{ 'SUCCESS' }}", name);
+        let script = format!(
+            "Unregister-ScheduledTask -TaskName '{}' -Confirm:$false -EA SilentlyContinue; if ($?) {{ 'SUCCESS' }}",
+            name
+        );
         if let Some(out) = ps_run(&script) {
             out.contains("SUCCESS")
         } else {
@@ -449,13 +546,13 @@ pub fn remove_startup_item(name: &str, source: &str) -> bool {
 #[cfg(target_os = "windows")]
 pub fn disable_startup_item(name: &str, source: &str, _command: &str) -> bool {
     if source.contains("HKCU") {
-        use winreg::RegKey;
         use winreg::enums::HKEY_CURRENT_USER;
-        
+        use winreg::RegKey;
+
         let hkcu = RegKey::predef(HKEY_CURRENT_USER);
         let run_path = r"Software\Microsoft\Windows\CurrentVersion\Run";
         let disabled_path = r"Software\Microsoft\Windows\CurrentVersion\Run_Disabled";
-        
+
         // Read the current value
         if let Ok(run_key) = hkcu.open_subkey_with_flags(run_path, winreg::enums::KEY_READ) {
             if let Ok(value) = run_key.get_value::<String, _>(name) {
@@ -472,13 +569,13 @@ pub fn disable_startup_item(name: &str, source: &str, _command: &str) -> bool {
         }
         false
     } else if source.contains("HKLM") {
-        use winreg::RegKey;
         use winreg::enums::HKEY_LOCAL_MACHINE;
-        
+        use winreg::RegKey;
+
         let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
         let run_path = r"Software\Microsoft\Windows\CurrentVersion\Run";
         let disabled_path = r"Software\Microsoft\Windows\CurrentVersion\Run_Disabled";
-        
+
         if let Ok(run_key) = hklm.open_subkey_with_flags(run_path, winreg::enums::KEY_READ) {
             if let Ok(value) = run_key.get_value::<String, _>(name) {
                 if let Ok(disabled_key) = hklm.create_subkey(disabled_path) {
@@ -497,11 +594,11 @@ pub fn disable_startup_item(name: &str, source: &str, _command: &str) -> bool {
             src_path.push(r"Microsoft\Windows\Start Menu\Programs\Startup");
             let mut dst_path = src_path.clone();
             dst_path.push("_disabled");
-            
+
             if !dst_path.exists() {
                 std::fs::create_dir_all(&dst_path).ok();
             }
-            
+
             // Find and move files matching the name
             if let Ok(entries) = std::fs::read_dir(&src_path) {
                 for entry in entries.flatten() {
@@ -517,7 +614,10 @@ pub fn disable_startup_item(name: &str, source: &str, _command: &str) -> bool {
         }
         false
     } else if source.contains("Task Scheduler") {
-        let script = format!("Disable-ScheduledTask -TaskName '{}' -EA SilentlyContinue; if ($?) {{ 'SUCCESS' }}", name);
+        let script = format!(
+            "Disable-ScheduledTask -TaskName '{}' -EA SilentlyContinue; if ($?) {{ 'SUCCESS' }}",
+            name
+        );
         if let Some(out) = ps_run(&script) {
             out.contains("SUCCESS")
         } else {
@@ -532,13 +632,13 @@ pub fn disable_startup_item(name: &str, source: &str, _command: &str) -> bool {
 #[cfg(target_os = "windows")]
 pub fn reenable_startup_item(name: &str, source: &str) -> bool {
     if source.contains("HKCU") {
-        use winreg::RegKey;
         use winreg::enums::HKEY_CURRENT_USER;
-        
+        use winreg::RegKey;
+
         let hkcu = RegKey::predef(HKEY_CURRENT_USER);
         let run_path = r"Software\Microsoft\Windows\CurrentVersion\Run";
         let disabled_path = r"Software\Microsoft\Windows\CurrentVersion\Run_Disabled";
-        
+
         // Read from disabled location
         if let Ok(disabled_key) = hkcu.open_subkey_with_flags(disabled_path, winreg::enums::KEY_READ) {
             if let Ok(value) = disabled_key.get_value::<String, _>(name) {
@@ -546,7 +646,9 @@ pub fn reenable_startup_item(name: &str, source: &str) -> bool {
                 if let Ok(run_key) = hkcu.open_subkey_with_flags(run_path, winreg::enums::KEY_WRITE) {
                     if run_key.set_value(name, &value).is_ok() {
                         // Remove from disabled
-                        if let Ok(disabled_key_write) = hkcu.open_subkey_with_flags(disabled_path, winreg::enums::KEY_WRITE) {
+                        if let Ok(disabled_key_write) =
+                            hkcu.open_subkey_with_flags(disabled_path, winreg::enums::KEY_WRITE)
+                        {
                             return disabled_key_write.delete_value(name).is_ok();
                         }
                     }
@@ -555,18 +657,20 @@ pub fn reenable_startup_item(name: &str, source: &str) -> bool {
         }
         false
     } else if source.contains("HKLM") {
-        use winreg::RegKey;
         use winreg::enums::HKEY_LOCAL_MACHINE;
-        
+        use winreg::RegKey;
+
         let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
         let run_path = r"Software\Microsoft\Windows\CurrentVersion\Run";
         let disabled_path = r"Software\Microsoft\Windows\CurrentVersion\Run_Disabled";
-        
+
         if let Ok(disabled_key) = hklm.open_subkey_with_flags(disabled_path, winreg::enums::KEY_READ) {
             if let Ok(value) = disabled_key.get_value::<String, _>(name) {
                 if let Ok(run_key) = hklm.open_subkey_with_flags(run_path, winreg::enums::KEY_WRITE) {
                     if run_key.set_value(name, &value).is_ok() {
-                        if let Ok(disabled_key_write) = hklm.open_subkey_with_flags(disabled_path, winreg::enums::KEY_WRITE) {
+                        if let Ok(disabled_key_write) =
+                            hklm.open_subkey_with_flags(disabled_path, winreg::enums::KEY_WRITE)
+                        {
                             return disabled_key_write.delete_value(name).is_ok();
                         }
                     }
@@ -580,7 +684,7 @@ pub fn reenable_startup_item(name: &str, source: &str) -> bool {
             dst_path.push(r"Microsoft\Windows\Start Menu\Programs\Startup\_disabled");
             let mut src_path = std::path::PathBuf::from(appdata);
             src_path.push(r"Microsoft\Windows\Start Menu\Programs\Startup");
-            
+
             // Find and move files matching the name
             if let Ok(entries) = std::fs::read_dir(&dst_path) {
                 for entry in entries.flatten() {
@@ -596,7 +700,10 @@ pub fn reenable_startup_item(name: &str, source: &str) -> bool {
         }
         false
     } else if source.contains("Task Scheduler") {
-        let script = format!("Enable-ScheduledTask -TaskName '{}' -EA SilentlyContinue; if ($?) {{ 'SUCCESS' }}", name);
+        let script = format!(
+            "Enable-ScheduledTask -TaskName '{}' -EA SilentlyContinue; if ($?) {{ 'SUCCESS' }}",
+            name
+        );
         if let Some(out) = ps_run(&script) {
             out.contains("SUCCESS")
         } else {
@@ -633,11 +740,17 @@ fn urlenccode(s: &str) -> String {
 }
 
 #[cfg(not(target_os = "windows"))]
-pub fn remove_startup_item(_name: &str, _source: &str) -> bool { false }
+pub fn remove_startup_item(_name: &str, _source: &str) -> bool {
+    false
+}
 #[cfg(not(target_os = "windows"))]
-pub fn disable_startup_item(_name: &str, _source: &str, _command: &str) -> bool { false }
+pub fn disable_startup_item(_name: &str, _source: &str, _command: &str) -> bool {
+    false
+}
 #[cfg(not(target_os = "windows"))]
-pub fn reenable_startup_item(_name: &str, _source: &str) -> bool { false }
+pub fn reenable_startup_item(_name: &str, _source: &str) -> bool {
+    false
+}
 #[cfg(not(target_os = "windows"))]
 pub fn open_file_location(_path: &str) {}
 #[cfg(not(target_os = "windows"))]
@@ -645,7 +758,9 @@ pub fn search_online(_name: &str) {}
 
 // ─── Sorting / Filtering helpers ─────────────────────────────
 
-
 pub fn high_impact_count(items: &[StartupItem]) -> usize {
-    items.iter().filter(|i| i.impact_tier == ImpactTier::High && i.enabled).count()
+    items
+        .iter()
+        .filter(|i| i.impact_tier == ImpactTier::High && i.enabled)
+        .count()
 }

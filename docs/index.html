@@ -65,7 +65,7 @@
                 </div>
                 <div class="hero-spec">
                     <div class="spec-item"><span class="spec-key">Platform</span><span class="spec-val">Windows 10/11 · x64</span></div>
-                    <div class="spec-item"><span class="spec-key">Latest</span><span class="spec-val mono" id="latestVersion">v3.0.0</span></div>
+                    <div class="spec-item"><span class="spec-key">Latest</span><span class="spec-val mono" id="latestVersion">v3.5.0</span></div>
                     <div class="spec-item"><span class="spec-key">Installer</span><span class="spec-val">~5 MB</span></div>
                     <div class="spec-item"><span class="spec-key">Refresh</span><span class="spec-val">1–10 s</span></div>
                 </div>
@@ -93,7 +93,7 @@
                         <span class="stat-label">TelemetryHub UI rendering</span>
                     </div>
                     <div class="stat-item">
-                        <span class="stat-value">11+</span>
+                        <span class="stat-value">12+</span>
                         <span class="stat-label">Built-in modules</span>
                     </div>
                 </div>
@@ -203,21 +203,22 @@
                 <div class="container">
                     <div class="section-head">
                         <p class="eyebrow">Built-in modules</p>
-                        <h2 class="section-title">Eleven focused tools. One interface.</h2>
+                        <h2 class="section-title">Twelve focused tools. One interface.</h2>
                         <p class="section-lede">Switch between panels instantly from the sidebar — each one is a first-class citizen of the same window.</p>
                     </div>
                     <div class="module-list">
                         <div class="module-item"><span class="module-num">01</span><h3 class="module-name">Overview</h3><p class="module-desc">Live CPU, memory, GPU, per-core, disk and network at a glance.</p></div>
                         <div class="module-item"><span class="module-num">02</span><h3 class="module-name">Performance</h3><p class="module-desc">Historical graphs and rolling trends for CPU, RAM, GPU and network.</p></div>
-                        <div class="module-item"><span class="module-num">03</span><h3 class="module-name">Processes</h3><p class="module-desc">Process Pro — details, priorities and deep kill-tree control.</p></div>
+                        <div class="module-item"><span class="module-num">03</span><h3 class="module-name">Diagnostics</h3><p class="module-desc">Evidence-based findings with confidence ratings and opt-in local session recording.</p></div>
                         <div class="module-item"><span class="module-num">04</span><h3 class="module-name">CPU Cores</h3><p class="module-desc">Per-core utilisation and thermal breakdown for every logical core.</p></div>
-                        <div class="module-item"><span class="module-num">05</span><h3 class="module-name">Storage</h3><p class="module-desc">Device capacities, used space and live read/write rates in MB/s.</p></div>
-                        <div class="module-item"><span class="module-num">06</span><h3 class="module-name">Network</h3><p class="module-desc">Per-interface download/upload rates and live throughput.</p></div>
-                        <div class="module-item"><span class="module-num">07</span><h3 class="module-name">Alerts</h3><p class="module-desc">Threshold management and notification history for all metrics.</p></div>
-                        <div class="module-item"><span class="module-num">08</span><h3 class="module-name">System Info</h3><p class="module-desc">WMI-powered motherboard, BIOS, GPU driver, OS and battery data.</p></div>
-                        <div class="module-item"><span class="module-num">09</span><h3 class="module-name">RAM Cleaner</h3><p class="module-desc">On-demand or threshold-triggered memory reclamation.</p></div>
-                        <div class="module-item"><span class="module-num">10</span><h3 class="module-name">Startup Apps</h3><p class="module-desc">Manage Windows startup entries and their boot-time impact.</p></div>
-                        <div class="module-item"><span class="module-num">11</span><h3 class="module-name">Services</h3><p class="module-desc">Browse every Windows service and its current run state.</p></div>
+                        <div class="module-item"><span class="module-num">05</span><h3 class="module-name">Processes</h3><p class="module-desc">Process Pro — details, priorities and deep kill-tree control.</p></div>
+                        <div class="module-item"><span class="module-num">06</span><h3 class="module-name">Storage</h3><p class="module-desc">Device capacities, used space and live read/write rates in MB/s.</p></div>
+                        <div class="module-item"><span class="module-num">07</span><h3 class="module-name">Network</h3><p class="module-desc">Per-interface download/upload rates and live throughput.</p></div>
+                        <div class="module-item"><span class="module-num">08</span><h3 class="module-name">Alerts</h3><p class="module-desc">Threshold management and notification history for all metrics.</p></div>
+                        <div class="module-item"><span class="module-num">09</span><h3 class="module-name">System Info</h3><p class="module-desc">WMI-powered motherboard, BIOS, GPU driver, OS and battery data.</p></div>
+                        <div class="module-item"><span class="module-num">10</span><h3 class="module-name">RAM Cleaner</h3><p class="module-desc">On-demand or threshold-triggered memory reclamation.</p></div>
+                        <div class="module-item"><span class="module-num">11</span><h3 class="module-name">Startup Apps</h3><p class="module-desc">Manage Windows startup entries and their boot-time impact.</p></div>
+                        <div class="module-item"><span class="module-num">12</span><h3 class="module-name">Services</h3><p class="module-desc">Browse every Windows service and its current run state.</p></div>
                     </div>
                 </div>
             </section>
@@ -292,34 +293,51 @@
                 <div class="container">
                     <div class="section-head">
                         <p class="eyebrow">Release notes</p>
-                        <h2 class="section-title">What's new in v2.6.1</h2>
-                        <p class="section-lede">A stability rewrite plus configurable RAM cleaning and hardened auto-updates.</p>
+                        <h2 class="section-title">What's new in v3.5.0</h2>
+                        <p class="section-lede">A full TelemetryHub architecture with provider abstraction, evidence-based diagnostics, guarded system actions and a signed supply chain.</p>
                     </div>
                     <div class="changelog-grid">
                         <div class="change-item change-major">
-                            <span class="change-type">Architecture &amp; stability</span>
-                            <p class="change-desc">Long-lived monitoring and action workers with clean command/event boundaries and typed action results. One shared monitor instance instead of repeated per-action initialisation. Telemetry rates computed from counter deltas — no inflated first sample, and safe when counters reset.</p>
+                            <span class="change-type">TelemetryHub architecture</span>
+                            <p class="change-desc">Multi-tier telemetry hub on dedicated background threads decouples 60 FPS UI rendering from 1–5 Hz hardware sampling. Polling scheduler throttles 5x when minimised to conserve CPU and power.</p>
                         </div>
                         <div class="change-item">
-                            <span class="change-type">Standard-user support</span>
-                            <p class="change-desc">Runs without elevation for everyday monitoring. Privileged operations (kill, service control, RAM cleaning) report access-denied clearly instead of silently failing.</p>
+                            <span class="change-type">Provider abstraction</span>
+                            <p class="change-desc">Vendor-independent TelemetryProvider trait (Sysinfo, NVML, WMI). Bounded 60s / 5m / 30m / 1hr ring buffers with current, min, max and average statistics. Individual provider failures never take down main telemetry.</p>
                         </div>
                         <div class="change-item">
-                            <span class="change-type">Configurable auto RAM clean</span>
-                            <p class="change-desc">Trigger threshold, cleanup target, minimum interval, per-pass MB cap, idle-only mode, excluded processes, and freed-MB notifications — all persisted.</p>
+                            <span class="change-type">Vendor-neutral GPU</span>
+                            <p class="change-desc">Windows GPU adapters and performance counters complement detailed NVIDIA NVML metrics — Intel, AMD and other Windows GPUs now covered.</p>
                         </div>
                         <div class="change-item">
-                            <span class="change-type">Reliable alerts</span>
-                            <p class="change-desc">Alerts deduplicated per metric and device; multi-GPU temperature resolution. No more alert spam or first-GPU-only clearing.</p>
+                            <span class="change-type">Diagnostics workspace</span>
+                            <p class="change-desc">Evidence-based findings with confidence ratings, plus opt-in local JSONL session recording to reproduce transient slowdowns. Nothing is uploaded.</p>
                         </div>
                         <div class="change-item">
-                            <span class="change-type">Hardened updates</span>
-                            <p class="change-desc">HTTPS-only release assets, download size limits, Authenticode verification with pinned-thumbprint support for self-signed builds, and explicit, verified installs — no silent background auto-install.</p>
+                            <span class="change-type">Guarded system actions</span>
+                            <p class="change-desc">Risk previews, elevation disclosure and confirmation before process, service, RAM and power actions — written to a local audit history with Undo for reversible operations.</p>
                         </div>
                         <div class="change-item">
-                            <span class="change-type">Under the hood</span>
-                            <p class="change-desc">Deterministic process-tree construction, service restarts that wait for real state, malformed power-plan GUIDs rejected, and a zero-warning build under strict flags.</p>
+                            <span class="change-type">Signed supply chain</span>
+                            <p class="change-desc">Signed release workflow with cert pinning, checksums, SPDX SBOM, GitHub provenance and Windows CI quality gates (fmt, strict Clippy, tests) on locked dependencies.</p>
                         </div>
+                    </div>
+                    <div class="version-compare">
+                        <h3 class="compare-title">Compared with previous releases</h3>
+                        <table class="compare-table">
+                            <thead>
+                                <tr><th>Capability</th><th>1.x</th><th>2.6.x</th><th>3.5.0</th></tr>
+                            </thead>
+                            <tbody>
+                                <tr><td>Telemetry engine</td><td>Single polling thread</td><td>Legacy polling thread</td><td><strong>TelemetryHub</strong> (provider abstraction)</td></tr>
+                                <tr><td>History resolution</td><td>~2 min</td><td>~2 min</td><td><strong>60s / 5m / 30m / 1hr</strong></td></tr>
+                                <tr><td>GPU coverage</td><td>NVIDIA only</td><td>NVIDIA only</td><td><strong>Vendor-neutral</strong> (NVML + WMI)</td></tr>
+                                <tr><td>Diagnostics</td><td>—</td><td>—</td><td><strong>Evidence + confidence + recording</strong></td></tr>
+                                <tr><td>Action safety</td><td>—</td><td>—</td><td><strong>Risk preview, audit, Undo</strong></td></tr>
+                                <tr><td>Update verification</td><td>Plain download</td><td>HTTPS + basic checks</td><td><strong>Authenticode + pinned thumbprint</strong></td></tr>
+                                <tr><td>Modules</td><td>4 tabs</td><td>7 tabs</td><td><strong>14 modules</strong></td></tr>
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             </section>

@@ -28,14 +28,18 @@ fn main() {
         res.set("ProductName", "System Monitor");
         res.set("OriginalFilename", "system-monitor.exe");
         res.set("InternalName", "system-monitor");
-        res.set("LegalCopyright", "Copyright © 2024-2026 Xenonesis. All rights reserved.");
+        res.set(
+            "LegalCopyright",
+            "Copyright © 2024-2026 Xenonesis. All rights reserved.",
+        );
         res.set("FileVersion", &format!("{}.{}.{}.0", major, minor, patch));
         res.set("ProductVersion", &format!("{}.{}.{}.0", major, minor, patch));
 
         // Run unelevated by default. Windows operations report access-denied clearly;
         // users can relaunch elevated when an operation requires it. This also keeps
         // test harnesses and standard-user monitoring usable.
-        res.set_manifest(r#"
+        res.set_manifest(
+            r#"
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
   <assemblyIdentity
@@ -70,7 +74,8 @@ fn main() {
     </windowsSettings>
   </application>
 </assembly>
-"#);
+"#,
+        );
 
         // MinGW PATH injection removed: MSVC toolchain (used in CI) uses rc.exe, not windres.
         // On MinGW toolchains, ensure windres is on PATH before invoking cargo build.

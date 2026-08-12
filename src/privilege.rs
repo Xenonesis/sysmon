@@ -2,10 +2,10 @@
 
 #[cfg(target_os = "windows")]
 pub fn is_app_elevated() -> bool {
-    use windows::Win32::Foundation::CloseHandle;
-    use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
-    use windows::Win32::Security::{GetTokenInformation, TokenElevation, TOKEN_ELEVATION, TOKEN_QUERY};
     use std::mem;
+    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::Security::{GetTokenInformation, TokenElevation, TOKEN_ELEVATION, TOKEN_QUERY};
+    use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 
     struct HandleGuard(windows::Win32::Foundation::HANDLE);
     impl Drop for HandleGuard {
@@ -48,12 +48,14 @@ pub fn relaunch_as_admin() -> bool {
     if let Ok(path) = std::env::current_exe() {
         let path_w: Vec<u16> = path.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
         let verb: Vec<u16> = OsStr::new("runas").encode_wide().chain(std::iter::once(0)).collect();
-        
-        let mut info = SHELLEXECUTEINFOW::default();
-        info.cbSize = std::mem::size_of::<SHELLEXECUTEINFOW>() as u32;
-        info.lpVerb = windows::core::PCWSTR(verb.as_ptr());
-        info.lpFile = windows::core::PCWSTR(path_w.as_ptr());
-        info.nShow = SW_SHOW.0 as i32;
+
+        let mut info = SHELLEXECUTEINFOW {
+            cbSize: std::mem::size_of::<SHELLEXECUTEINFOW>() as u32,
+            lpVerb: windows::core::PCWSTR(verb.as_ptr()),
+            lpFile: windows::core::PCWSTR(path_w.as_ptr()),
+            nShow: SW_SHOW.0,
+            ..Default::default()
+        };
 
         unsafe {
             if ShellExecuteExW(&mut info).is_ok() {

@@ -5,7 +5,7 @@ All notable changes to System Monitor will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [3.0.0] - 2026-08-10
+## [3.5.0] - 2026-08-13
 
 ### Added
 - **TelemetryHub Architecture:** Multi-tier telemetry hub running on dedicated background threads, separating UI render frequency (60 FPS) from hardware polling (1-5 Hz).
@@ -14,6 +14,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Polling Scheduler:** `PollingScheduler` with background/tray mode throttling (5x reduced polling when minimized to conserve CPU/power).
 - **Graceful Error Isolation:** Independent provider failure handling — individual provider errors (e.g. missing NVML/WMI) no longer affect main telemetry or application stability.
 - **Integration Test Suite:** Automated deep telemetry flow integration test suite (`test_deep_telemetry_flow`).
+- **Vendor-neutral GPU telemetry:** Windows GPU adapters and performance counters complement detailed NVIDIA NVML metrics.
+- **Diagnostics workspace:** Evidence-based findings with confidence and opt-in local JSONL session recording.
+- **Safe action plans:** Risk previews, elevation disclosure, confirmation, local audit history and Undo for known reversible operations.
+- **Signed supply-chain workflow:** Production certificate requirement, signer pinning, signed binaries, checksums, SPDX SBOM and GitHub provenance.
+- **Windows CI:** Locked dependency resolution, formatting, strict Clippy, tests and release compilation on Rust 1.85.
+
+### Changed
+- The production application now consumes TelemetryHub's replaceable latest snapshot; legacy polling remains only for richer process, disk, network and system-detail views during staged migration.
+- Updater downloads now have timeouts, bounded reads, content-length validation, escaped literal paths and cleanup after verification failure.
+- Automatic RAM cleanup is bounded and included in the persistent action audit trail.
+- `Cargo.lock` is committed for reproducible application builds.
+
+### Fixed
+- History minimum and maximum values no longer retain samples evicted from the active window.
+- Snapshot delivery cannot fall behind through a FIFO backlog.
+- Release instructions now match the installer asset and certificate contract.
 
 ## [2.6.0] - 2026-01-20
 
@@ -117,5 +133,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-[1.0.0]: https://github.com/yourusername/system-monitor/releases/tag/v1.0.0
-[0.1.0]: https://github.com/yourusername/system-monitor/releases/tag/v0.1.0
+[1.0.0]: https://github.com/Xenonesis/sysmon/releases/tag/v1.0.0
+[0.1.0]: https://github.com/Xenonesis/sysmon/releases/tag/v0.1.0

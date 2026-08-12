@@ -7,7 +7,6 @@ downloads/*
 !docs/downloads/*
 
 /target
-Cargo.lock
 *.exe
 *.pdb
 .vscode/

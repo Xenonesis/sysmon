@@ -27,8 +27,7 @@ impl WmiProvider {
         {
             use wmi::{COMLibrary, Variant, WMIConnection};
 
-            let com = COMLibrary::new()
-                .map_err(|e| ProviderError::InitFailed(format!("COM init: {}", e)))?;
+            let com = COMLibrary::new().map_err(|e| ProviderError::InitFailed(format!("COM init: {}", e)))?;
             let wmi_con = WMIConnection::new(com.into())
                 .map_err(|e| ProviderError::InitFailed(format!("WMI connection: {}", e)))?;
 
@@ -61,8 +60,8 @@ impl WmiProvider {
             }
 
             // Processor identity
-            let cpu_query: Result<Vec<HashMap<String, Variant>>, _> =
-                wmi_con.raw_query("SELECT Name, MaxClockSpeed, NumberOfCores, NumberOfLogicalProcessors FROM Win32_Processor");
+            let cpu_query: Result<Vec<HashMap<String, Variant>>, _> = wmi_con
+                .raw_query("SELECT Name, MaxClockSpeed, NumberOfCores, NumberOfLogicalProcessors FROM Win32_Processor");
             if let Ok(results) = cpu_query {
                 if let Some(row) = results.first() {
                     if let Some(Variant::String(v)) = row.get("Name") {
@@ -79,10 +78,43 @@ impl WmiProvider {
                     }
                 }
             }
+
+            // Vendor-neutral GPU identity for AMD, Intel, NVIDIA and virtual adapters.
+            let gpu_query: Result<Vec<HashMap<String, Variant>>, _> =
+                wmi_con.raw_query("SELECT Name, AdapterRAM, DriverVersion, PNPDeviceID FROM Win32_VideoController");
+            if let Ok(results) = gpu_query {
+                data.insert("gpu.generic_count".into(), MetricValue::UInt(results.len() as u64));
+                for (index, row) in results.iter().enumerate() {
+                    let prefix = format!("gpu.generic.{index}");
+                    if let Some(Variant::String(value)) = row.get("Name") {
+                        data.insert(format!("{prefix}.name"), MetricValue::Text(value.clone()));
+                    }
+                    if let Some(Variant::String(value)) = row.get("DriverVersion") {
+                        data.insert(format!("{prefix}.driver_version"), MetricValue::Text(value.clone()));
+                    }
+                    if let Some(Variant::String(value)) = row.get("PNPDeviceID") {
+                        data.insert(format!("{prefix}.pnp_device_id"), MetricValue::Text(value.clone()));
+                    }
+                    let adapter_ram = match row.get("AdapterRAM") {
+                        Some(Variant::UI4(value)) => Some(*value as u64),
+                        Some(Variant::UI8(value)) => Some(*value),
+                        _ => None,
+                    };
+                    if let Some(value) = adapter_ram {
+                        data.insert(format!("{prefix}.vram_total"), MetricValue::UInt(value));
+                    }
+                }
+            }
         }
 
         self.cached_data = Some(data.clone());
         Ok(data)
+    }
+}
+
+impl Default for WmiProvider {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

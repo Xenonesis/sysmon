@@ -1,8 +1,7 @@
 use std::ptr;
 use windows_sys::Win32::Foundation::{LocalFree, ERROR_NO_MORE_ITEMS, ERROR_SUCCESS};
 use windows_sys::Win32::System::Power::{
-    PowerEnumerate, PowerGetActiveScheme, PowerReadFriendlyName, PowerSetActiveScheme,
-    ACCESS_SCHEME,
+    PowerEnumerate, PowerGetActiveScheme, PowerReadFriendlyName, PowerSetActiveScheme, ACCESS_SCHEME,
 };
 
 /// Root registry page under which power schemes live.
@@ -23,12 +22,18 @@ pub struct PowerPlan {
 /// hyphens optional) into a `windows_sys::core::GUID`. Falls back to the nil
 /// GUID on malformed input.
 fn parse_guid(s: &str) -> Result<windows_sys::core::GUID, String> {
-    let hex: String = s.trim().trim_start_matches('{').trim_end_matches('}')
-        .chars().filter(|c| *c != '-').collect();
+    let hex: String = s
+        .trim()
+        .trim_start_matches('{')
+        .trim_end_matches('}')
+        .chars()
+        .filter(|c| *c != '-')
+        .collect();
     if hex.len() != 32 || !hex.chars().all(|c| c.is_ascii_hexdigit()) {
         return Err(format!("Invalid power-plan GUID: {s}"));
     }
-    u128::from_str_radix(&hex, 16).map(windows_sys::core::GUID::from_u128)
+    u128::from_str_radix(&hex, 16)
+        .map(windows_sys::core::GUID::from_u128)
         .map_err(|_| format!("Invalid power-plan GUID: {s}"))
 }
 
@@ -67,9 +72,7 @@ pub fn get_power_plans() -> Vec<PowerPlan> {
 
     unsafe {
         let mut active_ptr: *mut windows_sys::core::GUID = ptr::null_mut();
-        if PowerGetActiveScheme(ptr::null_mut(), &mut active_ptr) == ERROR_SUCCESS
-            && !active_ptr.is_null()
-        {
+        if PowerGetActiveScheme(ptr::null_mut(), &mut active_ptr) == ERROR_SUCCESS && !active_ptr.is_null() {
             active_guid = Some(format_guid(&*active_ptr));
             LocalFree(active_ptr as *mut _);
         }
@@ -144,10 +147,12 @@ pub fn get_power_plans() -> Vec<PowerPlan> {
         ]
         .into_iter()
         .map(|(guid, name)| {
-            let is_active = active_guid
-                .as_deref()
-                .is_some_and(|a| normalized(a) == *guid);
-            PowerPlan { guid: format!("{{{guid}}}"), name: name.to_string(), is_active }
+            let is_active = active_guid.as_deref().is_some_and(|a| normalized(a) == *guid);
+            PowerPlan {
+                guid: format!("{{{guid}}}"),
+                name: name.to_string(),
+                is_active,
+            }
         })
         .collect();
     }
@@ -159,7 +164,11 @@ pub fn set_active_power_plan(guid: &str) -> Result<(), String> {
     unsafe {
         let g = parse_guid(guid)?;
         let res = PowerSetActiveScheme(ptr::null_mut(), &g);
-        if res == ERROR_SUCCESS { Ok(()) } else { Err(format!("PowerSetActiveScheme failed: {res}")) }
+        if res == ERROR_SUCCESS {
+            Ok(())
+        } else {
+            Err(format!("PowerSetActiveScheme failed: {res}"))
+        }
     }
 }
 
@@ -175,6 +184,9 @@ mod tests {
 
     #[test]
     fn parses_canonical_guid() {
-        assert_eq!(format_guid(&parse_guid("{381b4222-f694-41f0-9685-ff5bb260df2e}").unwrap()), "{381b4222-f694-41f0-9685-ff5bb260df2e}");
+        assert_eq!(
+            format_guid(&parse_guid("{381b4222-f694-41f0-9685-ff5bb260df2e}").unwrap()),
+            "{381b4222-f694-41f0-9685-ff5bb260df2e}"
+        );
     }
 }

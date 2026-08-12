@@ -1,5 +1,5 @@
-use wmi::{COMLibrary, WMIConnection};
 use std::rc::Rc;
+use wmi::{COMLibrary, WMIConnection};
 
 fn main() {
     let com = COMLibrary::new().expect("COM init failed");

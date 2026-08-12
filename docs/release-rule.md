@@ -1,51 +1,32 @@
-# Release Rule — SysMon
+# SysMon release rule
 
-**When new features/version are ready, one command ships everything:**
+Production releases are created only by `.github/workflows/windows-release.yml` from a tag matching the version in `Cargo.toml`, for example `v3.5.0`.
 
-```powershell
-.\release.ps1 -Version 2.7.0 -Changelog "Cool new feature" -Sign -Publish
-```
+## One-time repository setup
 
-## What the rule does (in order)
+Add these GitHub Actions secrets:
 
-1. **Bump version** in `Cargo.toml` (if `-Version` given).
-2. **Update README.md** — version badge, download link, new changelog entry.
-3. **Update website** — `docs/index.html` version tags (GitHub Pages source at `systemmonitor.xenonesis.dev`).
-4. **Build** `cargo build --release`.
-5. **Create installer** — `create-installer.ps1` produces the installable `SystemMonitor-<version>-setup.exe` (Inno).
-6. **Delete old builds** — every other `dist/SystemMonitor-v*` folder/zip is removed; only the latest stays.
-7. **Sign** (optional, `-Sign`) — Authenticode-sign the exe.
-8. **Publish** (optional, `-Publish`):
-   - commit + tag `vX.Y.Z` + push
-   - create **GitHub release** with the zip attached
-   - deploy the website (`deploy-website.ps1 -Deploy`)
+- `WINDOWS_SIGNING_PFX_BASE64`: base64 of the production Authenticode PFX.
+- `WINDOWS_SIGNING_PFX_PASSWORD`: PFX password.
 
-## How installed users get the update notification
+The certificate must be trusted for code signing and contain a private key. Never commit the PFX or password. The workflow derives the thumbprint from the imported certificate and compiles it into the updater as `SYSMON_SIGNER_THUMBPRINT`.
 
-The app polls `https://api.github.com/repos/Xenonesis/sysmon/releases/latest`
-every 24h (and on Ctrl+U). Once the GitHub release for `vX.Y.Z` exists:
+## Release steps
 
-- installed users see the **update banner** in-app,
-- clicking **Install Update** downloads the installer, verifies the URL, size,
-  and **Authenticode signature (must be `Valid`)**, then runs it.
+1. Update `Cargo.toml`, `CHANGELOG.md` and user-facing documentation.
+2. Run the local quality commands from the README.
+3. Commit and push the reviewed changes.
+4. Create and push the matching `vX.Y.Z` tag.
+5. Confirm **Build Signed Windows Release** succeeds.
+6. Confirm the release contains the installer, `.sha256` file and SPDX JSON SBOM, and shows build provenance.
+7. On a clean Windows VM, verify signature, install, launch, update detection and uninstall.
 
-## Hard requirements for the auto-update path to actually work
+The workflow fails closed when certificate secrets are missing. It signs both `system-monitor.exe` and `SystemMonitor-X.Y.Z-setup.exe`, verifies the installer's signer matches the thumbprint pinned into the binary, and only then publishes the release.
 
-- **Trusted code-signing certificate** (e.g. DigiCert, Sectigo). Self-signed
-  signatures fail the app's `Get-AuthenticodeSignature -eq Valid` check, so
-  auto-install refuses them. `sign-binary.ps1` only makes a self-signed cert
-  today — get a real cert for production releases.
-- The GitHub release must attach `SystemMonitor-vX.Y.Z.zip`; the app only
-  accepts installer `.exe` assets from the expected repo path.
+## Local development signing
 
-## Without `-Publish`
+`sign-binary.ps1` requires `SYSMON_SIGNER_THUMBPRINT` or `-Thumbprint` by default. `-AllowDevelopmentCertificate` is an explicit local-only escape hatch. Development certificates must never be used for published updates.
 
-The script still bumps versions, builds, refreshes `dist/`, and updates
-README + website files. Run `-Publish` when ready to notify users.
+## Updater asset contract
 
-## Caveats
-
-- Website deploy needs `docs/` files present (they are).
-- `deploy-website.ps1` handles the GitHub Pages push itself.
-- Releases are deliberate: version bump + `release.ps1`, not automatic on
-  every commit — auto-releasing on arbitrary commits would spam users.
+The updater accepts an HTTPS `.exe` release asset from the official `Xenonesis/sysmon` repository. Downloads are size bounded and must pass Authenticode validity and publisher-thumbprint checks before execution.

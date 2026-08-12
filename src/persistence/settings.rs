@@ -5,11 +5,29 @@ use std::path::Path;
 use crate::AppSettings;
 
 #[derive(Debug)]
-pub(crate) enum SettingsError { Io(std::io::Error), Json(serde_json::Error) }
-impl std::fmt::Display for SettingsError { fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { match self { Self::Io(e) => e.fmt(f), Self::Json(e) => e.fmt(f) } } }
+pub(crate) enum SettingsError {
+    Io(std::io::Error),
+    Json(serde_json::Error),
+}
+impl std::fmt::Display for SettingsError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Io(e) => e.fmt(f),
+            Self::Json(e) => e.fmt(f),
+        }
+    }
+}
 impl std::error::Error for SettingsError {}
-impl From<std::io::Error> for SettingsError { fn from(e: std::io::Error) -> Self { Self::Io(e) } }
-impl From<serde_json::Error> for SettingsError { fn from(e: serde_json::Error) -> Self { Self::Json(e) } }
+impl From<std::io::Error> for SettingsError {
+    fn from(e: std::io::Error) -> Self {
+        Self::Io(e)
+    }
+}
+impl From<serde_json::Error> for SettingsError {
+    fn from(e: serde_json::Error) -> Self {
+        Self::Json(e)
+    }
+}
 
 pub(crate) fn validated(mut settings: AppSettings) -> AppSettings {
     settings.refresh_interval = settings.refresh_interval.clamp(1, 10);
@@ -30,7 +48,9 @@ pub(crate) fn load(path: &Path) -> Result<AppSettings, SettingsError> {
 }
 
 pub(crate) fn save(path: &Path, settings: &AppSettings) -> Result<(), SettingsError> {
-    if let Some(parent) = path.parent() { fs::create_dir_all(parent)?; }
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
     let tmp = path.with_extension("json.tmp");
     let bytes = serde_json::to_vec_pretty(&validated(settings.clone()))?;
     let mut file = fs::File::create(&tmp)?;

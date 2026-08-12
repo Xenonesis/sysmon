@@ -54,12 +54,17 @@ pub fn filter_processes(items: &[ProcessInfo], query: &str) -> Vec<ProcessInfo> 
 /// In-place sort. `Status` falls back to memory (no status ordering defined).
 pub fn sort_processes(items: &mut [ProcessInfo], column: ProcessSortColumn, ascending: bool) {
     fn ord(o: std::cmp::Ordering, ascending: bool) -> std::cmp::Ordering {
-        if ascending { o } else { o.reverse() }
+        if ascending {
+            o
+        } else {
+            o.reverse()
+        }
     }
     match column {
         ProcessSortColumn::Pid => items.sort_by(|a, b| ord(a.pid.cmp(&b.pid), ascending)),
-        ProcessSortColumn::Name => items
-            .sort_by(|a, b| ord(a.name.to_lowercase().cmp(&b.name.to_lowercase()), ascending)),
+        ProcessSortColumn::Name => {
+            items.sort_by(|a, b| ord(a.name.to_lowercase().cmp(&b.name.to_lowercase()), ascending))
+        }
         ProcessSortColumn::Memory => items.sort_by(|a, b| ord(a.memory.cmp(&b.memory), ascending)),
         ProcessSortColumn::Cpu => items.sort_by(|a, b| {
             ord(
@@ -176,10 +181,7 @@ mod tests {
 
     #[test]
     fn filter_empty_query_returns_all() {
-        let items = vec![
-            p(1, "a.exe", 1.0, 1, "Running"),
-            p(2, "b.exe", 1.0, 1, "Running"),
-        ];
+        let items = vec![p(1, "a.exe", 1.0, 1, "Running"), p(2, "b.exe", 1.0, 1, "Running")];
         assert_eq!(filter_processes(&items, "").len(), 2);
     }
 

@@ -29,6 +29,10 @@ impl MetricValue {
             _ => 0.0,
         }
     }
+
+    pub fn is_numeric(&self) -> bool {
+        matches!(self, MetricValue::Float(_) | MetricValue::Int(_) | MetricValue::UInt(_))
+    }
 }
 
 /// A collection of named metrics returned by a single provider poll.
@@ -82,6 +86,7 @@ pub trait TelemetryProvider: Send {
     fn shutdown(&mut self) {}
 }
 
-pub mod sysinfo_provider;
 pub mod nvml_provider;
+pub mod sysinfo_provider;
+pub mod windows_gpu_provider;
 pub mod wmi_provider;

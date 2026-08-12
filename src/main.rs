@@ -1,25 +1,26 @@
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
-pub(crate) mod ui;
 pub(crate) mod app;
-use crate::ui::theme::ThemePalette;
+pub(crate) mod ui;
 use crate::ui::components::*;
+use crate::ui::theme::ThemePalette;
 use chrono::Local;
-mod persistence;
+mod diagnostics;
 mod monitoring;
-mod updater;
-mod startup;
+mod persistence;
+mod power;
 mod privilege;
 mod processes;
-mod services;
-mod power;
-pub mod telemetry;
 pub mod providers;
-use startup::{StartupItem, ImpactTier, Recommendation, StartupSortColumn, BootDiagnostics, StartupOptimizationEntry};
-use processes::{ProcessInfo, ProcessSortColumn};
+mod services;
+mod startup;
+pub mod telemetry;
+mod updater;
 use eframe::egui;
+use processes::{ProcessInfo, ProcessSortColumn};
+use startup::{BootDiagnostics, ImpactTier, Recommendation, StartupItem, StartupOptimizationEntry, StartupSortColumn};
 
-use tracing::{error, info, warn};
 use rfd::FileDialog;
+use tracing::{error, info, warn};
 
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -52,13 +53,11 @@ fn battery_status_label(status: u16) -> Option<&'static str> {
 
 #[cfg(target_os = "windows")]
 pub(crate) fn get_battery_info(wmi_con: &wmi::WMIConnection) -> Option<BatteryInfo> {
-    let results: Result<Vec<Win32Battery>, _> = wmi_con.raw_query("SELECT DesignCapacity, FullChargeCapacity, BatteryStatus, DischargeRate FROM Win32_Battery");
+    let results: Result<Vec<Win32Battery>, _> =
+        wmi_con.raw_query("SELECT DesignCapacity, FullChargeCapacity, BatteryStatus, DischargeRate FROM Win32_Battery");
     if let Ok(mut bats) = results {
         if let Some(bat) = bats.pop() {
-            let discharge_state = bat
-                .battery_status
-                .and_then(battery_status_label)
-                .map(|s| s.to_string());
+            let discharge_state = bat.battery_status.and_then(battery_status_label).map(|s| s.to_string());
             return Some(BatteryInfo {
                 design_capacity: bat.design_capacity.unwrap_or(0),
                 full_charge_capacity: bat.full_charge_capacity.unwrap_or(0),
@@ -71,20 +70,22 @@ pub(crate) fn get_battery_info(wmi_con: &wmi::WMIConnection) -> Option<BatteryIn
     None
 }
 
+use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::fs;
 use std::sync::Arc;
-use parking_lot::Mutex;
 use std::thread;
 use std::time::{Duration, Instant};
 use sysinfo::{Disks, Networks, Pid, System};
 
-
 #[cfg(target_os = "windows")]
 use nvml_wrapper::Nvml;
 #[cfg(target_os = "windows")]
-use tray_icon::{TrayIconBuilder, menu::{Menu, MenuItem, CheckMenuItem, MenuEvent, Submenu}};
+use tray_icon::{
+    menu::{CheckMenuItem, Menu, MenuEvent, MenuItem, Submenu},
+    TrayIconBuilder,
+};
 #[cfg(target_os = "windows")]
 use wmi::COMLibrary;
 
@@ -139,6 +140,84 @@ pub(crate) struct GpuInfo {
     pub(crate) fan_percent: Option<u32>,
 }
 
+fn cpu_cores_from_telemetry(snapshot: &telemetry::TelemetrySnapshot) -> Vec<CpuCoreInfo> {
+    let count = snapshot.metrics.get("cpu.core_count").copied().unwrap_or_default() as usize;
+    (0..count)
+        .filter_map(|core_id| {
+            snapshot
+                .metrics
+                .get(&format!("cpu.core.{core_id}.usage"))
+                .map(|usage| CpuCoreInfo {
+                    core_id,
+                    usage: *usage as f32,
+                    name: format!("Core {core_id}"),
+                })
+        })
+        .collect()
+}
+
+fn gpus_from_telemetry(snapshot: &telemetry::TelemetrySnapshot) -> Vec<GpuInfo> {
+    let count = snapshot.metrics.get("gpu.device_count").copied().unwrap_or_default() as usize;
+    let mut gpus: Vec<_> = (0..count)
+        .map(|index| {
+            let prefix = format!("gpu.{index}");
+            let metric = |name: &str| snapshot.metrics.get(&format!("{prefix}.{name}")).copied();
+            GpuInfo {
+                name: snapshot
+                    .labels
+                    .get(&format!("{prefix}.name"))
+                    .cloned()
+                    .unwrap_or_else(|| format!("GPU {index}")),
+                utilization: metric("utilization").unwrap_or_default() as f32,
+                memory_used: metric("vram_used").map(|value| value as u64),
+                memory_total: metric("vram_total").map(|value| value as u64),
+                temperature: metric("temperature").map(|value| value as u32),
+                clock_mhz: metric("clock_graphics").map(|value| value as u32),
+                power_watts: metric("power_draw_mw").map(|value| value as f32 / 1_000.0),
+                fan_percent: metric("fan_speed").map(|value| value as u32),
+            }
+        })
+        .collect();
+
+    let generic_count = snapshot.metrics.get("gpu.generic_count").copied().unwrap_or_default() as usize;
+    let generic_utilization = snapshot
+        .metrics
+        .get("gpu.generic.utilization")
+        .copied()
+        .unwrap_or_default() as f32;
+    let generic_memory_used = snapshot.metrics.get("gpu.generic.vram_used").map(|value| *value as u64);
+    for index in 0..generic_count {
+        let prefix = format!("gpu.generic.{index}");
+        let name = snapshot
+            .labels
+            .get(&format!("{prefix}.name"))
+            .cloned()
+            .unwrap_or_else(|| format!("GPU {index}"));
+        if gpus.iter().any(|gpu| gpu.name.eq_ignore_ascii_case(&name)) {
+            continue;
+        }
+        gpus.push(GpuInfo {
+            name,
+            utilization: snapshot
+                .metrics
+                .get(&format!("{prefix}.utilization"))
+                .copied()
+                .map(|value| value as f32)
+                .unwrap_or(generic_utilization),
+            memory_used: generic_memory_used,
+            memory_total: snapshot
+                .metrics
+                .get(&format!("{prefix}.vram_total"))
+                .map(|value| *value as u64),
+            temperature: None,
+            clock_mhz: None,
+            power_watts: None,
+            fan_percent: None,
+        });
+    }
+    gpus
+}
+
 #[derive(Clone, Serialize)]
 pub(crate) struct DiskInfo {
     pub(crate) name: String,
@@ -169,8 +248,17 @@ pub(crate) struct AlertInfo {
 impl AlertInfo {
     fn key(&self) -> String {
         match self.alert_type {
-            AlertType::GpuTempHigh => format!("gpu:{}", self.message.rsplit_once('(').map(|(_, v)| v.trim_end_matches(')')).unwrap_or("unknown")),
-            AlertType::DiskSpaceLow => format!("disk:{}", self.message.split(" is almost full").next().unwrap_or(&self.message)),
+            AlertType::GpuTempHigh => format!(
+                "gpu:{}",
+                self.message
+                    .rsplit_once('(')
+                    .map(|(_, v)| v.trim_end_matches(')'))
+                    .unwrap_or("unknown")
+            ),
+            AlertType::DiskSpaceLow => format!(
+                "disk:{}",
+                self.message.split(" is almost full").next().unwrap_or(&self.message)
+            ),
             AlertType::CpuHigh => "cpu".into(),
             AlertType::MemoryHigh => "memory".into(),
             AlertType::StartupHighImpact => "startup".into(),
@@ -300,7 +388,6 @@ fn default_auto_clean_notify() -> bool {
 fn default_enable_sounds() -> bool {
     true
 }
-
 
 fn default_show_cpu_cores() -> bool {
     true
@@ -437,10 +524,7 @@ impl SystemMonitor {
         let networks = Networks::new_with_refreshed_list();
 
         #[cfg(target_os = "windows")]
-        let nvml = {
-            let res = Nvml::init().ok();
-            res
-        };
+        let nvml = Nvml::init().ok();
 
         // Probe which WMI GPU performance counter class name is available on this system.
         // Windows versions differ: some use "GPUPerformanceMonitors", others use "GPUPerformanceCounters".
@@ -461,8 +545,7 @@ impl SystemMonitor {
                                 .raw_query::<std::collections::HashMap<String, wmi::Variant>>(&q)
                                 .is_ok()
                             {
-                                engine_class =
-                                    Some(format!("Win32_PerfFormattedData_{}_GPUEngine", prefix));
+                                engine_class = Some(format!("Win32_PerfFormattedData_{}_GPUEngine", prefix));
                             }
                         }
                         if memory_class.is_none() {
@@ -474,10 +557,8 @@ impl SystemMonitor {
                                 .raw_query::<std::collections::HashMap<String, wmi::Variant>>(&q)
                                 .is_ok()
                             {
-                                memory_class = Some(format!(
-                                    "Win32_PerfFormattedData_{}_GPULocalAdapterMemory",
-                                    prefix
-                                ));
+                                memory_class =
+                                    Some(format!("Win32_PerfFormattedData_{}_GPULocalAdapterMemory", prefix));
                             }
                         }
                     }
@@ -487,7 +568,9 @@ impl SystemMonitor {
         };
 
         #[cfg(target_os = "windows")]
-        let wmi_thermal = wmi_com.as_ref().and_then(|com| wmi::WMIConnection::with_namespace_path("ROOT\\WMI", com.clone()).ok());
+        let wmi_thermal = wmi_com
+            .as_ref()
+            .and_then(|com| wmi::WMIConnection::with_namespace_path("ROOT\\WMI", com.clone()).ok());
 
         SystemMonitor {
             sys,
@@ -508,12 +591,6 @@ impl SystemMonitor {
             previous_network_totals: std::collections::HashMap::new(),
             previous_disk_totals: (0, 0),
         }
-    }
-
-    fn refresh(&mut self) {
-        self.sys.refresh_all();
-        self.disks.refresh();
-        self.networks.refresh();
     }
 
     fn get_memory_info(&self) -> (u64, u64, f32) {
@@ -543,7 +620,7 @@ impl SystemMonitor {
                         }
                     }
                 }
-                
+
                 ProcessInfo {
                     pid: pid.as_u32(),
                     name: name_str,
@@ -556,7 +633,7 @@ impl SystemMonitor {
             })
             .collect();
 
-        processes.sort_by(|a, b| b.memory.cmp(&a.memory));
+        processes.sort_by_key(|process| std::cmp::Reverse(process.memory));
         processes.truncate(count);
         processes
     }
@@ -592,9 +669,9 @@ impl SystemMonitor {
 
     #[cfg(target_os = "windows")]
     fn suspend_process(&mut self, pid: u32) -> bool {
+        use ntapi::ntpsapi::NtSuspendProcess;
         use windows::Win32::Foundation::CloseHandle;
         use windows::Win32::System::Threading::{OpenProcess, PROCESS_SUSPEND_RESUME};
-        use ntapi::ntpsapi::NtSuspendProcess;
 
         unsafe {
             if let Ok(h) = OpenProcess(PROCESS_SUSPEND_RESUME, false, pid) {
@@ -613,9 +690,9 @@ impl SystemMonitor {
 
     #[cfg(target_os = "windows")]
     fn resume_process(&mut self, pid: u32) -> bool {
+        use ntapi::ntpsapi::NtResumeProcess;
         use windows::Win32::Foundation::CloseHandle;
         use windows::Win32::System::Threading::{OpenProcess, PROCESS_SUSPEND_RESUME};
-        use ntapi::ntpsapi::NtResumeProcess;
 
         unsafe {
             if let Ok(h) = OpenProcess(PROCESS_SUSPEND_RESUME, false, pid) {
@@ -657,16 +734,16 @@ impl SystemMonitor {
         }
     }
 
-
     #[cfg(target_os = "windows")]
     fn clean_ram(&mut self, exclusions: &[String]) -> u64 {
         use windows::Win32::Foundation::CloseHandle;
         use windows::Win32::System::ProcessStatus::EmptyWorkingSet;
-        use windows::Win32::System::Threading::{
-            OpenProcess, PROCESS_QUERY_INFORMATION,
-        };
+        use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_INFORMATION};
 
-        info!(excluded = exclusions.len(), "RAM clean operation initiated (native API)");
+        info!(
+            excluded = exclusions.len(),
+            "RAM clean operation initiated (native API)"
+        );
         let mem_before = self.sys.used_memory();
         let mut success_count = 0;
         let mut fail_count = 0;
@@ -716,9 +793,7 @@ impl SystemMonitor {
     #[cfg(target_os = "windows")]
     fn set_process_priority(pid: u32, priority: &str) -> bool {
         use windows::Win32::Foundation::CloseHandle;
-        use windows::Win32::System::Threading::{
-            OpenProcess, SetPriorityClass, PROCESS_CREATION_FLAGS,
-        };
+        use windows::Win32::System::Threading::{OpenProcess, SetPriorityClass, PROCESS_CREATION_FLAGS};
 
         let priority_class: PROCESS_CREATION_FLAGS = match priority {
             "Realtime" => windows::Win32::System::Threading::REALTIME_PRIORITY_CLASS,
@@ -731,11 +806,7 @@ impl SystemMonitor {
         };
 
         unsafe {
-            if let Ok(h) = OpenProcess(
-                windows::Win32::System::Threading::PROCESS_SET_INFORMATION,
-                false,
-                pid,
-            ) {
+            if let Ok(h) = OpenProcess(windows::Win32::System::Threading::PROCESS_SET_INFORMATION, false, pid) {
                 if !h.is_invalid() {
                     let result = SetPriorityClass(h, priority_class);
                     let _ = CloseHandle(h);
@@ -832,8 +903,12 @@ impl SystemMonitor {
         let mut gpus = Vec::new();
 
         for gpu_entry in &results {
-            let name = gpu_entry.get("Name")
-                .and_then(|v| match v { wmi::Variant::String(s) => Some(s.clone()), _ => None })
+            let name = gpu_entry
+                .get("Name")
+                .and_then(|v| match v {
+                    wmi::Variant::String(s) => Some(s.clone()),
+                    _ => None,
+                })
                 .unwrap_or_else(|| "Unknown GPU".to_string());
 
             if name.contains("Microsoft Basic Display Adapter") || name.contains("Standard VGA") {
@@ -915,7 +990,11 @@ impl SystemMonitor {
             });
         }
 
-        if gpus.is_empty() { None } else { Some(gpus) }
+        if gpus.is_empty() {
+            None
+        } else {
+            Some(gpus)
+        }
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -967,8 +1046,8 @@ impl SystemMonitor {
     /// One-time WMI queries for motherboard/BIOS/GPU-driver/OS-build details.
     /// Any failure returns `None` for the failed fields; WMI init failure returns all `None`.
     fn get_wmi_system_details() -> (Option<String>, Option<String>, Option<String>, Option<String>) {
-        use wmi::{COMLibrary, WMIConnection, Variant};
         use std::rc::Rc;
+        use wmi::{COMLibrary, Variant, WMIConnection};
         let com = match COMLibrary::new() {
             Ok(c) => Rc::new(c),
             Err(_) => return (None, None, None, None),
@@ -984,8 +1063,13 @@ impl SystemMonitor {
                 _ => None,
             })
         };
-        let motherboard = one("SELECT Manufacturer, Product FROM Win32_BaseBoard", "Manufacturer")
-            .map(|m| if m.trim().is_empty() { "N/A".to_string() } else { m });
+        let motherboard = one("SELECT Manufacturer, Product FROM Win32_BaseBoard", "Manufacturer").map(|m| {
+            if m.trim().is_empty() {
+                "N/A".to_string()
+            } else {
+                m
+            }
+        });
         let bios_version = one("SELECT SMBIOSBIOSVersion FROM Win32_BIOS", "SMBIOSBIOSVersion");
         let gpu_driver = one("SELECT DriverVersion FROM Win32_VideoController", "DriverVersion");
         let os_build = one("SELECT BuildNumber FROM Win32_OperatingSystem", "BuildNumber");
@@ -1024,15 +1108,25 @@ impl SystemMonitor {
 
     fn get_disk_io(&mut self, _refresh_interval: u64) -> (f64, f64) {
         let elapsed = self.last_disk_update.elapsed();
-        let (total_read, total_written) = self.sys.processes().values().fold((0u64, 0u64), |(read, written), process| {
-            let usage = process.disk_usage();
-            (read.saturating_add(usage.read_bytes), written.saturating_add(usage.written_bytes))
-        });
+        let (total_read, total_written) =
+            self.sys
+                .processes()
+                .values()
+                .fold((0u64, 0u64), |(read, written), process| {
+                    let usage = process.disk_usage();
+                    (
+                        read.saturating_add(usage.read_bytes),
+                        written.saturating_add(usage.written_bytes),
+                    )
+                });
         let read_rate = monitoring::rates::counter_rate(Some(self.previous_disk_totals.0), total_read, elapsed);
         let write_rate = monitoring::rates::counter_rate(Some(self.previous_disk_totals.1), total_written, elapsed);
         self.previous_disk_totals = (total_read, total_written);
         self.last_disk_update = Instant::now();
-        (read_rate.value_per_second / 1024.0 / 1024.0, write_rate.value_per_second / 1024.0 / 1024.0)
+        (
+            read_rate.value_per_second / 1024.0 / 1024.0,
+            write_rate.value_per_second / 1024.0 / 1024.0,
+        )
     }
 
     fn check_alerts(&self, settings: &AppSettings, data: &SystemData) -> Vec<AlertInfo> {
@@ -1092,7 +1186,10 @@ impl SystemMonitor {
             alerts.push(AlertInfo {
                 timestamp: timestamp.clone(),
                 alert_type: AlertType::StartupHighImpact,
-                message: format!("{} startup item(s) have High impact on boot time", data.high_impact_startup_count),
+                message: format!(
+                    "{} startup item(s) have High impact on boot time",
+                    data.high_impact_startup_count
+                ),
                 value: data.high_impact_startup_count as f32,
             });
         }
@@ -1103,14 +1200,24 @@ impl SystemMonitor {
     fn get_network_info(&mut self) -> Vec<NetworkInfo> {
         let elapsed = self.last_network_update.elapsed();
         let mut current_totals = std::collections::HashMap::new();
-        let network_info = self.networks.iter().map(|(interface, data)| {
-            let current = (data.received(), data.transmitted());
-            let previous = self.previous_network_totals.get(interface).copied();
-            current_totals.insert(interface.clone(), current);
-            let received_rate = monitoring::rates::counter_rate(previous.map(|p| p.0), current.0, elapsed);
-            let transmitted_rate = monitoring::rates::counter_rate(previous.map(|p| p.1), current.1, elapsed);
-            NetworkInfo { interface: interface.clone(), received: current.0, transmitted: current.1, received_rate: received_rate.value_per_second / 1024.0 / 1024.0, transmitted_rate: transmitted_rate.value_per_second / 1024.0 / 1024.0 }
-        }).collect();
+        let network_info = self
+            .networks
+            .iter()
+            .map(|(interface, data)| {
+                let current = (data.received(), data.transmitted());
+                let previous = self.previous_network_totals.get(interface).copied();
+                current_totals.insert(interface.clone(), current);
+                let received_rate = monitoring::rates::counter_rate(previous.map(|p| p.0), current.0, elapsed);
+                let transmitted_rate = monitoring::rates::counter_rate(previous.map(|p| p.1), current.1, elapsed);
+                NetworkInfo {
+                    interface: interface.clone(),
+                    received: current.0,
+                    transmitted: current.1,
+                    received_rate: received_rate.value_per_second / 1024.0 / 1024.0,
+                    transmitted_rate: transmitted_rate.value_per_second / 1024.0 / 1024.0,
+                }
+            })
+            .collect();
         self.previous_network_totals = current_totals;
         self.last_network_update = Instant::now();
         network_info
@@ -1195,6 +1302,8 @@ pub(crate) struct SystemData {
     pub(crate) selected_tab: Tab,
     pub(crate) services: Vec<services::ServiceInfo>,
     pub(crate) last_activity: Instant,
+    pub(crate) telemetry_history_stats: std::collections::HashMap<String, telemetry::HistoryStats>,
+    pub(crate) provider_status: std::collections::HashMap<String, bool>,
 }
 
 impl Default for SystemData {
@@ -1253,6 +1362,8 @@ impl Default for SystemData {
             selected_tab: Tab::Overview,
             last_activity: Instant::now(),
             services: Vec::new(),
+            telemetry_history_stats: std::collections::HashMap::new(),
+            provider_status: std::collections::HashMap::new(),
         }
     }
 }
@@ -1261,9 +1372,14 @@ pub(crate) struct SystemMonitorApp {
     pub(crate) data: Arc<Mutex<SystemData>>,
     pub(crate) app_channels: app::AppChannels,
     pub(crate) latest_snapshot: Option<monitoring::SystemSnapshot>,
-    pub(crate) action_events: Vec<app::events::AppEvent>,
     pub(crate) action_pending: bool,
     pub(crate) action_status: Option<String>,
+    pub(crate) pending_action_plan: Option<app::actions::ActionPlan>,
+    pub(crate) action_history: Vec<app::actions::ActionHistoryEntry>,
+    pub(crate) show_action_history: bool,
+    pub(crate) session_recorder: persistence::session::SessionRecorder,
+    pub(crate) session_status: Option<String>,
+    telemetry_commands: std::sync::mpsc::SyncSender<telemetry::HubCommand>,
     pub(crate) settings: AppSettings,
     pub(crate) shared_settings: Arc<Mutex<AppSettings>>,
     pub(crate) selected_tab: Tab,
@@ -1285,7 +1401,6 @@ pub(crate) struct SystemMonitorApp {
     pub(crate) update_info_share: Arc<Mutex<Option<updater::UpdateInfo>>>,
     pub(crate) show_update_notification: bool,
     pub(crate) update_check_time: Option<Instant>,
-    pub(crate) update_check_running: Arc<std::sync::atomic::AtomicBool>,
     pub(crate) ram_cleaner_state: RamCleanerState,
     pub(crate) startup_items: Vec<StartupItem>,
     pub(crate) startup_items_loaded: bool,
@@ -1330,7 +1445,8 @@ pub(crate) struct SystemMonitorApp {
     pub(crate) tray_menu_power_item: Option<tray_icon::menu::Submenu>,
     #[cfg(target_os = "windows")]
     #[allow(dead_code)]
-    pub(crate) tray_menu_power_items: std::collections::HashMap<tray_icon::menu::MenuId, tray_icon::menu::CheckMenuItem>,
+    pub(crate) tray_menu_power_items:
+        std::collections::HashMap<tray_icon::menu::MenuId, tray_icon::menu::CheckMenuItem>,
     #[cfg(target_os = "windows")]
     pub(crate) tray_menu_power_guids: std::collections::HashMap<tray_icon::menu::MenuId, String>,
     pub(crate) is_hidden: bool,
@@ -1352,6 +1468,7 @@ pub(crate) enum Tab {
     RamCleaner,
     StartupManager,
     Services,
+    Diagnostics,
     About,
 }
 
@@ -1371,17 +1488,15 @@ impl SystemMonitorApp {
             let mut monospace_loaded = false;
 
             // Load Segoe UI for standard proportional text
-            let font_paths = [
-                "C:\\Windows\\Fonts\\segoeui.ttf",
-                "C:\\Windows\\Fonts\\SegoeUI.ttf",
-            ];
+            let font_paths = ["C:\\Windows\\Fonts\\segoeui.ttf", "C:\\Windows\\Fonts\\SegoeUI.ttf"];
             for path in &font_paths {
                 if let Ok(font_bytes) = std::fs::read(path) {
-                    fonts.font_data.insert(
-                        "segoe_ui".to_owned(),
-                        egui::FontData::from_owned(font_bytes),
-                    );
-                    fonts.families.entry(egui::FontFamily::Proportional)
+                    fonts
+                        .font_data
+                        .insert("segoe_ui".to_owned(), egui::FontData::from_owned(font_bytes));
+                    fonts
+                        .families
+                        .entry(egui::FontFamily::Proportional)
                         .or_default()
                         .insert(0, "segoe_ui".to_owned());
                     proportional_loaded = true;
@@ -1390,17 +1505,15 @@ impl SystemMonitorApp {
             }
 
             // Load Consolas for monospace text
-            let mono_paths = [
-                "C:\\Windows\\Fonts\\consola.ttf",
-                "C:\\Windows\\Fonts\\Consola.ttf",
-            ];
+            let mono_paths = ["C:\\Windows\\Fonts\\consola.ttf", "C:\\Windows\\Fonts\\Consola.ttf"];
             for path in &mono_paths {
                 if let Ok(font_bytes) = std::fs::read(path) {
-                    fonts.font_data.insert(
-                        "consolas".to_owned(),
-                        egui::FontData::from_owned(font_bytes),
-                    );
-                    fonts.families.entry(egui::FontFamily::Monospace)
+                    fonts
+                        .font_data
+                        .insert("consolas".to_owned(), egui::FontData::from_owned(font_bytes));
+                    fonts
+                        .families
+                        .entry(egui::FontFamily::Monospace)
                         .or_default()
                         .insert(0, "consolas".to_owned());
                     monospace_loaded = true;
@@ -1502,15 +1615,15 @@ impl SystemMonitorApp {
             visuals.panel_fill = egui::Color32::from_rgb(245, 245, 247);
             visuals.window_fill = egui::Color32::from_rgb(255, 255, 255);
             visuals.extreme_bg_color = egui::Color32::from_rgb(235, 235, 240);
-            
+
             // Accent overrides
             visuals.selection.bg_fill = ThemePalette::ACCENT_PRIMARY;
             visuals.selection.stroke = egui::Stroke::NONE;
-            
+
             visuals.widgets.noninteractive.bg_fill = egui::Color32::from_rgb(250, 250, 250);
             visuals.widgets.noninteractive.bg_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(220, 220, 225));
             visuals.widgets.noninteractive.fg_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(40, 40, 45));
-            
+
             visuals.window_rounding = egui::Rounding::same(8.0);
             visuals.menu_rounding = egui::Rounding::same(8.0);
 
@@ -1524,7 +1637,10 @@ impl SystemMonitorApp {
         let shared_settings = Arc::new(Mutex::new(settings.clone()));
         let shared_settings_clone = Arc::clone(&shared_settings);
         let mut app_channels = app::AppChannels::new();
-        let monitoring_receiver = app_channels.monitoring_receiver.take().expect("monitoring receiver missing");
+        let monitoring_receiver = app_channels
+            .monitoring_receiver
+            .take()
+            .expect("monitoring receiver missing");
         let action_receiver = app_channels.action_receiver.take().expect("action receiver missing");
         let action_events = app_channels.event_sender.clone();
         let monitoring_events = app_channels.event_sender.clone();
@@ -1534,355 +1650,449 @@ impl SystemMonitorApp {
             .spawn(move || run_action_worker(action_receiver, action_events))
             .expect("failed to spawn action worker");
 
+        let (mut telemetry_hub, mut telemetry_reader, telemetry_commands) = telemetry::TelemetryHub::new();
+        telemetry_hub.add_provider(Box::new(providers::sysinfo_provider::SysinfoProvider::new()));
+        telemetry_hub.add_provider(Box::new(providers::nvml_provider::NvmlProvider::new()));
+        telemetry_hub.add_provider(Box::new(providers::wmi_provider::WmiProvider::new()));
+        telemetry_hub.add_provider(Box::new(providers::windows_gpu_provider::WindowsGpuProvider::new()));
+        thread::Builder::new()
+            .name("telemetry_hub".to_string())
+            .spawn(move || telemetry_hub.run())
+            .expect("failed to spawn telemetry hub");
+        let telemetry_commands_for_monitor = telemetry_commands.clone();
+
         // Background thread for monitoring
         thread::Builder::new()
             .name("monitoring".to_string())
             .stack_size(8 * 1024 * 1024)
             .spawn(move || {
-            let mut monitor = SystemMonitor::new();
+                let mut monitor = SystemMonitor::new();
 
-            // Get system info once (doesn't change)
-            let system_info = monitor.get_system_info();
-            let mut battery_check_counter: u32 = 0;
-            let mut temperature_check_counter: u32 = 0;
-            let mut service_check_counter: u32 = 0;
-            let mut last_alert_time: std::collections::HashMap<AlertType, Instant> = std::collections::HashMap::new();
-            let mut last_hidden_tick = Instant::now();
-            let mut last_selected_tab = data_clone.lock().selected_tab;
+                // Get system info once (doesn't change)
+                let system_info = monitor.get_system_info();
+                let mut battery_check_counter: u32 = 0;
+                let mut temperature_check_counter: u32 = 0;
+                let mut service_check_counter: u32 = 0;
+                let mut last_alert_time: std::collections::HashMap<AlertType, Instant> =
+                    std::collections::HashMap::new();
+                let mut last_hidden_tick = Instant::now();
+                let mut last_selected_tab = data_clone.lock().selected_tab;
+                let mut latest_telemetry = telemetry::TelemetrySnapshot::default();
 
-            loop {
-                let mut force_refresh = false;
-                while let Ok(command) = monitoring_receiver.try_recv() {
-                    match command {
-                        app::commands::MonitoringCommand::SetSettings(new_settings) => {
-                            *shared_settings_clone.lock() = new_settings;
+                loop {
+                    let mut force_refresh = false;
+                    while let Ok(command) = monitoring_receiver.try_recv() {
+                        match command {
+                            app::commands::MonitoringCommand::SetSettings(new_settings) => {
+                                *shared_settings_clone.lock() = *new_settings;
+                            }
+                            app::commands::MonitoringCommand::SetPaused(paused) => {
+                                data_clone.lock().monitoring_paused = paused
+                            }
+                            app::commands::MonitoringCommand::SetHidden(hidden) => {
+                                data_clone.lock().is_hidden = hidden;
+                                let _ = telemetry_commands_for_monitor
+                                    .try_send(telemetry::HubCommand::SetBackgroundMode(hidden));
+                            }
+                            app::commands::MonitoringCommand::RefreshNow => {
+                                force_refresh = true;
+                                let _ = telemetry_commands_for_monitor.try_send(telemetry::HubCommand::ForceRefresh);
+                            }
+                            app::commands::MonitoringCommand::Shutdown => {
+                                let _ = telemetry_commands_for_monitor.try_send(telemetry::HubCommand::Shutdown);
+                                return;
+                            }
                         }
-                        app::commands::MonitoringCommand::SetPaused(paused) => data_clone.lock().monitoring_paused = paused,
-                        app::commands::MonitoringCommand::SetHidden(hidden) => data_clone.lock().is_hidden = hidden,
-                        app::commands::MonitoringCommand::RefreshNow => force_refresh = true,
-                        app::commands::MonitoringCommand::Shutdown => return,
                     }
-                }
-                if !force_refresh {
-                    thread::sleep(Duration::from_millis(500));
-                }
+                    if let Some(snapshot) = telemetry_reader.latest_if_updated() {
+                        latest_telemetry = snapshot;
+                    }
+                    if !force_refresh {
+                        thread::sleep(Duration::from_millis(500));
+                    }
 
-                // Read hidden status, current tab, and pause state
-                let (is_hidden, selected_tab, paused) = {
-                    let data = data_clone.lock();
-                    (data.is_hidden, data.selected_tab, data.monitoring_paused)
-                };
-
-                // Read current settings from shared state
-                let (refresh_interval, process_count, settings_snapshot) = {
-                    let s = shared_settings_clone.lock();
-                    (s.refresh_interval, s.process_count, s.clone())
-                };
-
-                let is_minimized_tick = is_hidden && last_hidden_tick.elapsed().as_secs() < 10;
-
-                if is_minimized_tick {
-                    continue;
-                }
-
-                if paused {
-                    continue;
-                }
-
-                if is_hidden {
-                    last_hidden_tick = Instant::now();
-                }
-
-                // If minimized refresh: only refresh CPU and RAM to check alerts & update tray tooltip
-                if is_hidden {
-                    monitor.sys.refresh_cpu();
-                    monitor.sys.refresh_memory();
-                } else {
-                    monitor.refresh();
-                }
-
-                let (total_mem, used_mem, mem_percentage) = monitor.get_memory_info();
-                let cpu_usage = monitor.get_cpu_usage();
-
-                // Optimized queries
-                let need_cpu_cores = !is_hidden && (selected_tab == Tab::Overview || selected_tab == Tab::CpuCores);
-                let need_cpu_temp = !is_hidden && selected_tab == Tab::Overview;
-                let need_gpu_wmi = !is_hidden && (selected_tab == Tab::Overview || selected_tab == Tab::Performance);
-                let need_gpu_info = need_gpu_wmi || settings_snapshot.show_notifications || settings_snapshot.show_graphs;
-                // Fetch processes for both Processes tab (all) and Overview tab (top N summary)
-                let need_processes = !is_hidden && (selected_tab == Tab::Processes || selected_tab == Tab::Overview);
-                let need_disks = (!is_hidden && (selected_tab == Tab::Overview || selected_tab == Tab::Storage)) || settings_snapshot.show_notifications || settings_snapshot.show_graphs;
-                let need_network = !is_hidden && (selected_tab == Tab::Overview || selected_tab == Tab::Network || selected_tab == Tab::Performance);
-
-                let cpu_cores = if need_cpu_cores {
-                    monitor.get_cpu_cores_info()
-                } else {
-                    Vec::new()
-                };
-
-                let cpu_temperature = if need_cpu_temp && temperature_check_counter % 10 == 0 {
-                    monitor.get_cpu_temperature_wmi()
-                } else {
-                    None
-                };
-                temperature_check_counter = temperature_check_counter.wrapping_add(1);
-
-                let gpu_info = if need_gpu_info {
-                    monitor.get_gpu_info(need_gpu_wmi)
-                } else {
-                    Vec::new()
-                };
-
-                let top_processes = if need_processes {
-                    // On Processes tab, fetch ALL processes so search/sort works on the full list.
-                    // On Overview tab, only fetch the top N by memory for the summary panel.
-                    let fetch_count = if selected_tab == Tab::Processes {
-                        usize::MAX
-                    } else {
-                        process_count
+                    // Read hidden status, current tab, and pause state
+                    let (is_hidden, selected_tab, paused) = {
+                        let data = data_clone.lock();
+                        (data.is_hidden, data.selected_tab, data.monitoring_paused)
                     };
-                    monitor.get_top_processes(fetch_count)
-                } else {
-                    Vec::new()
-                };
 
-                let disk_info = if need_disks {
-                    monitor.get_disk_info()
-                } else {
-                    Vec::new()
-                };
+                    // Read current settings from shared state
+                    let (refresh_interval, process_count, settings_snapshot) = {
+                        let s = shared_settings_clone.lock();
+                        (s.refresh_interval, s.process_count, s.clone())
+                    };
 
-                let network_info = if need_network {
-                    monitor.get_network_info()
-                } else {
-                    Vec::new()
-                };
+                    let is_minimized_tick = is_hidden && last_hidden_tick.elapsed().as_secs() < 10;
 
-                let swap_info = monitor.get_swap_info();
-                
-                let (disk_read_rate, disk_write_rate) = if !is_hidden {
-                    monitor.get_disk_io(refresh_interval)
-                } else {
-                    (0.0, 0.0)
-                };
-
-                let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
-
-                // Get battery info every 15 ticks (~7.5s) — retain previous value if unavailable
-                if battery_check_counter % 15 == 0 {
-                    let mut bi = None;
-                    if let Some(wmi_con) = monitor.get_battery_wmi() {
-                        bi = get_battery_info(&wmi_con);
+                    if is_minimized_tick {
+                        continue;
                     }
-                    if let Some(bi) = bi {
-                        let mut data = data_clone.lock();
-                        data.battery_info = Some(bi);
-                    }
-                }
-                battery_check_counter = battery_check_counter.wrapping_add(1);
 
-                // Poll services every 60 ticks (~30s) — WMI queries are expensive
-                if !is_hidden && selected_tab == Tab::Services {
-                    let services_list = if last_selected_tab != Tab::Services || data_clone.lock().services.is_empty() {
-                        if let Some(ref com) = monitor.wmi_com {
-                            services::get_services_with_com(Some(com))
+                    if paused {
+                        continue;
+                    }
+
+                    if is_hidden {
+                        last_hidden_tick = Instant::now();
+                    }
+
+                    // Rich process, disk and network details still use sysinfo's
+                    // native structures; core CPU/RAM/GPU values come from the hub.
+                    if !is_hidden {
+                        monitor.sys.refresh_processes();
+                        monitor.disks.refresh();
+                        monitor.networks.refresh();
+                    }
+
+                    let fallback_memory = monitor.get_memory_info();
+                    let total_mem = latest_telemetry
+                        .metrics
+                        .get("memory.total")
+                        .copied()
+                        .map(|value| value as u64)
+                        .unwrap_or(fallback_memory.0);
+                    let used_mem = latest_telemetry
+                        .metrics
+                        .get("memory.used")
+                        .copied()
+                        .map(|value| value as u64)
+                        .unwrap_or(fallback_memory.1);
+                    let mem_percentage = if total_mem == 0 {
+                        0.0
+                    } else {
+                        used_mem as f32 / total_mem as f32 * 100.0
+                    };
+                    let cpu_usage = latest_telemetry
+                        .metrics
+                        .get("cpu.global_usage")
+                        .copied()
+                        .map(|value| value as f32)
+                        .unwrap_or_else(|| monitor.get_cpu_usage());
+
+                    // Optimized queries
+                    let need_cpu_cores = !is_hidden && (selected_tab == Tab::Overview || selected_tab == Tab::CpuCores);
+                    let need_cpu_temp = !is_hidden && selected_tab == Tab::Overview;
+                    let need_gpu_wmi =
+                        !is_hidden && (selected_tab == Tab::Overview || selected_tab == Tab::Performance);
+                    let need_gpu_info =
+                        need_gpu_wmi || settings_snapshot.show_notifications || settings_snapshot.show_graphs;
+                    // Fetch processes for both Processes tab (all) and Overview tab (top N summary)
+                    let need_processes =
+                        !is_hidden && (selected_tab == Tab::Processes || selected_tab == Tab::Overview);
+                    let need_disks = (!is_hidden && (selected_tab == Tab::Overview || selected_tab == Tab::Storage))
+                        || settings_snapshot.show_notifications
+                        || settings_snapshot.show_graphs;
+                    let need_network = !is_hidden
+                        && (selected_tab == Tab::Overview
+                            || selected_tab == Tab::Network
+                            || selected_tab == Tab::Performance);
+
+                    let cpu_cores = if need_cpu_cores {
+                        let cores = cpu_cores_from_telemetry(&latest_telemetry);
+                        if cores.is_empty() {
+                            monitor.get_cpu_cores_info()
                         } else {
-                            services::get_services()
-                        }
-                    } else if service_check_counter % 60 == 0 {
-                        if let Some(ref com) = monitor.wmi_com {
-                            services::get_services_with_com(Some(com))
-                        } else {
-                            services::get_services()
+                            cores
                         }
                     } else {
                         Vec::new()
                     };
-                    if !services_list.is_empty() {
-                        let mut data = data_clone.lock();
-                        data.services = services_list;
-                    }
-                }
-                service_check_counter = service_check_counter.wrapping_add(1);
-                last_selected_tab = selected_tab;
 
-                // Calculate total network rates
-                let total_download_rate: f64 = network_info.iter().map(|n| n.received_rate).sum();
-                let total_upload_rate: f64 = network_info.iter().map(|n| n.transmitted_rate).sum();
+                    let cpu_temperature = if need_cpu_temp && temperature_check_counter % 10 == 0 {
+                        monitor.get_cpu_temperature_wmi()
+                    } else {
+                        None
+                    };
+                    temperature_check_counter = temperature_check_counter.wrapping_add(1);
 
-                {
-                    let mut data = data_clone.lock();
-                    let elapsed = data.start_time.elapsed().as_secs_f64();
+                    let gpu_info = if need_gpu_info {
+                        let hub_gpus = gpus_from_telemetry(&latest_telemetry);
+                        if hub_gpus.is_empty() {
+                            monitor.get_gpu_info(need_gpu_wmi)
+                        } else {
+                            hub_gpus
+                        }
+                    } else {
+                        Vec::new()
+                    };
 
-                    // Update current values
-                    data.memory_total = total_mem;
-                    data.memory_used = used_mem;
-                    data.memory_percentage = mem_percentage;
-                    data.cpu_usage = cpu_usage;
-                    if need_cpu_cores {
-                        data.cpu_cores = cpu_cores;
-                    }
-                    if need_cpu_temp {
-                        data.cpu_temperature = cpu_temperature;
-                    }
-                    if need_gpu_info {
-                        data.gpu_info = gpu_info.clone();
-                    }
-                    if need_processes {
-                        data.top_processes = top_processes;
-                    }
-                    if need_disks {
-                        data.disk_info = disk_info;
-                    }
-                    if need_network {
-                        data.network_info = network_info;
-                    }
-                    data.system_info = system_info.clone();
-                    data.last_update = timestamp;
-                    data.swap_info = swap_info;
-                    if !is_hidden {
-                        data.disk_read_rate = disk_read_rate;
-                        data.disk_write_rate = disk_write_rate;
-                    }
-                    data.network_sample_count += 1;
+                    let top_processes = if need_processes {
+                        // On Processes tab, fetch ALL processes so search/sort works on the full list.
+                        // On Overview tab, only fetch the top N by memory for the summary panel.
+                        let fetch_count = if selected_tab == Tab::Processes {
+                            usize::MAX
+                        } else {
+                            process_count
+                        };
+                        monitor.get_top_processes(fetch_count)
+                    } else {
+                        Vec::new()
+                    };
 
-                    // Check for alerts
-                    let mut new_alerts = monitor.check_alerts(&settings_snapshot, &data);
-                    let active_keys: std::collections::HashSet<String> = data.alerts.iter().map(AlertInfo::key).collect();
-                    new_alerts.retain(|alert| !active_keys.contains(&alert.key()));
+                    let disk_info = if need_disks {
+                        monitor.get_disk_info()
+                    } else {
+                        Vec::new()
+                    };
 
-                    if !new_alerts.is_empty() && settings_snapshot.enable_sounds {
-                        play_alert_sound();
-                    }
+                    let network_info = if need_network {
+                        monitor.get_network_info()
+                    } else {
+                        Vec::new()
+                    };
 
-                    // Send desktop notifications for new alerts with a 5-minute cooldown
-                    if settings_snapshot.show_notifications {
-                        for alert in &new_alerts {
-                            let now = Instant::now();
-                            let should_notify = last_alert_time.get(&alert.alert_type)
-                                .map_or(true, |&last| now.duration_since(last).as_secs() > 300);
-                            
-                            if should_notify {
-                                let _ = notify_rust::Notification::new()
-                                    .summary("System Monitor Alert")
-                                    .body(&alert.message)
-                                    .timeout(notify_rust::Timeout::Milliseconds(5000))
-                                    .show();
-                                last_alert_time.insert(alert.alert_type.clone(), now);
-                            }
+                    let swap_total = latest_telemetry
+                        .metrics
+                        .get("memory.total_swap")
+                        .copied()
+                        .map(|v| v as u64);
+                    let swap_used = latest_telemetry
+                        .metrics
+                        .get("memory.used_swap")
+                        .copied()
+                        .map(|v| v as u64);
+                    let swap_info = match (swap_total, swap_used) {
+                        (Some(total), Some(used)) => SwapInfo {
+                            total,
+                            used,
+                            percentage: if total == 0 {
+                                0.0
+                            } else {
+                                used as f32 / total as f32 * 100.0
+                            },
+                        },
+                        _ => monitor.get_swap_info(),
+                    };
+
+                    let (disk_read_rate, disk_write_rate) = if !is_hidden {
+                        monitor.get_disk_io(refresh_interval)
+                    } else {
+                        (0.0, 0.0)
+                    };
+
+                    let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+
+                    // Get battery info every 15 ticks (~7.5s) — retain previous value if unavailable
+                    if battery_check_counter % 15 == 0 {
+                        let mut bi = None;
+                        if let Some(wmi_con) = monitor.get_battery_wmi() {
+                            bi = get_battery_info(&wmi_con);
+                        }
+                        if let Some(bi) = bi {
+                            let mut data = data_clone.lock();
+                            data.battery_info = Some(bi);
                         }
                     }
+                    battery_check_counter = battery_check_counter.wrapping_add(1);
 
-                    data.alerts.extend(new_alerts);
+                    // Poll services every 60 ticks (~30s) — WMI queries are expensive
+                    if !is_hidden && selected_tab == Tab::Services {
+                        let services_list = if last_selected_tab != Tab::Services
+                            || data_clone.lock().services.is_empty()
+                            || service_check_counter % 60 == 0
+                        {
+                            if let Some(ref com) = monitor.wmi_com {
+                                services::get_services_with_com(Some(com))
+                            } else {
+                                services::get_services()
+                            }
+                        } else {
+                            Vec::new()
+                        };
+                        if !services_list.is_empty() {
+                            let mut data = data_clone.lock();
+                            data.services = services_list;
+                        }
+                    }
+                    service_check_counter = service_check_counter.wrapping_add(1);
+                    last_selected_tab = selected_tab;
 
-                    // Auto-clear resolved alerts
-                    if settings_snapshot.auto_clear_alerts {
-                        let temp_gpu_info = data.gpu_info.clone();
-                        let high_impact_count = data.high_impact_startup_count;
-                        let disk_alert_active = data.disk_info.iter().any(|disk| disk.usage_percentage > 90.0);
-                        data.alerts.retain(|alert| {
-                            match alert.alert_type {
+                    // Calculate total network rates
+                    let total_download_rate: f64 = network_info.iter().map(|n| n.received_rate).sum();
+                    let total_upload_rate: f64 = network_info.iter().map(|n| n.transmitted_rate).sum();
+
+                    {
+                        let mut data = data_clone.lock();
+                        let elapsed = data.start_time.elapsed().as_secs_f64();
+
+                        // Update current values
+                        data.memory_total = total_mem;
+                        data.memory_used = used_mem;
+                        data.memory_percentage = mem_percentage;
+                        data.cpu_usage = cpu_usage;
+                        if need_cpu_cores {
+                            data.cpu_cores = cpu_cores;
+                        }
+                        if need_cpu_temp {
+                            data.cpu_temperature = cpu_temperature;
+                        }
+                        if need_gpu_info {
+                            data.gpu_info = gpu_info.clone();
+                        }
+                        if need_processes {
+                            data.top_processes = top_processes;
+                        }
+                        if need_disks {
+                            data.disk_info = disk_info;
+                        }
+                        if need_network {
+                            data.network_info = network_info;
+                        }
+                        data.system_info = system_info.clone();
+                        data.last_update = timestamp;
+                        data.swap_info = swap_info;
+                        if !is_hidden {
+                            data.disk_read_rate = disk_read_rate;
+                            data.disk_write_rate = disk_write_rate;
+                        }
+                        data.network_sample_count += 1;
+                        data.telemetry_history_stats = latest_telemetry.history_stats.clone();
+                        data.provider_status = latest_telemetry.provider_status.clone();
+
+                        // Check for alerts
+                        let mut new_alerts = monitor.check_alerts(&settings_snapshot, &data);
+                        let active_keys: std::collections::HashSet<String> =
+                            data.alerts.iter().map(AlertInfo::key).collect();
+                        new_alerts.retain(|alert| !active_keys.contains(&alert.key()));
+
+                        if !new_alerts.is_empty() && settings_snapshot.enable_sounds {
+                            play_alert_sound();
+                        }
+
+                        // Send desktop notifications for new alerts with a 5-minute cooldown
+                        if settings_snapshot.show_notifications {
+                            for alert in &new_alerts {
+                                let now = Instant::now();
+                                let should_notify = last_alert_time
+                                    .get(&alert.alert_type)
+                                    .is_none_or(|&last| now.duration_since(last).as_secs() > 300);
+
+                                if should_notify {
+                                    let _ = notify_rust::Notification::new()
+                                        .summary("System Monitor Alert")
+                                        .body(&alert.message)
+                                        .timeout(notify_rust::Timeout::Milliseconds(5000))
+                                        .show();
+                                    last_alert_time.insert(alert.alert_type.clone(), now);
+                                }
+                            }
+                        }
+
+                        data.alerts.extend(new_alerts);
+
+                        // Auto-clear resolved alerts
+                        if settings_snapshot.auto_clear_alerts {
+                            let temp_gpu_info = data.gpu_info.clone();
+                            let high_impact_count = data.high_impact_startup_count;
+                            let disk_alert_active = data.disk_info.iter().any(|disk| disk.usage_percentage > 90.0);
+                            data.alerts.retain(|alert| match alert.alert_type {
                                 AlertType::CpuHigh => cpu_usage > settings_snapshot.notification_cpu_threshold,
                                 AlertType::MemoryHigh => {
                                     mem_percentage > settings_snapshot.notification_memory_threshold
                                 }
                                 AlertType::GpuTempHigh => temp_gpu_info.iter().any(|gpu| {
-                                    gpu.temperature.is_some_and(|temperature| temperature > settings_snapshot.notification_temp_threshold)
+                                    gpu.temperature.is_some_and(|temperature| {
+                                        temperature > settings_snapshot.notification_temp_threshold
+                                    })
                                 }),
                                 AlertType::DiskSpaceLow => disk_alert_active,
                                 AlertType::StartupHighImpact => high_impact_count > 0,
-                            }
-                        });
-                    }
-
-                    // Keep only last 10 alerts
-                    while data.alerts.len() > 10 {
-                        data.alerts.remove(0);
-                    }
-                    // Update history (keep last 60 data points)
-                    data.cpu_history.push(DataPoint {
-                        time: elapsed,
-                        value: cpu_usage as f64,
-                    });
-                    data.memory_history.push(DataPoint {
-                        time: elapsed,
-                        value: mem_percentage as f64,
-                    });
-
-                    if need_gpu_info {
-                        let gpu_util = data.gpu_info.first().map(|gpu| gpu.utilization as f64);
-                        if let Some(val) = gpu_util {
-                            data.gpu_history.push(DataPoint {
-                                time: elapsed,
-                                value: val,
                             });
                         }
-                    }
 
-                    // Network history — skip first sample (inflated rates)
-                    if need_network && data.network_sample_count > 1 {
-                        data.network_download_history.push_back(DataPoint {
+                        // Keep only last 10 alerts
+                        while data.alerts.len() > 10 {
+                            data.alerts.remove(0);
+                        }
+                        // Update history (keep last 60 data points)
+                        data.cpu_history.push(DataPoint {
                             time: elapsed,
-                            value: total_download_rate,
+                            value: cpu_usage as f64,
                         });
-                        data.network_upload_history.push_back(DataPoint {
+                        data.memory_history.push(DataPoint {
                             time: elapsed,
-                            value: total_upload_rate,
+                            value: mem_percentage as f64,
                         });
-                    }
-                    if !is_hidden && data.network_sample_count > 1 {
-                        data.disk_read_history.push_back(DataPoint {
-                            time: elapsed,
-                            value: disk_read_rate,
-                        });
-                        data.disk_write_history.push_back(DataPoint {
-                            time: elapsed,
-                            value: disk_write_rate,
-                        });
-                    }
 
-                    // cpu_history capped at 60 by BoundedHistory; trim the rest
-                    while data.network_download_history.len() > 60 {
-                        data.network_download_history.pop_front();
-                    }
-                    while data.network_upload_history.len() > 60 {
-                        data.network_upload_history.pop_front();
-                    }
-                    while data.disk_read_history.len() > 60 {
-                        data.disk_read_history.pop_front();
-                    }
-                    while data.disk_write_history.len() > 60 {
-                        data.disk_write_history.pop_front();
-                    }
-                }
+                        if need_gpu_info {
+                            let gpu_util = data.gpu_info.first().map(|gpu| gpu.utilization as f64);
+                            if let Some(val) = gpu_util {
+                                data.gpu_history.push(DataPoint {
+                                    time: elapsed,
+                                    value: val,
+                                });
+                            }
+                        }
 
-                let snapshot = snapshot_from_data(&data_clone.lock());
-                let _ = monitoring_events.send(app::events::AppEvent::Snapshot(snapshot));
+                        // Network history — skip first sample (inflated rates)
+                        if need_network && data.network_sample_count > 1 {
+                            data.network_download_history.push_back(DataPoint {
+                                time: elapsed,
+                                value: total_download_rate,
+                            });
+                            data.network_upload_history.push_back(DataPoint {
+                                time: elapsed,
+                                value: total_upload_rate,
+                            });
+                        }
+                        if !is_hidden && data.network_sample_count > 1 {
+                            data.disk_read_history.push_back(DataPoint {
+                                time: elapsed,
+                                value: disk_read_rate,
+                            });
+                            data.disk_write_history.push_back(DataPoint {
+                                time: elapsed,
+                                value: disk_write_rate,
+                            });
+                        }
 
-                // Process details for the selected row (recompute only when selection changed)
-                let selected_pid = { let d = data_clone.lock(); d.selected_process_pid };
-                if let Some(pid) = selected_pid {
-                    let cached = {
-                        let d = data_clone.lock();
-                        d.selected_process_details.as_ref().map(|(p, _)| *p)
-                    };
-                    if cached != Some(pid) {
-                        if let Some(details) = processes::lookup_details(&monitor.sys, pid) {
-                            let mut d = data_clone.lock();
-                            d.selected_process_details = Some((pid, details));
+                        // cpu_history capped at 60 by BoundedHistory; trim the rest
+                        while data.network_download_history.len() > 60 {
+                            data.network_download_history.pop_front();
+                        }
+                        while data.network_upload_history.len() > 60 {
+                            data.network_upload_history.pop_front();
+                        }
+                        while data.disk_read_history.len() > 60 {
+                            data.disk_read_history.pop_front();
+                        }
+                        while data.disk_write_history.len() > 60 {
+                            data.disk_write_history.pop_front();
                         }
                     }
-                }
 
-                if is_hidden {
-                    // Minimized: sleep 10s
-                    thread::sleep(Duration::from_millis(10000));
-                } else {
-                    let sleep_ms = (refresh_interval * 1000).saturating_sub(500);
-                    thread::sleep(Duration::from_millis(sleep_ms));
+                    let snapshot = snapshot_from_data(&data_clone.lock());
+                    let _ = monitoring_events.send(app::events::AppEvent::Snapshot(Box::new(snapshot)));
+
+                    // Process details for the selected row (recompute only when selection changed)
+                    let selected_pid = {
+                        let d = data_clone.lock();
+                        d.selected_process_pid
+                    };
+                    if let Some(pid) = selected_pid {
+                        let cached = {
+                            let d = data_clone.lock();
+                            d.selected_process_details.as_ref().map(|(p, _)| *p)
+                        };
+                        if cached != Some(pid) {
+                            if let Some(details) = processes::lookup_details(&monitor.sys, pid) {
+                                let mut d = data_clone.lock();
+                                d.selected_process_details = Some((pid, details));
+                            }
+                        }
+                    }
+
+                    if is_hidden {
+                        // Minimized: sleep 10s
+                        thread::sleep(Duration::from_millis(10000));
+                    } else {
+                        let sleep_ms = (refresh_interval * 1000).saturating_sub(500);
+                        thread::sleep(Duration::from_millis(sleep_ms));
+                    }
                 }
-            }
-        }).expect("failed to spawn monitoring thread");
+            })
+            .expect("failed to spawn monitoring thread");
 
         let mut tray_icon = None;
         let mut tray_menu_show_id = None;
@@ -1926,8 +2136,7 @@ impl SystemMonitorApp {
                         .iter()
                         .map(|item| item as &dyn tray_icon::menu::IsMenuItem)
                         .collect();
-                    Submenu::with_items("Power Plan", true, &refs)
-                        .expect("failed to build power plan submenu")
+                    Submenu::with_items("Power Plan", true, &refs).expect("failed to build power plan submenu")
                 };
                 tray_menu_power_item = Some(power_submenu);
                 for item in owned_power_items {
@@ -1952,7 +2161,7 @@ impl SystemMonitorApp {
 
         let startup_items_share = Arc::new(Mutex::new(None));
         let boot_diagnostics_share = Arc::new(Mutex::new(None));
-        
+
         let startup_share_clone = Arc::clone(&startup_items_share);
         let boot_share_clone = Arc::clone(&boot_diagnostics_share);
         let ctx_clone = cc.egui_ctx.clone();
@@ -1971,9 +2180,17 @@ impl SystemMonitorApp {
         Self {
             app_channels,
             latest_snapshot: None,
-            action_events: Vec::new(),
             action_pending: false,
             action_status: None,
+            pending_action_plan: None,
+            action_history: persistence::action_log::load_recent(100)
+                .into_iter()
+                .map(|record| app::actions::ActionHistoryEntry { record, undo: None })
+                .collect(),
+            show_action_history: false,
+            session_recorder: persistence::session::SessionRecorder::default(),
+            session_status: None,
+            telemetry_commands,
             data,
             settings: settings.clone(),
             shared_settings,
@@ -1993,7 +2210,6 @@ impl SystemMonitorApp {
             update_info_share: Arc::new(Mutex::new(None)),
             show_update_notification: true,
             update_check_time: None,
-            update_check_running: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             ram_cleaner_state: RamCleanerState {
                 last_cleaned: None,
                 last_cleaned_display: String::new(),
@@ -2059,8 +2275,15 @@ impl SystemMonitorApp {
         }
     }
 
-    pub(crate) fn export_diagnostics(&self, destination: &std::path::Path) -> Result<std::path::PathBuf, std::io::Error> {
-        let snapshot = self.latest_snapshot.as_ref().cloned().unwrap_or_else(|| snapshot_from_data(&self.data.lock()));
+    pub(crate) fn export_diagnostics(
+        &self,
+        destination: &std::path::Path,
+    ) -> Result<std::path::PathBuf, std::io::Error> {
+        let snapshot = self
+            .latest_snapshot
+            .as_ref()
+            .cloned()
+            .unwrap_or_else(|| snapshot_from_data(&self.data.lock()));
         persistence::diagnostics::export(destination, &snapshot, &self.settings)
     }
 
@@ -2166,17 +2389,51 @@ impl eframe::App for SystemMonitorApp {
         self.data.lock().last_activity = Instant::now();
         while let Ok(event) = self.app_channels.event_receiver.try_recv() {
             match event {
-                app::events::AppEvent::Snapshot(snapshot) => self.latest_snapshot = Some(snapshot),
-                app::events::AppEvent::ActionCompleted { action: _, message } => {
-                    self.action_pending = false;
-                    self.action_status = Some(message);
+                app::events::AppEvent::Snapshot(snapshot) => {
+                    if let Err(error) = self.session_recorder.record(&snapshot) {
+                        self.session_status = Some(format!("Session recording failed: {error}"));
+                    }
+                    self.latest_snapshot = Some(*snapshot);
                 }
-                app::events::AppEvent::ActionFailed { action: _, error } => {
-                    self.action_pending = false;
-                    self.action_status = Some(error);
-                    if self.settings.enable_sounds { play_alert_sound(); }
+                app::events::AppEvent::AuditRecorded(record) => {
+                    self.action_history
+                        .push(app::actions::ActionHistoryEntry { record, undo: None });
                 }
-                event => self.action_events.push(event),
+                app::events::AppEvent::ActionCompleted { command, record, undo } => {
+                    self.action_pending = false;
+                    self.action_status = Some(record.message.clone());
+                    if matches!(command, app::commands::ActionCommand::CleanRam) {
+                        self.ram_cleaner_state.is_cleaning = false;
+                        self.ram_cleaner_state.last_cleaned = Some(Instant::now());
+                        self.ram_cleaner_state.last_cleaned_display = Local::now().format("%H:%M:%S").to_string();
+                        self.ram_cleaner_state.clean_count += 1;
+                        if let Some(bytes) = record
+                            .message
+                            .strip_prefix("Freed ")
+                            .and_then(|value| value.split_whitespace().next())
+                            .and_then(|value| value.parse::<u64>().ok())
+                        {
+                            self.ram_cleaner_state.bytes_freed =
+                                self.ram_cleaner_state.bytes_freed.saturating_add(bytes);
+                            let mut data = self.data.lock();
+                            data.ram_clean_freed_bytes = data.ram_clean_freed_bytes.saturating_add(bytes);
+                        }
+                    }
+                    self.action_history
+                        .push(app::actions::ActionHistoryEntry { record, undo });
+                }
+                app::events::AppEvent::ActionFailed { command, record } => {
+                    self.action_pending = false;
+                    self.action_status = Some(record.message.clone());
+                    if matches!(command, app::commands::ActionCommand::CleanRam) {
+                        self.ram_cleaner_state.is_cleaning = false;
+                    }
+                    self.action_history
+                        .push(app::actions::ActionHistoryEntry { record, undo: None });
+                    if self.settings.enable_sounds {
+                        play_alert_sound();
+                    }
+                }
             }
         }
         {
@@ -2208,12 +2465,18 @@ impl eframe::App for SystemMonitorApp {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
                 self.is_hidden = false;
             } else if Some(&event.id) == self.tray_menu_clean_id.as_ref() {
-                let _ = self.app_channels.action_sender.send(app::commands::ActionCommand::CleanRam);
+                self.queue_action(app::commands::ActionCommand::CleanRam);
+                ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+                ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+                self.is_hidden = false;
             } else if Some(&event.id) == self.tray_menu_procman_id.as_ref() {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
                 ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
                 self.is_hidden = false;
-                let _ = self.app_channels.monitoring_sender.send(app::commands::MonitoringCommand::SetHidden(false));
+                let _ = self
+                    .app_channels
+                    .monitoring_sender
+                    .send(app::commands::MonitoringCommand::SetHidden(false));
                 self.show_process_manager = true;
             } else if Some(&event.id) == self.tray_menu_pause_id.as_ref() {
                 let paused = {
@@ -2221,22 +2484,27 @@ impl eframe::App for SystemMonitorApp {
                     d.monitoring_paused = !d.monitoring_paused;
                     d.monitoring_paused
                 };
-                let _ = self.app_channels.monitoring_sender.send(app::commands::MonitoringCommand::SetPaused(paused));
+                let _ = self
+                    .app_channels
+                    .monitoring_sender
+                    .send(app::commands::MonitoringCommand::SetPaused(paused));
                 if let Some(item) = &self.tray_menu_pause_item {
                     item.set_checked(paused);
                 }
             } else if let Some(plan_guid) = self.tray_menu_power_guids.get(&event.id) {
-                let _ = self.app_channels.action_sender.send(app::commands::ActionCommand::SetPowerPlan(plan_guid.clone()));
+                let plan_guid = plan_guid.clone();
+                self.queue_action(app::commands::ActionCommand::SetPowerPlan(plan_guid));
             }
         }
 
-        if ctx.input(|i| i.viewport().close_requested()) {
-            if self.settings.minimize_to_tray {
-                ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-                ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
-                self.is_hidden = true;
-                let _ = self.app_channels.monitoring_sender.send(app::commands::MonitoringCommand::SetHidden(true));
-            }
+        if ctx.input(|i| i.viewport().close_requested()) && self.settings.minimize_to_tray {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+            self.is_hidden = true;
+            let _ = self
+                .app_channels
+                .monitoring_sender
+                .send(app::commands::MonitoringCommand::SetHidden(true));
         }
 
         // Update tray tooltip with CPU/RAM usage
@@ -2244,9 +2512,15 @@ impl eframe::App for SystemMonitorApp {
         if let Some(tray) = &mut self.tray_icon {
             let data = self.data.lock();
             let tooltip = if data.monitoring_paused {
-                format!("⏸ SysMon Paused — CPU {:.0}% | RAM {:.0}%", data.cpu_usage, data.memory_percentage)
+                format!(
+                    "⏸ SysMon Paused — CPU {:.0}% | RAM {:.0}%",
+                    data.cpu_usage, data.memory_percentage
+                )
             } else {
-                format!("SysMon: CPU {:.0}% | RAM {:.0}%", data.cpu_usage, data.memory_percentage)
+                format!(
+                    "SysMon: CPU {:.0}% | RAM {:.0}%",
+                    data.cpu_usage, data.memory_percentage
+                )
             };
             let _ = tray.set_tooltip(Some(tooltip));
         }
@@ -2255,7 +2529,7 @@ impl eframe::App for SystemMonitorApp {
         ctx.request_repaint_after(std::time::Duration::from_millis(500));
 
         // Check for updates automatically (once every 24 hours)
-        if self.update_check_time.map_or(true, |t| t.elapsed().as_secs() > 86400) {
+        if self.update_check_time.is_none_or(|t| t.elapsed().as_secs() > 86400) {
             let mut updater = self.updater.clone();
             let update_info_share = self.update_info_share.clone();
             thread::Builder::new()
@@ -2276,37 +2550,43 @@ impl eframe::App for SystemMonitorApp {
             if update_info.update_available && self.show_update_notification {
                 let mut frame = egui::Frame::none().fill(ThemePalette::BG_SURFACE);
                 frame.inner_margin = egui::Margin::symmetric(16.0, 12.0);
-                
-                egui::TopBottomPanel::top("update_notification").frame(frame).show(ctx, |ui| {
-                    ui.horizontal(|ui| {
-                        ui.colored_label(ThemePalette::ACCENT_PRIMARY, egui::RichText::new("UPDATE AVAILABLE").strong());
-                        ui.add_space(8.0);
-                        ui.label(format!(
-                            "Version {} is ready. You are currently on v{}.",
-                            update_info.latest_version,
-                            update_info.current_version
-                        ));
-                        
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.button("Dismiss").clicked() {
-                                self.show_update_notification = false;
-                            }
+
+                egui::TopBottomPanel::top("update_notification")
+                    .frame(frame)
+                    .show(ctx, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.colored_label(
+                                ThemePalette::ACCENT_PRIMARY,
+                                egui::RichText::new("UPDATE AVAILABLE").strong(),
+                            );
                             ui.add_space(8.0);
-                            if ui.button(egui::RichText::new("Install Update").strong()).clicked() {
-                                let download_url = update_info.download_url.clone();
-                                thread::Builder::new()
-                                    .name("updater_downloader".to_string())
-                                    .stack_size(8 * 1024 * 1024)
-                                    .spawn(move || {
-                                        if let Err(e) = updater::Updater::new().download_and_install_update(&download_url) {
-                                            eprintln!("Update failed: {}", e);
-                                        }
-                                    })
-                                    .expect("failed to spawn updater downloader thread");
-                            }
+                            ui.label(format!(
+                                "Version {} is ready. You are currently on v{}.",
+                                update_info.latest_version, update_info.current_version
+                            ));
+
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                if ui.button("Dismiss").clicked() {
+                                    self.show_update_notification = false;
+                                }
+                                ui.add_space(8.0);
+                                if ui.button(egui::RichText::new("Install Update").strong()).clicked() {
+                                    let download_url = update_info.download_url.clone();
+                                    thread::Builder::new()
+                                        .name("updater_downloader".to_string())
+                                        .stack_size(8 * 1024 * 1024)
+                                        .spawn(move || {
+                                            if let Err(e) =
+                                                updater::Updater::new().download_and_install_update(&download_url)
+                                            {
+                                                eprintln!("Update failed: {}", e);
+                                            }
+                                        })
+                                        .expect("failed to spawn updater downloader thread");
+                                }
+                            });
                         });
                     });
-                });
             }
         }
 
@@ -2323,17 +2603,37 @@ impl eframe::App for SystemMonitorApp {
             }
             if i.modifiers.ctrl {
                 let mut new_tab = None;
-                if i.key_pressed(egui::Key::Num1) { new_tab = Some(Tab::Overview); }
-                if i.key_pressed(egui::Key::Num2) { new_tab = Some(Tab::Performance); }
-                if i.key_pressed(egui::Key::Num3) { new_tab = Some(Tab::Processes); }
-                if i.key_pressed(egui::Key::Num4) { new_tab = Some(Tab::CpuCores); }
-                if i.key_pressed(egui::Key::Num5) { new_tab = Some(Tab::Storage); }
-                if i.key_pressed(egui::Key::Num6) { new_tab = Some(Tab::Network); }
-                if i.key_pressed(egui::Key::Num7) { new_tab = Some(Tab::SystemInfo); }
-                if i.key_pressed(egui::Key::Num8) { new_tab = Some(Tab::Alerts); }
-                if i.key_pressed(egui::Key::Num9) { new_tab = Some(Tab::RamCleaner); }
-                if i.key_pressed(egui::Key::Num0) { new_tab = Some(Tab::StartupManager); }
-                
+                if i.key_pressed(egui::Key::Num1) {
+                    new_tab = Some(Tab::Overview);
+                }
+                if i.key_pressed(egui::Key::Num2) {
+                    new_tab = Some(Tab::Performance);
+                }
+                if i.key_pressed(egui::Key::Num3) {
+                    new_tab = Some(Tab::Processes);
+                }
+                if i.key_pressed(egui::Key::Num4) {
+                    new_tab = Some(Tab::CpuCores);
+                }
+                if i.key_pressed(egui::Key::Num5) {
+                    new_tab = Some(Tab::Storage);
+                }
+                if i.key_pressed(egui::Key::Num6) {
+                    new_tab = Some(Tab::Network);
+                }
+                if i.key_pressed(egui::Key::Num7) {
+                    new_tab = Some(Tab::SystemInfo);
+                }
+                if i.key_pressed(egui::Key::Num8) {
+                    new_tab = Some(Tab::Alerts);
+                }
+                if i.key_pressed(egui::Key::Num9) {
+                    new_tab = Some(Tab::RamCleaner);
+                }
+                if i.key_pressed(egui::Key::Num0) {
+                    new_tab = Some(Tab::StartupManager);
+                }
+
                 if let Some(tab) = new_tab {
                     if tab != Tab::CpuCores || self.settings.show_cpu_cores {
                         self.selected_tab = tab;
@@ -2379,40 +2679,34 @@ impl eframe::App for SystemMonitorApp {
 
         // Handle process kill actions
         if let Some(pid) = self.selected_process_pid.take() {
-            self.action_pending = true;
-            let _ = self.app_channels.action_sender.send(app::commands::ActionCommand::KillProcess(pid));
+            self.queue_action(app::commands::ActionCommand::KillProcess(pid));
         }
 
         // Handle process tree kill actions (background thread; tree walk + kills can take seconds)
         if let Some(root) = self.kill_tree_pid.take() {
-            self.action_pending = true;
-            let _ = self.app_channels.action_sender.send(app::commands::ActionCommand::KillProcessTree(root));
+            self.queue_action(app::commands::ActionCommand::KillProcessTree(root));
         }
 
         // Handle process suspend actions
         if let Some(pid) = self.suspend_process_pid.take() {
-            self.action_pending = true;
-            let _ = self.app_channels.action_sender.send(app::commands::ActionCommand::SuspendProcess(pid));
+            self.queue_action(app::commands::ActionCommand::SuspendProcess(pid));
         }
 
         // Handle process resume actions
         if let Some(pid) = self.resume_process_pid.take() {
-            self.action_pending = true;
-            let _ = self.app_channels.action_sender.send(app::commands::ActionCommand::ResumeProcess(pid));
+            self.queue_action(app::commands::ActionCommand::ResumeProcess(pid));
         }
 
         // Handle process priority changes
         if let Some((pid, priority)) = self.priority_change.take() {
-            self.action_pending = true;
-            let _ = self.app_channels.action_sender.send(app::commands::ActionCommand::SetPriority { pid, priority });
+            self.queue_action(app::commands::ActionCommand::SetPriority { pid, priority });
         }
 
         // Auto RAM cleaning
         if self.ram_cleaner_state.auto_clean_enabled && !self.ram_cleaner_state.is_cleaning {
             let idle_ok = {
                 let d = self.data.lock();
-                !self.ram_cleaner_state.auto_clean_idle_only
-                    || d.last_activity.elapsed().as_secs() > 120
+                !self.ram_cleaner_state.auto_clean_idle_only || d.last_activity.elapsed().as_secs() > 120
             };
             let should_clean = if let Some(last) = self.ram_cleaner_state.last_cleaned {
                 last.elapsed().as_secs() >= self.ram_cleaner_state.auto_clean_interval
@@ -2433,6 +2727,7 @@ impl eframe::App for SystemMonitorApp {
                 let notify = self.ram_cleaner_state.auto_clean_notify;
                 let exclusions = self.ram_cleaner_state.auto_clean_exclusions.clone();
                 let total_ram = data.memory_total;
+                let auto_event_sender = self.app_channels.event_sender.clone();
                 thread::Builder::new()
                     .name("ram_cleaner_auto".to_string())
                     .stack_size(8 * 1024 * 1024)
@@ -2452,22 +2747,31 @@ impl eframe::App for SystemMonitorApp {
                             monitor.sys.refresh_memory();
                             let usage_pct = if total_ram > 0 {
                                 monitor.sys.used_memory() as f64 / total_ram as f64 * 100.0
-                            } else { 0.0 };
+                            } else {
+                                0.0
+                            };
                             if should_stop_cleaning(usage_pct, target as f64, freed, budget_left) {
                                 break;
                             }
                         }
-                        if enable_sounds { play_success_sound(); }
+                        if enable_sounds {
+                            play_success_sound();
+                        }
                         if notify {
                             let _ = notify_rust::Notification::new()
                                 .summary("Auto RAM Clean")
-                                .body(&format!(
-                                    "Freed {:.1} MB of RAM",
-                                    freed_total as f64 / 1024.0 / 1024.0
-                                ))
+                                .body(&format!("Freed {:.1} MB of RAM", freed_total as f64 / 1024.0 / 1024.0))
                                 .timeout(notify_rust::Timeout::Milliseconds(5000))
                                 .show();
                         }
+                        let audit = app::actions::ActionAuditRecord::automatic(
+                            "Automatic RAM working-set cleanup",
+                            format!("Freed {freed_total} bytes using the configured cleanup policy"),
+                        );
+                        if let Err(error) = persistence::action_log::append(&audit) {
+                            warn!(%error, "Failed to persist automatic action audit record");
+                        }
+                        let _ = auto_event_sender.send(app::events::AppEvent::AuditRecorded(audit));
                         // Store freed bytes in SystemData for the UI to pick up
                         {
                             let mut d = data_arc.lock();
@@ -2522,7 +2826,7 @@ impl eframe::App for SystemMonitorApp {
                                 if ui.button("💾 Save to File...").clicked() {
                                     let date_str = Local::now().format("%Y%m%d_%H%M%S").to_string();
                                     if let Some(path) = FileDialog::new()
-                                        .set_file_name(&format!("sysmon_export_{}.csv", date_str))
+                                        .set_file_name(format!("sysmon_export_{}.csv", date_str))
                                         .add_filter("CSV File", &["csv"])
                                         .save_file()
                                     {
@@ -2574,7 +2878,7 @@ impl eframe::App for SystemMonitorApp {
                                 if ui.button("💾 Save to File...").clicked() {
                                     let date_str = Local::now().format("%Y%m%d_%H%M%S").to_string();
                                     if let Some(path) = FileDialog::new()
-                                        .set_file_name(&format!("sysmon_export_{}.json", date_str))
+                                        .set_file_name(format!("sysmon_export_{}.json", date_str))
                                         .add_filter("JSON File", &["json"])
                                         .save_file()
                                     {
@@ -2661,7 +2965,7 @@ impl eframe::App for SystemMonitorApp {
             .frame(sidebar_frame)
             .show(ctx, |ui| {
                 ui.add_space(16.0);
-                
+
                 // Brand Header
                 ui.horizontal(|ui| {
                     ui.add_space(8.0);
@@ -2698,7 +3002,7 @@ impl eframe::App for SystemMonitorApp {
                 ui.add_space(16.0);
                 ui.separator();
                 ui.add_space(8.0);
-                
+
                 // Navigation Menu
                 let tabs = [
                     (Tab::Overview, "Overview"),
@@ -2712,6 +3016,7 @@ impl eframe::App for SystemMonitorApp {
                     (Tab::RamCleaner, "RAM Cleaner"),
                     (Tab::StartupManager, "Startup Apps"),
                     (Tab::Services, "Services"),
+                    (Tab::Diagnostics, "Diagnostics"),
                 ];
 
                 ui.spacing_mut().item_spacing.y = 4.0;
@@ -2725,11 +3030,15 @@ impl eframe::App for SystemMonitorApp {
                     } else {
                         egui::RichText::new(label).color(ThemePalette::TEXT_SECONDARY)
                     };
-                    
+
                     let btn = egui::Button::new(text)
-                        .fill(if is_selected { ThemePalette::ACCENT_ACTIVE } else { egui::Color32::TRANSPARENT })
+                        .fill(if is_selected {
+                            ThemePalette::ACCENT_ACTIVE
+                        } else {
+                            egui::Color32::TRANSPARENT
+                        })
                         .frame(is_selected);
-                        
+
                     if ui.add_sized([ui.available_width(), 32.0], btn).clicked() {
                         self.selected_tab = tab;
                     }
@@ -2737,13 +3046,32 @@ impl eframe::App for SystemMonitorApp {
 
                 ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
                     ui.add_space(16.0);
-                    ui.label(egui::RichText::new(format!("Updated: {}", data.last_update)).size(11.0).color(ThemePalette::TEXT_DIMMED));
+                    ui.label(
+                        egui::RichText::new(format!("Updated: {}", data.last_update))
+                            .size(11.0)
+                            .color(ThemePalette::TEXT_DIMMED),
+                    );
                     ui.add_space(8.0);
-                    if ui.add_sized([ui.available_width(), 28.0], egui::Button::new("Settings")).clicked() { self.show_settings = true; }
+                    if ui
+                        .add_sized([ui.available_width(), 28.0], egui::Button::new("Settings"))
+                        .clicked()
+                    {
+                        self.show_settings = true;
+                    }
                     ui.add_space(4.0);
-                    if ui.add_sized([ui.available_width(), 28.0], egui::Button::new("Shortcuts")).clicked() { self.show_shortcuts = true; }
+                    if ui
+                        .add_sized([ui.available_width(), 28.0], egui::Button::new("Shortcuts"))
+                        .clicked()
+                    {
+                        self.show_shortcuts = true;
+                    }
                     ui.add_space(4.0);
-                    if ui.add_sized([ui.available_width(), 28.0], egui::Button::new("About")).clicked() { self.selected_tab = Tab::About; }
+                    if ui
+                        .add_sized([ui.available_width(), 28.0], egui::Button::new("About"))
+                        .clicked()
+                    {
+                        self.selected_tab = Tab::About;
+                    }
                 });
             });
 
@@ -2809,7 +3137,10 @@ impl eframe::App for SystemMonitorApp {
         let status_bar_frame = egui::Frame::none()
             .fill(ctx.style().visuals.extreme_bg_color)
             .inner_margin(egui::Margin::symmetric(16.0, 0.0))
-            .stroke(egui::Stroke::new(1.0, ctx.style().visuals.widgets.noninteractive.bg_stroke.color));
+            .stroke(egui::Stroke::new(
+                1.0,
+                ctx.style().visuals.widgets.noninteractive.bg_stroke.color,
+            ));
 
         egui::TopBottomPanel::top("global_status_bar")
             .exact_height(48.0)
@@ -2817,20 +3148,23 @@ impl eframe::App for SystemMonitorApp {
             .show(ctx, |ui| {
                 ui.horizontal_centered(|ui| {
                     ui.add_space(8.0);
-                    
+
                     // Quick stats
                     let cpu_c = get_usage_color(data.cpu_usage);
                     ui.label("CPU: ");
                     ui.colored_label(cpu_c, egui::RichText::new(format!("{:.1}%", data.cpu_usage)).strong());
-                    
+
                     ui.add_space(16.0);
                     ui.separator();
                     ui.add_space(16.0);
-                    
+
                     let mem_c = get_usage_color(data.memory_percentage);
                     ui.label("RAM: ");
-                    ui.colored_label(mem_c, egui::RichText::new(format!("{:.1}%", data.memory_percentage)).strong());
-                    
+                    ui.colored_label(
+                        mem_c,
+                        egui::RichText::new(format!("{:.1}%", data.memory_percentage)).strong(),
+                    );
+
                     if let Some(gpu) = data.gpu_info.first() {
                         ui.add_space(16.0);
                         ui.separator();
@@ -2845,7 +3179,10 @@ impl eframe::App for SystemMonitorApp {
                         ui.add_space(8.0);
                         if !data.alerts.is_empty() {
                             let recent_alerts = data.alerts.len();
-                            let btn = ui.button(egui::RichText::new(format!("{} Alerts", recent_alerts)).color(ThemePalette::STATUS_WARNING));
+                            let btn = ui.button(
+                                egui::RichText::new(format!("{} Alerts", recent_alerts))
+                                    .color(ThemePalette::STATUS_WARNING),
+                            );
                             if btn.clicked() {
                                 self.selected_tab = Tab::Alerts;
                             }
@@ -2869,79 +3206,142 @@ impl eframe::App for SystemMonitorApp {
             Tab::RamCleaner => crate::ui::pages::ram_cleaner::show(self, ui, &data),
             Tab::StartupManager => crate::ui::pages::startup_manager::show(self, ui),
             Tab::Services => crate::ui::pages::services::show(self, ui, &data),
+            Tab::Diagnostics => crate::ui::pages::diagnostics::show(self, ui, &data),
             Tab::About => crate::ui::pages::about::show(self, ui, &data),
         });
+        self.render_action_confirmation(ctx);
+        self.render_action_history(ctx);
     }
 }
 
 // ─── Custom UI helpers ───────────────────────────────────────────────
 
-/// Section header with sleek gradient-like accent underline
-
-
-
-
-
-
-/// Rounded pill progress bar with subtle track
-
-
-/// Circular animated gauge for premium UI
-
+impl Drop for SystemMonitorApp {
+    fn drop(&mut self) {
+        let _ = self
+            .app_channels
+            .monitoring_sender
+            .send(app::commands::MonitoringCommand::Shutdown);
+        let _ = self.telemetry_commands.try_send(telemetry::HubCommand::Shutdown);
+    }
+}
 
 impl SystemMonitorApp {
+    pub(crate) fn queue_action(&mut self, command: app::commands::ActionCommand) {
+        if self.action_pending || self.pending_action_plan.is_some() {
+            self.action_status = Some("Another system action is already pending.".into());
+            return;
+        }
+        self.pending_action_plan = Some(app::actions::ActionPlan::from_command(command));
+    }
 
+    fn render_action_confirmation(&mut self, ctx: &egui::Context) {
+        let Some(plan) = self.pending_action_plan.clone() else {
+            return;
+        };
+        let mut confirm = false;
+        let mut cancel = false;
+        egui::Window::new("Confirm system action")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+            .show(ctx, |ui| {
+                ui.heading(&plan.title);
+                ui.label(&plan.summary);
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    ui.strong("Risk:");
+                    let color = match plan.risk {
+                        app::actions::RiskLevel::Low => ThemePalette::STATUS_HEALTHY,
+                        app::actions::RiskLevel::Medium => ThemePalette::STATUS_WARNING,
+                        app::actions::RiskLevel::High | app::actions::RiskLevel::Critical => {
+                            ThemePalette::STATUS_CRITICAL
+                        }
+                    };
+                    ui.colored_label(color, plan.risk.label());
+                });
+                ui.label(format!(
+                    "Administrator privileges: {}",
+                    if plan.requires_admin {
+                        "usually required"
+                    } else {
+                        "not required"
+                    }
+                ));
+                ui.label(format!(
+                    "Undo available: {}",
+                    if plan.reversible { "yes" } else { "no" }
+                ));
+                ui.add_space(12.0);
+                ui.horizontal(|ui| {
+                    if ui.button("Cancel").clicked() {
+                        cancel = true;
+                    }
+                    if ui.button(egui::RichText::new("Confirm and run").strong()).clicked() {
+                        confirm = true;
+                    }
+                });
+            });
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-    fn start_ram_clean(&mut self, ctx: &egui::Context) {
-        self.ram_cleaner_state.is_cleaning = true;
-        self.ram_cleaner_state.last_cleaned = Some(Instant::now());
-        self.ram_cleaner_state.last_cleaned_display = Local::now().format("%H:%M:%S").to_string();
-        self.ram_cleaner_state.clean_count += 1;
-        let data_arc = Arc::clone(&self.data);
-        let ctx_clone = ctx.clone();
-        let enable_sounds = self.settings.enable_sounds;
-        thread::Builder::new()
-            .name("ram_cleaner_manual".to_string())
-            .stack_size(8 * 1024 * 1024)
-            .spawn(move || {
-                let mut monitor = SystemMonitor::new();
-                let freed = monitor.clean_ram(&[]);
-                if enable_sounds {
-                    play_success_sound();
-                }
-                {
-                    let mut data = data_arc.lock();
-                    data.ram_clean_freed_bytes += freed;
-                    data.ram_clean_is_cleaning = false;
-                }
-                ctx_clone.request_repaint();
-            })
-            .expect("failed to spawn ram cleaner thread");
-        {
-            let mut d = self.data.lock();
-            d.ram_clean_is_cleaning = true;
+        if cancel {
+            self.pending_action_plan = None;
+        } else if confirm {
+            self.pending_action_plan = None;
+            if matches!(plan.command, app::commands::ActionCommand::CleanRam) {
+                self.ram_cleaner_state.is_cleaning = true;
+            }
+            match self.app_channels.action_sender.send(plan.command) {
+                Ok(()) => self.action_pending = true,
+                Err(error) => self.action_status = Some(format!("Could not queue action: {error}")),
+            }
         }
     }
 
+    fn render_action_history(&mut self, ctx: &egui::Context) {
+        if !self.show_action_history {
+            return;
+        }
+        let mut open = self.show_action_history;
+        let mut undo = None;
+        egui::Window::new("System Action History")
+            .open(&mut open)
+            .default_width(620.0)
+            .show(ctx, |ui| {
+                ui.label("Persistent audit records are stored locally. Undo is offered only when the original state is known.");
+                ui.separator();
+                egui::ScrollArea::vertical().max_height(420.0).show(ui, |ui| {
+                    for entry in self.action_history.iter().rev().take(100) {
+                        ui.group(|ui| {
+                            ui.horizontal(|ui| {
+                                ui.strong(&entry.record.action);
+                                ui.label(entry.record.risk.label());
+                                if entry.record.succeeded {
+                                    ui.colored_label(ThemePalette::STATUS_HEALTHY, "Succeeded");
+                                } else {
+                                    ui.colored_label(ThemePalette::STATUS_CRITICAL, "Failed");
+                                }
+                            });
+                            ui.small(&entry.record.timestamp);
+                            ui.small(format!("Initiated by {}", entry.record.initiator));
+                            ui.label(&entry.record.message);
+                            if let Some(command) = &entry.undo {
+                                if ui.button("Undo this action").clicked() {
+                                    undo = Some(command.clone());
+                                }
+                            }
+                        });
+                    }
+                });
+            });
+        self.show_action_history = open;
+        if let Some(command) = undo {
+            self.queue_action(command);
+        }
+    }
 
-
-
+    fn start_ram_clean(&mut self, _ctx: &egui::Context) {
+        self.queue_action(app::commands::ActionCommand::CleanRam);
+    }
 
     /// Render the compact desktop mini-widget telemetry panel.
     fn render_widget(&mut self, ui: &mut egui::Ui, data: &SystemData) {
@@ -2958,7 +3358,10 @@ impl SystemMonitorApp {
             ui.horizontal(|ui| {
                 let mem_c = get_usage_color(data.memory_percentage);
                 ui.label("RAM");
-                ui.colored_label(mem_c, egui::RichText::new(format!("{:.1}%", data.memory_percentage)).strong());
+                ui.colored_label(
+                    mem_c,
+                    egui::RichText::new(format!("{:.1}%", data.memory_percentage)).strong(),
+                );
                 ui.weak(format!(
                     "{:.1} / {:.1} GB",
                     data.memory_used as f64 / 1024.0 / 1024.0 / 1024.0,
@@ -3005,11 +3408,6 @@ impl SystemMonitorApp {
             ui.weak(&data.last_update);
         });
     }
-
-
-
-
-
 }
 
 use std::sync::mpsc::{Receiver, Sender};
@@ -3042,27 +3440,62 @@ pub(crate) fn run_action_worker(
 ) {
     let mut monitor = SystemMonitor::new();
     while let Ok(command) = commands.recv() {
-        let action = format!("{command:?}");
+        let plan = app::actions::ActionPlan::from_command(command.clone());
         let result: Result<String, ActionError> = match command {
-            app::commands::ActionCommand::KillProcess(pid) => monitor.kill_process(pid).then_some(format!("Process {pid} killed")).ok_or(ActionError::AccessDenied),
-            app::commands::ActionCommand::SuspendProcess(pid) => monitor.suspend_process(pid).then_some(format!("Process {pid} suspended")).ok_or(ActionError::AccessDenied),
-            app::commands::ActionCommand::ResumeProcess(pid) => monitor.resume_process(pid).then_some(format!("Process {pid} resumed")).ok_or(ActionError::AccessDenied),
-            app::commands::ActionCommand::SetPriority { pid, priority } => SystemMonitor::set_process_priority(pid, &priority).then_some(format!("Process {pid} priority set to {priority}")).ok_or(ActionError::AccessDenied),
+            app::commands::ActionCommand::KillProcess(pid) => monitor
+                .kill_process(pid)
+                .then_some(format!("Process {pid} killed"))
+                .ok_or(ActionError::AccessDenied),
+            app::commands::ActionCommand::SuspendProcess(pid) => monitor
+                .suspend_process(pid)
+                .then_some(format!("Process {pid} suspended"))
+                .ok_or(ActionError::AccessDenied),
+            app::commands::ActionCommand::ResumeProcess(pid) => monitor
+                .resume_process(pid)
+                .then_some(format!("Process {pid} resumed"))
+                .ok_or(ActionError::AccessDenied),
+            app::commands::ActionCommand::SetPriority { pid, priority } => {
+                SystemMonitor::set_process_priority(pid, &priority)
+                    .then_some(format!("Process {pid} priority set to {priority}"))
+                    .ok_or(ActionError::AccessDenied)
+            }
             app::commands::ActionCommand::CleanRam => Ok(format!("Freed {} bytes", monitor.clean_ram(&[]))),
-            app::commands::ActionCommand::ControlService { name, action } => services::send_service_control(&name, action).then_some(format!("Service {name} action completed")).ok_or(ActionError::Failed("Service action failed".into())),
-            app::commands::ActionCommand::SetPowerPlan(guid) => power::set_active_power_plan(&guid).map(|_| "Power plan changed".into()).map_err(ActionError::Failed),
+            app::commands::ActionCommand::ControlService { name, action } => {
+                services::send_service_control(&name, action)
+                    .then_some(format!("Service {name} action completed"))
+                    .ok_or(ActionError::Failed("Service action failed".into()))
+            }
+            app::commands::ActionCommand::SetPowerPlan(guid) => power::set_active_power_plan(&guid)
+                .map(|_| "Power plan changed".into())
+                .map_err(ActionError::Failed),
             app::commands::ActionCommand::KillProcessTree(root) => {
                 monitor.sys.refresh_processes();
                 let tree = processes::build_process_tree(&monitor.sys);
                 let order = processes::kill_order(&tree, root);
                 let total = order.len();
                 let killed = order.into_iter().filter(|pid| monitor.kill_process(*pid)).count();
-                if killed == total { Ok(format!("Killed {killed} processes")) } else { Err(ActionError::Failed(format!("Killed {killed} of {total} processes"))) }
+                if killed == total {
+                    Ok(format!("Killed {killed} processes"))
+                } else {
+                    Err(ActionError::Failed(format!("Killed {killed} of {total} processes")))
+                }
             }
         };
-        let event = match result {
-            Ok(message) => app::events::AppEvent::ActionCompleted { action, message },
-            Err(error) => app::events::AppEvent::ActionFailed { action, error: error.to_string() },
+        let audit_result = result.map_err(|error| error.to_string());
+        let record = app::actions::ActionAuditRecord::from_result(&plan, &audit_result);
+        if let Err(error) = persistence::action_log::append(&record) {
+            warn!(%error, "Failed to persist action audit record");
+        }
+        let event = match audit_result {
+            Ok(_) => app::events::AppEvent::ActionCompleted {
+                command: plan.command,
+                record,
+                undo: plan.undo,
+            },
+            Err(_) => app::events::AppEvent::ActionFailed {
+                command: plan.command,
+                record,
+            },
         };
         let _ = events.send(event);
     }
@@ -3074,15 +3507,23 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn temp_path(name: &str) -> std::path::PathBuf {
-        std::env::temp_dir().join(format!("sysmon-{name}-{}", SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos()))
+        std::env::temp_dir().join(format!(
+            "sysmon-{name}-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ))
     }
 
     #[test]
     fn validation_clamps_user_ranges() {
-        let mut settings = AppSettings::default();
-        settings.refresh_interval = 0;
-        settings.process_count = 999;
-        settings.ram_clean_threshold = 1.0;
+        let settings = AppSettings {
+            refresh_interval: 0,
+            process_count: 999,
+            ram_clean_threshold: 1.0,
+            ..Default::default()
+        };
         let checked = crate::persistence::settings::validated(settings);
         assert_eq!(checked.refresh_interval, 1);
         assert_eq!(checked.process_count, 100);
@@ -3099,7 +3540,35 @@ mod tests {
         let _ = std::fs::remove_file(path);
     }
 }
-fn snapshot_from_data(data: &SystemData) -> monitoring::SystemSnapshot {
+pub(crate) fn snapshot_from_data(data: &SystemData) -> monitoring::SystemSnapshot {
+    let mut provider_status: std::collections::HashMap<_, _> = data
+        .provider_status
+        .iter()
+        .map(|(name, available)| {
+            (
+                name.clone(),
+                monitoring::snapshot::ProviderStatus {
+                    available: *available,
+                    stale: data.monitoring_paused,
+                    error: None,
+                },
+            )
+        })
+        .collect();
+    for (name, available) in [
+        ("disk", !data.disk_info.is_empty()),
+        ("network", !data.network_info.is_empty()),
+        ("battery", data.battery_info.is_some()),
+    ] {
+        provider_status.insert(
+            name.into(),
+            monitoring::snapshot::ProviderStatus {
+                available,
+                stale: data.monitoring_paused,
+                error: None,
+            },
+        );
+    }
     monitoring::SystemSnapshot {
         sampled_at: std::time::SystemTime::now(),
         cpu_usage: data.cpu_usage,
@@ -3108,47 +3577,87 @@ fn snapshot_from_data(data: &SystemData) -> monitoring::SystemSnapshot {
         memory_total: data.memory_total,
         memory_used: data.memory_used,
         memory_percentage: data.memory_percentage,
-        swap: monitoring::snapshot::SwapSnapshot { total: data.swap_info.total, used: data.swap_info.used, percentage: data.swap_info.percentage },
-        gpus: data.gpu_info.iter().map(|gpu| monitoring::snapshot::GpuSnapshot {
-            name: gpu.name.clone(), utilization: gpu.utilization, memory_used: gpu.memory_used,
-            memory_total: gpu.memory_total, temperature: gpu.temperature, clock_mhz: gpu.clock_mhz,
-            power_watts: gpu.power_watts, fan_percent: gpu.fan_percent,
-        }).collect(),
-        disks: data.disk_info.iter().map(|disk| monitoring::snapshot::DiskSnapshot {
-            name: disk.name.clone(), mount_point: disk.mount_point.clone(), total_space: disk.total_space,
-            available_space: disk.available_space, usage_percentage: disk.usage_percentage,
-            file_system: disk.file_system.clone(), read_bytes_per_second: data.disk_read_rate,
-            written_bytes_per_second: data.disk_write_rate,
-        }).collect(),
-        networks: data.network_info.iter().map(|network| monitoring::snapshot::NetworkSnapshot {
-            interface: network.interface.clone(), received: network.received, transmitted: network.transmitted,
-            received_bytes_per_second: network.received_rate, transmitted_bytes_per_second: network.transmitted_rate,
-        }).collect(),
-        processes: data.top_processes.iter().map(|process| monitoring::snapshot::ProcessSnapshot {
-            pid: process.pid, name: process.name.clone(), cpu_usage: process.cpu_usage, memory: process.memory,
-            status: process.status.clone(), disk_read_bytes: process.disk_read_bytes,
-            disk_written_bytes: process.disk_written_bytes,
-        }).collect(),
-        battery: data.battery_info.as_ref().map(|battery| monitoring::snapshot::BatterySnapshot {
-            design_capacity: battery.design_capacity, full_charge_capacity: battery.full_charge_capacity,
-            status: battery.status, discharge_state: battery.discharge_state.clone(), present: battery.present,
-        }),
+        swap: monitoring::snapshot::SwapSnapshot {
+            total: data.swap_info.total,
+            used: data.swap_info.used,
+            percentage: data.swap_info.percentage,
+        },
+        gpus: data
+            .gpu_info
+            .iter()
+            .map(|gpu| monitoring::snapshot::GpuSnapshot {
+                name: gpu.name.clone(),
+                utilization: gpu.utilization,
+                memory_used: gpu.memory_used,
+                memory_total: gpu.memory_total,
+                temperature: gpu.temperature,
+                clock_mhz: gpu.clock_mhz,
+                power_watts: gpu.power_watts,
+                fan_percent: gpu.fan_percent,
+            })
+            .collect(),
+        disks: data
+            .disk_info
+            .iter()
+            .map(|disk| monitoring::snapshot::DiskSnapshot {
+                name: disk.name.clone(),
+                mount_point: disk.mount_point.clone(),
+                total_space: disk.total_space,
+                available_space: disk.available_space,
+                usage_percentage: disk.usage_percentage,
+                file_system: disk.file_system.clone(),
+                read_bytes_per_second: data.disk_read_rate,
+                written_bytes_per_second: data.disk_write_rate,
+            })
+            .collect(),
+        networks: data
+            .network_info
+            .iter()
+            .map(|network| monitoring::snapshot::NetworkSnapshot {
+                interface: network.interface.clone(),
+                received: network.received,
+                transmitted: network.transmitted,
+                received_bytes_per_second: network.received_rate,
+                transmitted_bytes_per_second: network.transmitted_rate,
+            })
+            .collect(),
+        processes: data
+            .top_processes
+            .iter()
+            .map(|process| monitoring::snapshot::ProcessSnapshot {
+                pid: process.pid,
+                name: process.name.clone(),
+                cpu_usage: process.cpu_usage,
+                memory: process.memory,
+                status: process.status.clone(),
+                disk_read_bytes: process.disk_read_bytes,
+                disk_written_bytes: process.disk_written_bytes,
+            })
+            .collect(),
+        battery: data
+            .battery_info
+            .as_ref()
+            .map(|battery| monitoring::snapshot::BatterySnapshot {
+                design_capacity: battery.design_capacity,
+                full_charge_capacity: battery.full_charge_capacity,
+                status: battery.status,
+                discharge_state: battery.discharge_state.clone(),
+                present: battery.present,
+            }),
         system: monitoring::snapshot::SystemInfoSnapshot {
-            os_name: data.system_info.os_name.clone(), os_version: data.system_info.os_version.clone(),
-            kernel_version: data.system_info.kernel_version.clone(), hostname: data.system_info.hostname.clone(),
-            uptime: data.system_info.uptime, cpu_count: data.system_info.cpu_count,
-            cpu_brand: data.system_info.cpu_brand.clone(), motherboard: data.system_info.motherboard.clone(),
-            bios_version: data.system_info.bios_version.clone(), gpu_driver: data.system_info.gpu_driver.clone(),
+            os_name: data.system_info.os_name.clone(),
+            os_version: data.system_info.os_version.clone(),
+            kernel_version: data.system_info.kernel_version.clone(),
+            hostname: data.system_info.hostname.clone(),
+            uptime: data.system_info.uptime,
+            cpu_count: data.system_info.cpu_count,
+            cpu_brand: data.system_info.cpu_brand.clone(),
+            motherboard: data.system_info.motherboard.clone(),
+            bios_version: data.system_info.bios_version.clone(),
+            gpu_driver: data.system_info.gpu_driver.clone(),
             os_build: data.system_info.os_build.clone(),
         },
-        provider_status: std::collections::HashMap::from([
-            ("cpu".into(), monitoring::snapshot::ProviderStatus { available: true, stale: data.monitoring_paused, error: None }),
-            ("memory".into(), monitoring::snapshot::ProviderStatus { available: true, stale: data.monitoring_paused, error: None }),
-            ("disk".into(), monitoring::snapshot::ProviderStatus { available: !data.disk_info.is_empty(), stale: data.monitoring_paused, error: None }),
-            ("network".into(), monitoring::snapshot::ProviderStatus { available: !data.network_info.is_empty(), stale: data.monitoring_paused, error: None }),
-            ("gpu".into(), monitoring::snapshot::ProviderStatus { available: !data.gpu_info.is_empty(), stale: data.monitoring_paused, error: None }),
-            ("battery".into(), monitoring::snapshot::ProviderStatus { available: data.battery_info.is_some(), stale: data.monitoring_paused, error: None }),
-        ]),
+        provider_status,
         paused: data.monitoring_paused,
     }
 }
@@ -3166,7 +3675,9 @@ fn load_icon() -> Option<egui::IconData> {
 
 #[cfg(target_os = "windows")]
 fn load_tray_icon() -> Option<tray_icon::Icon> {
-    let image = image::load_from_memory(include_bytes!("../assets/icon.png")).ok()?.into_rgba8();
+    let image = image::load_from_memory(include_bytes!("../assets/icon.png"))
+        .ok()?
+        .into_rgba8();
     let (width, height) = image.dimensions();
     let rgba = image.into_raw();
     tray_icon::Icon::from_rgba(rgba, width, height).ok()
@@ -3186,9 +3697,7 @@ fn main() {
             fn GetLastError() -> u32;
         }
 
-        let mutex_name: Vec<u16> = "Global\\SystemMonitorSingleInstance\0"
-            .encode_utf16()
-            .collect();
+        let mutex_name: Vec<u16> = "Global\\SystemMonitorSingleInstance\0".encode_utf16().collect();
         let _handle = unsafe { CreateMutexW(std::ptr::null(), 1, mutex_name.as_ptr()) };
         let last_error = unsafe { GetLastError() };
 
@@ -3198,10 +3707,9 @@ fn main() {
             use windows::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_ICONINFORMATION, MB_OK};
 
             let title: Vec<u16> = "System Monitor\0".encode_utf16().collect();
-            let msg: Vec<u16> =
-                "System Monitor is already running.\n\nCheck your system tray or taskbar.\0"
-                    .encode_utf16()
-                    .collect();
+            let msg: Vec<u16> = "System Monitor is already running.\n\nCheck your system tray or taskbar.\0"
+                .encode_utf16()
+                .collect();
             unsafe {
                 let _ = MessageBoxW(
                     None,
@@ -3271,9 +3779,7 @@ fn main() {
             use windows::core::PCWSTR;
             use windows::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_ICONERROR, MB_OK};
 
-            let title: Vec<u16> = "System Monitor — Unexpected Error\0"
-                .encode_utf16()
-                .collect();
+            let title: Vec<u16> = "System Monitor — Unexpected Error\0".encode_utf16().collect();
             let msg_text = format!(
                 "System Monitor encountered an unexpected error and needs to close.\n\n\
                  Error: {}\n\
@@ -3302,10 +3808,7 @@ fn main() {
         .with_level(true)
         .init();
 
-    info!(
-        version = APP_VERSION,
-        "System Monitor starting — Enterprise Edition"
-    );
+    info!(version = APP_VERSION, "System Monitor starting — Enterprise Edition");
     info!("Log directory: {}", logs_dir.display());
     info!("Crash report directory: {}", crash_dir.display());
 
@@ -3347,9 +3850,7 @@ fn main() {
                 use windows::core::PCWSTR;
                 use windows::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_ICONERROR, MB_OK};
 
-                let title: Vec<u16> = "System Monitor — Startup Error\0"
-                    .encode_utf16()
-                    .collect();
+                let title: Vec<u16> = "System Monitor — Startup Error\0".encode_utf16().collect();
                 let msg_text = format!(
                     "System Monitor failed to start.\n\n\
                      Error: {}\n\n\
@@ -3367,7 +3868,6 @@ fn main() {
     }
 }
 
-
 #[cfg(test)]
 mod persistence_tests {
     use super::*;
@@ -3376,7 +3876,7 @@ mod persistence_tests {
     fn test_battery_info_default() {
         let b = BatteryInfo::default();
         assert_eq!(b.design_capacity, 0);
-        assert_eq!(b.present, false);
+        assert!(!b.present);
     }
 }
 #[cfg(test)]
@@ -3397,9 +3897,9 @@ mod ram_cleaner_tests {
 
     #[test]
     fn stop_conditions_cover_target_budget_and_empty() {
-        assert!(should_stop_cleaning(65.0, 70.0, 10, 100));  // under target
+        assert!(should_stop_cleaning(65.0, 70.0, 10, 100)); // under target
         assert!(!should_stop_cleaning(80.0, 70.0, 10, 100)); // still over target
-        assert!(should_stop_cleaning(90.0, 70.0, 0, 100));   // nothing freed
+        assert!(should_stop_cleaning(90.0, 70.0, 0, 100)); // nothing freed
         assert!(should_stop_cleaning(90.0, 70.0, 100, 100)); // budget exhausted
     }
 
@@ -3409,9 +3909,11 @@ mod ram_cleaner_tests {
         assert_eq!(s.auto_clean_target, 70.0);
         assert!(s.auto_clean_notify);
         assert_eq!(s.auto_clean_max_mb, 0);
-        let mut s2 = AppSettings::default();
-        s2.auto_clean_target = 10.0;
-        s2.auto_clean_max_mb = 99999;
+        let s2 = AppSettings {
+            auto_clean_target: 10.0,
+            auto_clean_max_mb: 99999,
+            ..Default::default()
+        };
         let c = crate::persistence::settings::validated(s2);
         assert_eq!(c.auto_clean_target, 30.0);
         assert_eq!(c.auto_clean_max_mb, 4096);

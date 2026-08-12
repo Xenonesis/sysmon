@@ -1,121 +1,91 @@
 # SysMon
 
-**Refined System Intelligence for Windows**
+[![Rust CI](https://github.com/Xenonesis/sysmon/actions/workflows/rust-ci.yml/badge.svg)](https://github.com/Xenonesis/sysmon/actions/workflows/rust-ci.yml)
+[![Rust 1.85+](https://img.shields.io/badge/Rust-1.85%2B-orange.svg)](https://www.rust-lang.org/)
+[![Windows](https://img.shields.io/badge/Windows-10%2F11-blue.svg)](https://www.microsoft.com/windows)
+[![Version](https://img.shields.io/badge/version-3.5.0-green.svg)](CHANGELOG.md)
 
-A comprehensive, professional system monitoring application built with Rust featuring a native, high-performance GUI. SysMon delivers real-time telemetry across CPU, memory, GPU, storage, network, and active processes with historical performance tracking.
+SysMon is a native Windows observability and diagnostics application written in Rust. It combines live CPU, memory, disk, network, process, service, startup, battery and GPU telemetry with evidence-based diagnostics and guarded system actions.
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-gray.svg?style=flat-square)](https://opensource.org/licenses/MIT)
-[![Rust](https://img.shields.io/badge/Rust-1.70%2B-gray.svg?style=flat-square)](https://www.rust-lang.org/)
-[![Platform](https://img.shields.io/badge/Platform-Windows-gray.svg?style=flat-square)](https://www.microsoft.com/windows)
-[![Version](https://img.shields.io/badge/Version-3.0.0-gray.svg?style=flat-square)](https://github.com/Xenonesis/sysmon/releases/latest)
+## What makes it different
 
----
+- **Unified TelemetryHub:** replaceable latest-snapshot delivery keeps the UI current without a growing event backlog.
+- **Vendor-neutral GPU coverage:** NVIDIA NVML plus Windows/WMI adapters and GPU performance counters for Intel, AMD and other Windows GPUs.
+- **Multi-resolution history:** bounded 60-second, 5-minute, 30-minute and 1-hour windows with current, minimum, maximum and average statistics.
+- **Explainable diagnostics:** findings include evidence, a recommendation and confidence instead of applying broad tweak scripts.
+- **Local session recording:** opt-in JSONL capture for reproducing transient slowdowns; no automatic upload.
+- **Guarded actions:** process, service, RAM and power actions show risk and administrator requirements before execution, then write a local audit record. Reversible actions offer Undo when the prior state is known.
+- **Secure updates:** HTTPS/repository asset validation, bounded downloads, Authenticode validation and a build-time pinned publisher certificate.
 
-## Download & Installation
+## Main views
 
-The recommended distribution is our standalone Windows installer, providing automatic updates and seamless system integration.
+Overview, Performance, Diagnostics, CPU Cores, Processes, Services, Startup Manager, Storage, Network, RAM Cleaner, Alerts, System Information, Settings and About.
 
-**[Download SysMon Installer (v3.0.0)](https://systemmonitor.xenonesis.dev)**
+## Version comparison
 
-**Installer Features:**
-* **Native Integration:** Installs to `Program Files` with a searchable Start Menu entry.
-* **Maintenance:** Clean uninstallation via Windows Settings → Apps.
-* **Auto-updates:** Silent, background update checking every 24 hours.
-* **Footprint:** Extremely lightweight (~5 MB).
+| Capability | 1.x (2024) | 2.6.x (2026-01) | 3.5.0 (current) |
+| --- | --- | --- | --- |
+| GUI framework | egui / eframe | egui / eframe | egui / eframe |
+| Telemetry engine | Single polling thread | Legacy polling thread | **TelemetryHub** (multi-tier, provider abstraction, background workers) |
+| UI render frequency | Full poll per refresh | Full poll per refresh | **60 FPS decoupled** from 1–5 Hz hardware sampling |
+| History resolution | ~2 min graphs | ~2 min graphs | **60s / 5m / 30m / 1hr** ring buffers with min/max/avg/peak |
+| GPU support | NVIDIA only (NVML) | NVIDIA only (NVML) | **Vendor-neutral** — NVML + Windows/WMI adapters, Intel/AMD via counters |
+| Diagnostics | — | — | **Evidence-based findings + confidence**, opt-in JSONL session recording |
+| Action safety | — | — | **Risk preview, elevation disclosure, audit history, Undo** |
+| Update verification | Plain download | HTTPS + basic checks | **Authenticode + pinned publisher thumbprint**, checksum + SBOM |
+| Supply chain / CI | — | Basic scripts | **Signed release workflow**, provenance, Windows CI quality gates |
+| Views / modules | 4 tabs | 7 tabs | **14 modules** |
+| Themes | Single | Dark / Light | Dark / Light |
 
----
+See the [changelog](CHANGELOG.md) for the complete per-version history.
 
-## Core Capabilities
+## Install
 
-### Modern GUI Interface
-* **Premium Typography & Spacing:** Designed using an 8dp spacing rhythm and clear visual hierarchies.
-* **Dual Themes:** Polished 'Terminal Noir' dark mode and an Apple-inspired minimal light mode.
-* **Adaptive Layout:** Resizable interface with a quick-stats sidebar and multi-tab structure.
-* **Visual States:** Color-coded usage indicators and smooth transition animations.
+Use a signed installer from [GitHub Releases](https://github.com/Xenonesis/sysmon/releases/latest). SysMon intentionally refuses automatic installation when a release is unsigned or signed by a certificate other than the publisher pinned into that build.
 
-### Real-Time Monitoring & TelemetryHub
-* **TelemetryHub Engine:** Dedicated background polling engine separating 60 FPS UI rendering from 1–5 Hz hardware sampling.
-* **Vendor-Independent Providers:** Modular `TelemetryProvider` abstraction supporting `sysinfo`, `nvml` (NVIDIA), and `wmi` data sources.
-* **Multi-Resolution Ring Buffers:** Bounded `MetricHistory` circular buffers with live min/max/avg/peak metrics over 60s, 5m, 30m, and 1hr spans.
-* **Processor (CPU):** Usage monitoring with per-core analysis and thermal tracking.
-* **Memory (RAM):** Comprehensive breakdown with threshold-based auto-cleaning.
-* **Graphics (GPU):** Full NVIDIA NVML integration (Utilization, VRAM, Temp, Clock Speed, Power Draw, Fan Speed).
-* **Network & Storage:** Live interface telemetry, capacities, and read/write rates.
+> Version 3.5.0 must be published through the signed release workflow before installed clients can receive it. Do not distribute a locally self-signed build as a production update.
 
-### Process Intelligence (Process Pro)
-* **Deep Process Details:** Executable paths, command-line arguments, start times, and parent process lineage.
-* **Task Management:** Granular control to Suspend, Resume, Change Priority, and Kill tasks.
-* **Kill Tree:** Graceful termination of a process and its entire descendant tree.
-* **Real-time Filtering:** Sort by memory/CPU and substring search by name or PID.
+## Build from source
 
-### System Integration
-* **Tray Quick Actions:** Clean RAM, Open Process Manager, or Pause Monitoring directly from the system tray.
-* **Power Plan Toggle:** Switch between installed Windows power plans straight from the tray menu.
-* **Desktop Mini-Widget:** A compact always-visible overlay showing live CPU, RAM, GPU, network, and thermal telemetry.
-* **System Information:** WMI-enriched motherboard, BIOS, GPU driver, and OS build telemetry.
-* **Data Export:** Snapshot current system state to CSV or JSON formats for analysis.
-* **Notifications:** Windows-native alerts for high CPU, memory, GPU temperatures, or heavy startup impact.
+Requirements:
 
----
+- Windows 10 or 11, x64
+- Rust 1.85 or newer with the MSVC toolchain
+- Visual Studio C++ Build Tools
+- NVIDIA drivers only if NVML-specific metrics are required
 
-## Prerequisites & Building from Source
-
-**Requirements:**
-* Windows 10/11 (64-bit)
-* Rust 1.70+ (for source compilation)
-* NVIDIA Drivers (optional, for GPU telemetry)
-
-**Build Instructions:**
 ```powershell
-cargo build --release
+cargo build --locked --release --bin system-monitor
 ```
-The compiled executable will be located at: `target/release/system-monitor.exe`. 
-*Note: The application requires administrator privileges for advanced process management and RAM cleaning.*
 
----
+The binary is written to `target\release\system-monitor.exe`. Standard monitoring works without elevation. Windows requests administrator permission only for actions that require it.
 
-## Changelog
+## Quality checks
 
-### [3.0.0] — TelemetryHub & Provider Architecture
-* **TelemetryHub:** Background polling hub separating 60 FPS UI rendering from hardware polling rates (1–5 Hz).
-* **Provider Abstraction:** Modular `TelemetryProvider` trait for `sysinfo`, `nvml-wrapper`, and `wmi` sources.
-* **Multi-Resolution Ring Buffers:** Fixed-capacity circular buffers tracking min/max/avg/peak statistics across 60s, 5m, 30m, and 1hr windows.
-* **Polling Scheduler:** `PollingScheduler` with 5x reduced background/tray polling for low idle power/CPU usage.
-* **Fault Isolation:** Individual provider errors (e.g., missing NVIDIA GPU) are safely isolated without application crashes.
-* **Automated Integration Tests:** Deep telemetry flow automated integration tests.
+```powershell
+cargo fmt --all -- --check
+cargo clippy --locked --all-targets -- -D warnings
+cargo test --locked --all-targets
+cargo build --locked --release --bin system-monitor
+```
 
-### [2.6.0] — Stability Rewrite
-* **Architecture:** Long-lived monitoring and action workers with command/event boundaries; typed action results.
-* **Accuracy:** Telemetry rates computed from counter deltas (no inflated first sample, safe on counter reset).
-* **Safety:** Explicit validated updates (HTTPS-only asset, size cap, Authenticode check); atomic settings persistence; standard-user support (asInvoker).
-* **Reliability:** Alert deduplication, multi-GPU alert resolution, service restart state polling, process-tree determinism.
-* **Zero warnings:** Full crate compiles clean under `-Dwarnings`.
+CI runs the same commands on Windows. Hardware-dependent telemetry smoke tests remain ignored by default because results depend on the runner's devices and drivers; deterministic provider/hub tests run normally.
 
-### [2.5.0] — Power & Desktop Widget
-* **Power Plan Toggle:** Enumerate and switch active Windows power schemes from the tray menu.
-* **Desktop Mini-Widget:** Floating telemetry overlay (CPU, RAM, GPU, network, thermals), toggled from Settings.
-* **UI/UX Polish:** Unified 8px corner rounding across themes and documented the new capabilities.
+## Privacy and data locations
 
-### [2.4.0] — Feature Expansion
-* **Process Pro:** Added an exhaustive details panel (path, command line, threads, start time) and a Deep Kill Tree action.
-* **Tray Quick Actions:** Upgraded system tray menu with actions to Clean RAM, pause monitoring, and open the process manager.
-* **Advanced GPU Metrics:** Added real-time Clock Speed, Power Draw, and Fan Speed metrics via NVML.
-* **System Info Enrichment:** Deeper system insights using WMI (Motherboard, BIOS, GPU Driver, OS Build).
-* **UI/UX Polish:** Refined application spacing, corner radiuses, and shadow elevations across themes for a premium feel.
+SysMon has no telemetry-upload feature. Settings, diagnostic sessions, logs and system-action audit records stay under the current user's Windows application-data directories. A session is written only after the user presses **Start recording** on Diagnostics.
 
-### [2.3.0] — Deployment & Quality
-* **Installer-First Distribution:** Fully transitioned to automated, installer-based updates.
-* **Silent Updates:** Background installer routines for seamless upgrades.
-* **Notification Enhancements:** In-app banners for available updates.
+## Release security
 
----
+Tagged releases require production certificate secrets, sign both the application and installer, verify that both match the updater's pinned thumbprint, generate a SHA-256 checksum and SPDX SBOM, and attach GitHub build provenance. See [release-rule.md](docs/release-rule.md) and [SECURITY.md](SECURITY.md).
 
-## Roadmap
+## Documentation
 
-* [ ] Code signing certificate for trusted execution.
-
----
+- [User guide](USER_GUIDE.md)
+- [Changelog](CHANGELOG.md)
+- [Contributing](CONTRIBUTING.md)
+- [Security policy](SECURITY.md)
 
 ## License
 
-Released under the [MIT License](LICENSE).
+MIT. See [LICENSE](LICENSE).
