@@ -224,208 +224,184 @@ function initNavScrollEffect() {
 }
 
 /**
- * Download Resolver (GitHub Releases API)
+ * Download Resolver — always serves the latest GitHub release.
+ *
+ * Strategy:
+ *  1. Read the cached ETag + release data from localStorage.
+ *  2. Hit the API with If-None-Match — GitHub returns 304 (no body) if nothing changed;
+ *     costs zero rate-limit quota and resolves in ~50 ms.
+ *  3. On 200, parse the new release, update all version displays + download buttons,
+ *     and write the fresh ETag back to cache.
+ *  4. On any network/API failure, use cached data or fall back to the releases page.
+ *
+ * Result: the page always reflects a new release on the very next page load, not after
+ * a 1-hour TTL window.
  */
 async function resolveDownload() {
-    const REPO = 'Xenonesis/sysmon';
-    const API_URL = `https://api.github.com/repos/${REPO}/releases/latest`;
+    const REPO          = 'Xenonesis/sysmon';
+    const API_URL       = `https://api.github.com/repos/${REPO}/releases/latest`;
     const RELEASES_PAGE = `https://github.com/${REPO}/releases/latest`;
-    const CACHE_KEY = 'sysmon_release_cache_v4';
-    const CACHE_TTL = 3600000; // 1 hour
-    
-    const heroBtn = document.getElementById('downloadNow');
-    const sectionBtn = document.getElementById('downloadNowSection');
-    const info = document.getElementById('downloadInfo');
-    const versionDisplay = document.getElementById('latestVersion');
-    const changelogTitle = document.querySelector('#changelog .section-title');
-    const buttons = [heroBtn, sectionBtn].filter(Boolean);
+    const CACHE_KEY     = 'sysmon_dl_v5';   // bump if cache schema changes
 
-    /** Update every version-labelled element on the page */
-    function applyVersion(version) {
-        if (!version) return;
-        if (versionDisplay) versionDisplay.textContent = `v${version}`;
-        if (changelogTitle) {
-            changelogTitle.textContent = `What's new in v${version}`;
-        }
-        document.querySelectorAll('[data-version-display]').forEach(el => {
-            el.textContent = `v${version}`;
-        });
+    // ── DOM refs ────────────────────────────────────────────────────────────
+    const heroBtn      = document.getElementById('downloadNow');
+    const sectionBtn   = document.getElementById('downloadNowSection');
+    const infoEl       = document.getElementById('downloadInfo');
+    const verDisplay   = document.getElementById('latestVersion');
+    const clTitle      = document.querySelector('#changelog .section-title');
+    const buttons      = [heroBtn, sectionBtn].filter(Boolean);
+
+    // ── Helpers ──────────────────────────────────────────────────────────────
+
+    /** Set every version-labelled element to vX.Y.Z */
+    function applyVersion(ver) {
+        if (!ver) return;
+        const label = `v${ver}`;
+        if (verDisplay) verDisplay.textContent = label;
+        if (clTitle)    clTitle.textContent    = `What's new in ${label}`;
+        document.querySelectorAll('[data-version-display]')
+                .forEach(el => { el.textContent = label; });
     }
-    
-    /**
-     * Apply direct-download URL, version text and info line
-     */
-    function applyDownload(data) {
-        const { url, name, sizeMB, version } = data;
+
+    /** Wire buttons to a direct download URL */
+    function applyDirectDownload(url, name, sizeMB, ver) {
         buttons.forEach(btn => {
             btn.href = url;
             btn.removeAttribute('target');
-            btn.rel = '';
+            btn.removeAttribute('rel');
         });
-
-        applyVersion(version);
-
-        const parts = [name];
-        if (sizeMB) parts.push(`${sizeMB} MB`);
-        if (version) parts.push(`v${version}`);
-
-        if (info) {
-            info.textContent = parts.join(' · ') + ' — Ready to download';
+        applyVersion(ver);
+        if (infoEl) {
+            const parts = [name];
+            if (sizeMB) parts.push(`${sizeMB} MB`);
+            if (ver)    parts.push(`v${ver}`);
+            infoEl.textContent = parts.join(' · ') + ' — Ready to download';
         }
     }
-    
-    /**
-     * Fallback to GitHub releases page (version text still updated if known)
-     */
-    function useFallback(version) {
-        buttons.forEach(btn => {
-            btn.href = RELEASES_PAGE;
-            btn.target = '_blank';
-            btn.rel = 'noopener';
-        });
 
-        if (info) {
-            info.textContent = version
-                ? `v${version} — download from GitHub Releases`
+    /** Wire buttons to the GitHub releases page (when no binary asset exists) */
+    function applyReleasePage(pageUrl, ver) {
+        buttons.forEach(btn => {
+            btn.href   = pageUrl || RELEASES_PAGE;
+            btn.target = '_blank';
+            btn.rel    = 'noopener';
+        });
+        applyVersion(ver);
+        if (infoEl) {
+            infoEl.textContent = ver
+                ? `v${ver} — download from GitHub Releases`
                 : 'Visit GitHub Releases for the latest version';
         }
     }
-    
-    /**
-     * Check cache for valid data
-     */
-    function getCachedRelease() {
-        try {
-            const cached = localStorage.getItem(CACHE_KEY);
-            if (!cached) return null;
-            
-            const { timestamp, data } = JSON.parse(cached);
-            if (Date.now() - timestamp > CACHE_TTL) {
-                localStorage.removeItem(CACHE_KEY);
-                return null;
-            }
-            
-            return data;
-        } catch {
-            return null;
-        }
-    }
-    
-    /**
-     * Cache release data
-     */
-    function cacheRelease(data) {
-        try {
-            localStorage.setItem(CACHE_KEY, JSON.stringify({
-                timestamp: Date.now(),
-                data
-            }));
-        } catch {
-            // Storage might be full or disabled
-        }
-    }
-    
-    // Check cache first
-    const cached = getCachedRelease();
-    if (cached) {
-        if (cached.url.includes('github.com') && !cached.url.includes('download')) {
-             useFallback(cached.version);
-        } else {
-             applyDownload(cached);
-        }
-        return;
-    }
-    
-    // Fetch from GitHub API
-    try {
-        const response = await fetch(API_URL, {
-            headers: {
-                'Accept': 'application/vnd.github.v3+json'
-            }
-        });
-        
-        if (!response.ok) {
-            // Handle 404 (no releases yet) gracefully
-            if (response.status === 404) {
-                console.info('No releases found yet. Using releases page fallback.');
-                if (info) {
-                    info.textContent = 'No releases yet — check back soon!';
-                }
-            }
-            throw new Error('API request failed');
-        }
-        
-        const release = await response.json();
-        const version = release.tag_name?.replace(/^v/, '') || release.tag_name;
 
-        // ── Step 1: Always update version text immediately from the tag ──
-        applyVersion(version);
-        
-        // ── Step 2: Find the best downloadable asset ──
-        // Prefer *-setup.exe, then any .exe, then fall back to releases page
-        const installerAsset = release.assets?.find(a =>
-            a.name?.toLowerCase().includes('setup') &&
-            a.name?.toLowerCase().endsWith('.exe')
-        );
-        const exeAsset = installerAsset || release.assets?.find(a =>
-            a.name?.toLowerCase().endsWith('.exe')
-        );
-        
-        if (exeAsset?.browser_download_url) {
-            const sizeMB = exeAsset.size ? (exeAsset.size / (1024 * 1024)).toFixed(1) : null;
-            
-            const data = {
-                url: exeAsset.browser_download_url,
-                name: exeAsset.name,
-                sizeMB,
-                version
-            };
-            
-            cacheRelease(data);
-            applyDownload(data);
+    /** Generic error fallback */
+    function applyFallback() {
+        buttons.forEach(btn => {
+            btn.href   = RELEASES_PAGE;
+            btn.target = '_blank';
+            btn.rel    = 'noopener';
+        });
+        if (infoEl) infoEl.textContent = 'Visit GitHub Releases for the latest version';
+    }
+
+    /** Load cache — returns { etag, data } or null */
+    function loadCache() {
+        try {
+            const raw = localStorage.getItem(CACHE_KEY);
+            return raw ? JSON.parse(raw) : null;
+        } catch { return null; }
+    }
+
+    /** Save { etag, data } to cache */
+    function saveCache(etag, data) {
+        try {
+            localStorage.setItem(CACHE_KEY, JSON.stringify({ etag, data }));
+        } catch { /* storage full / disabled */ }
+    }
+
+    /** Pick the best downloadable asset from a release's asset list */
+    function pickAsset(assets) {
+        if (!Array.isArray(assets) || assets.length === 0) return null;
+        // Prefer *-setup.exe, then any .exe
+        return assets.find(a => a.name?.toLowerCase().includes('setup') && a.name?.toLowerCase().endsWith('.exe'))
+            || assets.find(a => a.name?.toLowerCase().endsWith('.exe'))
+            || null;
+    }
+
+    /** Convert a GitHub release JSON object → our internal data shape */
+    function releaseToData(release) {
+        const ver   = release.tag_name?.replace(/^v/, '') ?? release.tag_name;
+        const asset = pickAsset(release.assets);
+        return {
+            version:   ver,
+            assetUrl:  asset?.browser_download_url ?? null,
+            assetName: asset?.name ?? `SystemMonitor-${ver}-setup.exe`,
+            sizeMB:    asset?.size ? (asset.size / (1024 * 1024)).toFixed(1) : null,
+            pageUrl:   release.html_url ?? RELEASES_PAGE,
+        };
+    }
+
+    /** Apply a data object to the page */
+    function applyData(data) {
+        if (data.assetUrl) {
+            applyDirectDownload(data.assetUrl, data.assetName, data.sizeMB, data.version);
         } else {
-            // Release exists but has no binary assets yet — point to its page
-            buttons.forEach(btn => {
-                btn.href = release.html_url || RELEASES_PAGE;
-                btn.target = '_blank';
-                btn.rel = 'noopener';
-            });
-            if (info) {
-                info.textContent = version
-                    ? `v${version} — download from GitHub Releases`
-                    : 'Visit GitHub Releases for the latest version';
-            }
-            // Cache this so we don't hammer the API on every page view
-            cacheRelease({
-                url: release.html_url || RELEASES_PAGE,
-                name: `SystemMonitor-${version}-setup.exe`,
-                sizeMB: null,
-                version
-            });
+            applyReleasePage(data.pageUrl, data.version);
         }
-    } catch (error) {
-        console.warn('Failed to fetch release info:', error);
-        useFallback();
+    }
+
+    // ── Main flow ────────────────────────────────────────────────────────────
+
+    const cache = loadCache();
+
+    // Immediately render from cache so the page never flashes "Resolving…"
+    if (cache?.data) applyData(cache.data);
+
+    // Always revalidate against the API (ETag makes this nearly free when unchanged)
+    try {
+        const headers = { 'Accept': 'application/vnd.github.v3+json' };
+        if (cache?.etag) headers['If-None-Match'] = cache.etag;
+
+        const res = await fetch(API_URL, { headers });
+
+        if (res.status === 304) {
+            // GitHub confirmed: nothing changed — cache is authoritative, nothing to do
+            return;
+        }
+
+        if (!res.ok) {
+            if (res.status === 404) {
+                if (infoEl) infoEl.textContent = 'No releases yet — check back soon!';
+            }
+            // Keep whatever we showed from cache; don't call applyFallback() if cache worked
+            if (!cache?.data) applyFallback();
+            return;
+        }
+
+        const release = await res.json();
+        const etag    = res.headers.get('ETag') ?? '';
+        const data    = releaseToData(release);
+
+        saveCache(etag, data);
+        applyData(data);         // update page with freshly confirmed latest
+
+    } catch (err) {
+        console.warn('[SysMon] Release check failed:', err);
+        if (!cache?.data) applyFallback();
+        // else: cached data already rendered — silent degradation
     }
 }
 
-/**
- * Parallax effect for hero (subtle)
- */
+/** Parallax effect for hero (subtle) */
 function initParallax() {
     const hero = document.querySelector('.hero-visual');
     if (!hero || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-    
+
     window.addEventListener('scroll', () => {
-        const scrollY = window.scrollY;
-        const translateY = scrollY * 0.1;
-        hero.style.transform = `translateY(${translateY}px)`;
+        hero.style.transform = `translateY(${window.scrollY * 0.1}px)`;
     }, { passive: true });
 }
 
-/**
- * Initialize parallax on load
- */
 window.addEventListener('load', () => {
     initParallax();
 });
