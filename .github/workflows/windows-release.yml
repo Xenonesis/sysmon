@@ -3,8 +3,10 @@ name: Build Signed Windows Release
 on:
   workflow_dispatch:
   push:
-    tags:
-      - "v*"
+    branches:
+      - main
+    paths:
+      - "Cargo.toml"
 
 permissions:
   contents: write
@@ -12,10 +14,47 @@ permissions:
   attestations: write
 
 jobs:
-  build-windows:
-    runs-on: windows-latest
+  check-version:
+    runs-on: ubuntu-latest
+    outputs:
+      is_new: ${{ steps.check.outputs.is_new }}
+      version: ${{ steps.check.outputs.version }}
     steps:
       - uses: actions/checkout@v4
+      - name: Check if version changed
+        id: check
+        run: |
+          VERSION=$(grep -m1 -oP '^version\s*=\s*"\K[^"]+' Cargo.toml)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          if git ls-remote --tags origin "refs/tags/v$VERSION" | grep -q "refs/tags/v$VERSION"; then
+            echo "Tag v$VERSION already exists."
+            echo "is_new=false" >> $GITHUB_OUTPUT
+          else
+            echo "New version v$VERSION detected!"
+            echo "is_new=true" >> $GITHUB_OUTPUT
+          fi
+
+  build-windows:
+    needs: check-version
+    if: needs.check-version.outputs.is_new == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: windows-latest
+    env:
+      APP_VERSION: ${{ needs.check-version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Extract Release Notes
+        shell: pwsh
+        run: |
+          $changelog = Get-Content CHANGELOG.md -Raw
+          $pattern = '(?s)## \[' + $env:APP_VERSION + '\] - \d{4}-\d{2}-\d{2}\s+(.*?)(?=\n## \[|$)'
+          if ($changelog -match $pattern) {
+              $notes = $Matches[1].Trim()
+              $notes | Out-File release_notes.md -Encoding utf8
+          } else {
+              Write-Host "Changelog entry for $env:APP_VERSION not found!"
+              "Release v$env:APP_VERSION" | Out-File release_notes.md -Encoding utf8
+          }
 
       - name: Install pinned Rust toolchain
         uses: dtolnay/rust-toolchain@1.85.0
@@ -24,15 +63,6 @@ jobs:
           components: rustfmt, clippy
 
       - uses: Swatinem/rust-cache@v2
-
-      - name: Verify tag matches Cargo version
-        shell: pwsh
-        run: |
-          $cargo = Get-Content Cargo.toml -Raw
-          if ($cargo -notmatch '(?m)^version\s*=\s*"([^"]+)"') { throw 'Cargo version not found' }
-          $version = $Matches[1]
-          if ('${{ github.ref_name }}' -ne "v$version") { throw "Tag ${{ github.ref_name }} does not match Cargo version v$version" }
-          "APP_VERSION=$version" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Import production signing certificate
         shell: pwsh
@@ -86,7 +116,6 @@ jobs:
       - name: Build and sign installer (replaces portable if successful)
         id: inno
         shell: pwsh
-        # continue-on-error: installer step is best-effort; signed portable is the fallback
         continue-on-error: true
         run: |
           & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' installer.iss /DAppVersion=$env:APP_VERSION
@@ -124,8 +153,10 @@ jobs:
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: v${{ env.APP_VERSION }}
+          name: v${{ env.APP_VERSION }}
+          body_path: release_notes.md
           replace: true
-          generate_release_notes: true
           files: |
             downloads/SystemMonitor-${{ env.APP_VERSION }}-setup.exe
             downloads/SystemMonitor-${{ env.APP_VERSION }}-setup.exe.sha256

@@ -69,3 +69,4 @@ image = { version = "0.25.9", features = ["bmp", "ico", "png"] }
 
 [target.'cfg(windows)'.build-dependencies]
 winres = "0.1"
+
