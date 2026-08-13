@@ -1,4 +1,4 @@
-name: Build Windows Release
+name: Build Windows Release (Unsigned)
 
 on:
   workflow_dispatch:
@@ -50,18 +50,8 @@ jobs:
           New-Item -ItemType Directory -Force downloads | Out-Null
           Copy-Item target\x86_64-pc-windows-msvc\release\system-monitor.exe target\release\system-monitor.exe
 
-          # ── Portable exe (always present, guaranteed fallback) ──
-          $portableDest = "downloads\SystemMonitor-$env:APP_VERSION-setup.exe"
-          Copy-Item target\release\system-monitor.exe $portableDest
-          $hash = (Get-FileHash $portableDest -Algorithm SHA256).Hash.ToLowerInvariant()
-          "$hash *$(Split-Path $portableDest -Leaf)" | Set-Content "$portableDest.sha256" -Encoding ascii
-          Write-Host "Portable ready: $portableDest"
-
       - name: Build installer (Inno Setup)
-        id: inno
         shell: pwsh
-        # continue-on-error so the job never fails just because ISCC is unavailable
-        continue-on-error: true
         run: |
           choco install innosetup -y --no-progress
           & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' installer.iss /DAppVersion=$env:APP_VERSION
@@ -70,16 +60,6 @@ jobs:
           $hash = (Get-FileHash $installer -Algorithm SHA256).Hash.ToLowerInvariant()
           "$hash *$(Split-Path $installer -Leaf)" | Set-Content "$installer.sha256" -Encoding ascii
           Write-Host "Installer ready: $installer"
-          "INSTALLER_BUILT=true" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
-
-      - name: Log installer build result
-        shell: pwsh
-        run: |
-          if ($env:INSTALLER_BUILT -eq 'true') {
-            Write-Host "Inno Setup installer built successfully."
-          } else {
-            Write-Host "Inno Setup step was skipped or failed — portable exe is the release asset."
-          }
 
       - name: Generate SBOM
         uses: anchore/sbom-action@v0

@@ -1,4 +1,4 @@
-# SysMon 3.0 User Guide
+# System Monitor User Guide
 
 ## Getting started
 

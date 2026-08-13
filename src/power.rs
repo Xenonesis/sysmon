@@ -70,6 +70,8 @@ pub fn get_power_plans() -> Vec<PowerPlan> {
     let mut plans = Vec::new();
     let mut active_guid: Option<String> = None;
 
+    // SAFETY: FFI calls to power management use valid pointers.
+    // Returned memory from PowerGetActiveScheme is freed using LocalFree.
     unsafe {
         let mut active_ptr: *mut windows_sys::core::GUID = ptr::null_mut();
         if PowerGetActiveScheme(ptr::null_mut(), &mut active_ptr) == ERROR_SUCCESS && !active_ptr.is_null() {
@@ -161,6 +163,7 @@ pub fn get_power_plans() -> Vec<PowerPlan> {
 }
 
 pub fn set_active_power_plan(guid: &str) -> Result<(), String> {
+    // SAFETY: PowerSetActiveScheme is called with a valid GUID reference.
     unsafe {
         let g = parse_guid(guid)?;
         let res = PowerSetActiveScheme(ptr::null_mut(), &g);

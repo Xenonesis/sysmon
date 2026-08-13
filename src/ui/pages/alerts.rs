@@ -100,7 +100,7 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
         ui.horizontal(|ui| {
             if ui.button("Clear All Alerts").clicked() {
                 {
-                    let mut data = app.data.lock();
+                    let mut data = app.data.write();
                     data.alerts.clear();
                 }
             }

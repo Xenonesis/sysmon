@@ -44,7 +44,7 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui) {
                     .iter()
                     .filter(|i| i.impact_tier == ImpactTier::High && i.enabled)
                     .count();
-                app.data.lock().high_impact_startup_count = high_impact_count;
+                app.data.write().high_impact_startup_count = high_impact_count;
 
                 false
             } else {

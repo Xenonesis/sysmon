@@ -101,9 +101,7 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
                 ui.horizontal(|ui| {
                     ui.label("Clean when RAM usage exceeds:");
                     if ui
-                        .add(
-                            egui::Slider::new(&mut app.ram_cleaner_state.auto_clean_threshold, 1.0..=99.0).suffix("%"),
-                        )
+                        .add(egui::Slider::new(&mut app.ram_cleaner_state.auto_clean_threshold, 1.0..=99.0).suffix("%"))
                         .changed()
                     {
                         app.settings.ram_clean_threshold = app.ram_cleaner_state.auto_clean_threshold;
