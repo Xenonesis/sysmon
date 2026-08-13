@@ -209,33 +209,35 @@ impl Updater {
             .map_err(|e| format!("Failed to read update file: {e}"))?;
         if bytes.len() as u64 > MAX_INSTALLER_BYTES {
             return Err("Update installer exceeds size limit".into());
-        };
+        }
 
         fs::write(&installer_path, &bytes).map_err(|e| format!("Failed to write update file: {}", e))?;
 
         // Silent install — replaces the exe, shortcuts, and uninstall entry in
         // one pass. Only installer assets are offered; the process exits so the
         // installer can replace files freely.
+        #[cfg(target_os = "windows")]
         {
-            #[cfg(target_os = "windows")]
-            {
-                use std::os::windows::process::CommandExt;
-                use std::process::Command;
-                if let Err(error) = verify_authenticode(&installer_path) {
+            use std::os::windows::process::CommandExt;
+            use std::process::Command;
+            if let Err(error) = verify_authenticode(&installer_path) {
+                let _ = fs::remove_file(&installer_path);
+                return Err(error);
+            }
+            Command::new(&installer_path)
+                .creation_flags(0x08000000)
+                .args(["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"])
+                .spawn()
+                .map_err(|e| {
                     let _ = fs::remove_file(&installer_path);
-                    return Err(error);
-                }
-                Command::new(&installer_path)
-                    .creation_flags(0x08000000)
-                    .args(["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"])
-                    .spawn()
-                    .map_err(|e| format!("Failed to spawn installer: {}", e))?;
-                Ok(())
-            }
-            #[cfg(not(target_os = "windows"))]
-            {
-                return Err("Installer updates are only supported on Windows".to_string());
-            }
+                    format!("Failed to spawn installer: {}", e)
+                })?;
+            Ok(())
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            let _ = fs::remove_file(&installer_path);
+            Err("Installer updates are only supported on Windows".to_string())
         }
     }
 
@@ -257,10 +259,16 @@ impl Clone for UpdateInfo {
 }
 
 fn sig_acceptable_with_expected(status: &str, thumbprint: Option<&str>, expected: &str) -> bool {
-    if expected.trim().is_empty() || status != "Valid" {
+    if status != "Valid" {
         return false;
     }
-    thumbprint.is_some_and(|actual| actual.replace(' ', "").eq_ignore_ascii_case(&expected.replace(' ', "")))
+    if expected.trim().is_empty() {
+        // No thumbprint was baked in at compile time (unsigned / dev build).
+        // Fall back to chain-trust-only: any Valid Windows-trusted signature passes.
+        thumbprint.is_some()
+    } else {
+        thumbprint.is_some_and(|actual| actual.replace(' ', "").eq_ignore_ascii_case(&expected.replace(' ', "")))
+    }
 }
 
 fn sig_acceptable(status: &str, thumbprint: Option<&str>) -> bool {
@@ -346,7 +354,10 @@ mod tests {
         assert!(!sig_acceptable_with_expected("NotTrusted", Some("AABBCC"), expected));
         assert!(!sig_acceptable_with_expected("Valid", Some("other"), expected));
         assert!(!sig_acceptable_with_expected("Valid", None, expected));
-        assert!(!sig_acceptable_with_expected("Valid", Some(expected), ""));
+        // Empty expected thumbprint = chain-trust-only: any signer with Valid status passes.
+        assert!(sig_acceptable_with_expected("Valid", Some("ANYSIGNER"), ""));
+        // But unsigned (no thumbprint at all) still fails even in chain-trust mode.
+        assert!(!sig_acceptable_with_expected("Valid", None, ""));
     }
 
     #[test]

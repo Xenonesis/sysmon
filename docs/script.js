@@ -322,9 +322,8 @@ async function resolveDownload() {
     /** Pick the best downloadable asset from a release's asset list */
     function pickAsset(assets) {
         if (!Array.isArray(assets) || assets.length === 0) return null;
-        // Prefer *-setup.exe, then any .exe
+        // Strictly require *-setup.exe installer; never serve portable exe.
         return assets.find(a => a.name?.toLowerCase().includes('setup') && a.name?.toLowerCase().endsWith('.exe'))
-            || assets.find(a => a.name?.toLowerCase().endsWith('.exe'))
             || null;
     }
 

@@ -1401,6 +1401,12 @@ pub(crate) struct SystemMonitorApp {
     pub(crate) update_info_share: Arc<Mutex<Option<updater::UpdateInfo>>>,
     pub(crate) show_update_notification: bool,
     pub(crate) update_check_time: Option<Instant>,
+    /// `true` while the installer is being downloaded/verified in the background.
+    pub(crate) update_downloading: bool,
+    /// Last error from a failed install attempt; shown in the banner.
+    pub(crate) update_error: Option<String>,
+    /// Background thread writes `Some(Ok(()))` or `Some(Err(msg))` here when done.
+    pub(crate) update_result_share: Arc<Mutex<Option<Result<(), String>>>>,
     pub(crate) ram_cleaner_state: RamCleanerState,
     pub(crate) startup_items: Vec<StartupItem>,
     pub(crate) startup_items_loaded: bool,
@@ -2210,6 +2216,9 @@ impl SystemMonitorApp {
             update_info_share: Arc::new(Mutex::new(None)),
             show_update_notification: true,
             update_check_time: None,
+            update_downloading: false,
+            update_error: None,
+            update_result_share: Arc::new(Mutex::new(None)),
             ram_cleaner_state: RamCleanerState {
                 last_cleaned: None,
                 last_cleaned_display: String::new(),
@@ -2544,6 +2553,22 @@ impl eframe::App for SystemMonitorApp {
             self.update_check_time = Some(Instant::now());
         }
 
+        // Poll background installer result each frame.
+        let installer_result = self.update_result_share.lock().take();
+        if let Some(result) = installer_result {
+            self.update_downloading = false;
+            match result {
+                Ok(()) => {
+                    // Installer launched successfully — hide banner.
+                    self.show_update_notification = false;
+                    self.update_error = None;
+                }
+                Err(msg) => {
+                    self.update_error = Some(msg);
+                }
+            }
+        }
+
         // Show update notification banner
         let update_info_opt = self.update_info_share.lock().clone();
         if let Some(update_info) = update_info_opt {
@@ -2565,30 +2590,56 @@ impl eframe::App for SystemMonitorApp {
                                 update_info.latest_version, update_info.current_version
                             ));
 
-                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                if ui.button("Dismiss").clicked() {
-                                    self.show_update_notification = false;
-                                }
+                            // Show inline error message if the last attempt failed.
+                            if let Some(err) = &self.update_error {
                                 ui.add_space(8.0);
-                                if ui.button(egui::RichText::new("Install Update").strong()).clicked() {
-                                    let download_url = update_info.download_url.clone();
-                                    thread::Builder::new()
-                                        .name("updater_downloader".to_string())
-                                        .stack_size(8 * 1024 * 1024)
-                                        .spawn(move || {
-                                            if let Err(e) =
-                                                updater::Updater::new().download_and_install_update(&download_url)
-                                            {
-                                                eprintln!("Update failed: {}", e);
-                                            }
-                                        })
-                                        .expect("failed to spawn updater downloader thread");
+                                ui.colored_label(
+                                    egui::Color32::from_rgb(220, 80, 70),
+                                    format!("⚠ {}", err),
+                                );
+                            }
+
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                if !self.update_downloading {
+                                    if ui.button("Dismiss").clicked() {
+                                        self.show_update_notification = false;
+                                        self.update_error = None;
+                                    }
+                                    ui.add_space(8.0);
+                                }
+                                if self.update_downloading {
+                                    ui.add_enabled(
+                                        false,
+                                        egui::Button::new(
+                                            egui::RichText::new("⏳ Downloading…").strong(),
+                                        ),
+                                    );
+                                } else {
+                                    if ui
+                                        .button(egui::RichText::new("Install Update").strong())
+                                        .clicked()
+                                    {
+                                        let download_url = update_info.download_url.clone();
+                                        let result_share = self.update_result_share.clone();
+                                        self.update_downloading = true;
+                                        self.update_error = None;
+                                        thread::Builder::new()
+                                            .name("updater_downloader".to_string())
+                                            .stack_size(8 * 1024 * 1024)
+                                            .spawn(move || {
+                                                let result = updater::Updater::new()
+                                                    .download_and_install_update(&download_url);
+                                                *result_share.lock() = Some(result);
+                                            })
+                                            .expect("failed to spawn updater downloader thread");
+                                    }
                                 }
                             });
                         });
                     });
             }
         }
+
 
         // Keyboard shortcuts
         ctx.input(|i| {
