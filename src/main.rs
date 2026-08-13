@@ -2593,10 +2593,7 @@ impl eframe::App for SystemMonitorApp {
                             // Show inline error message if the last attempt failed.
                             if let Some(err) = &self.update_error {
                                 ui.add_space(8.0);
-                                ui.colored_label(
-                                    egui::Color32::from_rgb(220, 80, 70),
-                                    format!("⚠ {}", err),
-                                );
+                                ui.colored_label(egui::Color32::from_rgb(220, 80, 70), format!("⚠ {}", err));
                             }
 
                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -2610,15 +2607,10 @@ impl eframe::App for SystemMonitorApp {
                                 if self.update_downloading {
                                     ui.add_enabled(
                                         false,
-                                        egui::Button::new(
-                                            egui::RichText::new("⏳ Downloading…").strong(),
-                                        ),
+                                        egui::Button::new(egui::RichText::new("⏳ Downloading…").strong()),
                                     );
                                 } else {
-                                    if ui
-                                        .button(egui::RichText::new("Install Update").strong())
-                                        .clicked()
-                                    {
+                                    if ui.button(egui::RichText::new("Install Update").strong()).clicked() {
                                         let download_url = update_info.download_url.clone();
                                         let result_share = self.update_result_share.clone();
                                         self.update_downloading = true;
@@ -2627,8 +2619,8 @@ impl eframe::App for SystemMonitorApp {
                                             .name("updater_downloader".to_string())
                                             .stack_size(8 * 1024 * 1024)
                                             .spawn(move || {
-                                                let result = updater::Updater::new()
-                                                    .download_and_install_update(&download_url);
+                                                let result =
+                                                    updater::Updater::new().download_and_install_update(&download_url);
                                                 *result_share.lock() = Some(result);
                                             })
                                             .expect("failed to spawn updater downloader thread");
@@ -2639,7 +2631,6 @@ impl eframe::App for SystemMonitorApp {
                     });
             }
         }
-
 
         // Keyboard shortcuts
         ctx.input(|i| {
