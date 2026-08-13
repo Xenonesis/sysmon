@@ -230,23 +230,40 @@ async function resolveDownload() {
     const REPO = 'Xenonesis/sysmon';
     const API_URL = `https://api.github.com/repos/${REPO}/releases/latest`;
     const RELEASES_PAGE = `https://github.com/${REPO}/releases/latest`;
-    const CACHE_KEY = 'sysmon_release_cache_v2';
+    const CACHE_KEY = 'sysmon_release_cache_v4';
     const CACHE_TTL = 3600000; // 1 hour
     
     const heroBtn = document.getElementById('downloadNow');
     const sectionBtn = document.getElementById('downloadNowSection');
     const info = document.getElementById('downloadInfo');
+    const versionDisplay = document.getElementById('latestVersion');
+    const changelogTitle = document.querySelector('#changelog .section-title');
     const buttons = [heroBtn, sectionBtn].filter(Boolean);
+
+    /** Update every version-labelled element on the page */
+    function applyVersion(version) {
+        if (!version) return;
+        if (versionDisplay) versionDisplay.textContent = `v${version}`;
+        if (changelogTitle) {
+            changelogTitle.textContent = `What's new in v${version}`;
+        }
+        document.querySelectorAll('[data-version-display]').forEach(el => {
+            el.textContent = `v${version}`;
+        });
+    }
     
     /**
-     * Apply download URL and info
+     * Apply direct-download URL, version text and info line
      */
     function applyDownload(data) {
         const { url, name, sizeMB, version } = data;
         buttons.forEach(btn => {
             btn.href = url;
             btn.removeAttribute('target');
+            btn.rel = '';
         });
+
+        applyVersion(version);
 
         const parts = [name];
         if (sizeMB) parts.push(`${sizeMB} MB`);
@@ -258,9 +275,9 @@ async function resolveDownload() {
     }
     
     /**
-     * Fallback to GitHub releases page
+     * Fallback to GitHub releases page (version text still updated if known)
      */
-    function useFallback() {
+    function useFallback(version) {
         buttons.forEach(btn => {
             btn.href = RELEASES_PAGE;
             btn.target = '_blank';
@@ -268,7 +285,9 @@ async function resolveDownload() {
         });
 
         if (info) {
-            info.textContent = 'Visit GitHub Releases for latest version';
+            info.textContent = version
+                ? `v${version} — download from GitHub Releases`
+                : 'Visit GitHub Releases for the latest version';
         }
     }
     
@@ -309,7 +328,11 @@ async function resolveDownload() {
     // Check cache first
     const cached = getCachedRelease();
     if (cached) {
-        applyDownload(cached);
+        if (cached.url.includes('github.com') && !cached.url.includes('download')) {
+             useFallback(cached.version);
+        } else {
+             applyDownload(cached);
+        }
         return;
     }
     
@@ -334,19 +357,26 @@ async function resolveDownload() {
         
         const release = await response.json();
         const version = release.tag_name?.replace(/^v/, '') || release.tag_name;
+
+        // ── Step 1: Always update version text immediately from the tag ──
+        applyVersion(version);
         
-        // Find the installer asset (SystemMonitor-<ver>-setup.exe)
-        const installerAsset = release.assets?.find(asset =>
-            asset.name?.toLowerCase().includes('setup') &&
-            asset.name?.toLowerCase().endsWith('.exe')
+        // ── Step 2: Find the best downloadable asset ──
+        // Prefer *-setup.exe, then any .exe, then fall back to releases page
+        const installerAsset = release.assets?.find(a =>
+            a.name?.toLowerCase().includes('setup') &&
+            a.name?.toLowerCase().endsWith('.exe')
+        );
+        const exeAsset = installerAsset || release.assets?.find(a =>
+            a.name?.toLowerCase().endsWith('.exe')
         );
         
-        if (installerAsset?.browser_download_url) {
-            const sizeMB = installerAsset.size ? (installerAsset.size / (1024 * 1024)).toFixed(1) : null;
+        if (exeAsset?.browser_download_url) {
+            const sizeMB = exeAsset.size ? (exeAsset.size / (1024 * 1024)).toFixed(1) : null;
             
             const data = {
-                url: installerAsset.browser_download_url,
-                name: installerAsset.name,
+                url: exeAsset.browser_download_url,
+                name: exeAsset.name,
                 sizeMB,
                 version
             };
@@ -354,7 +384,24 @@ async function resolveDownload() {
             cacheRelease(data);
             applyDownload(data);
         } else {
-            useFallback();
+            // Release exists but has no binary assets yet — point to its page
+            buttons.forEach(btn => {
+                btn.href = release.html_url || RELEASES_PAGE;
+                btn.target = '_blank';
+                btn.rel = 'noopener';
+            });
+            if (info) {
+                info.textContent = version
+                    ? `v${version} — download from GitHub Releases`
+                    : 'Visit GitHub Releases for the latest version';
+            }
+            // Cache this so we don't hammer the API on every page view
+            cacheRelease({
+                url: release.html_url || RELEASES_PAGE,
+                name: `SystemMonitor-${version}-setup.exe`,
+                sizeMB: null,
+                version
+            });
         }
     } catch (error) {
         console.warn('Failed to fetch release info:', error);

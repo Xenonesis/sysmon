@@ -1,14 +1,20 @@
-# Downloads folder (except .gitkeep)
+# Build output / release artifacts (root downloads/)
 downloads/*
 !downloads/.gitkeep
 
-# Docs downloads folder - FORCE INCLUDE all files for GitHub Pages
-!docs/downloads/
-!docs/downloads/*
+# Docs downloads: only the .gitkeep sentinel is tracked.
+# Installer .exe files must NEVER be committed here — they are published
+# exclusively via GitHub Releases and served through the GitHub API.
+# Committing a versioned .exe here causes stale-version downloads on GitHub Pages.
+docs/downloads/*.exe
+docs/downloads/*.sha256
+docs/downloads/*.spdx.json
 
+# Rust build output
 /target
-*.exe
 *.pdb
+
+# IDE / tool caches
 .vscode/
 .idea/
 /.superpowers/
