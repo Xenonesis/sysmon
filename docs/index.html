@@ -54,7 +54,7 @@
                 <p class="eyebrow">Crafted with Rust</p>
                 <h1 class="hero-title">System intelligence,<br><span class="hero-accent">without the noise.</span></h1>
                 <p class="hero-lede">
-                    Professional Windows monitoring with real-time telemetry across CPU, memory, GPU, disk, network and thermals — plus process control, RAM cleaning and automatic, verified updates. Built in Rust; runs in your tray.
+                    Professional Windows monitoring with real-time telemetry across CPU, memory, GPU, disk, network and thermals. Built in Rust for absolute minimum overhead, with safe process control and verified updates.
                 </p>
                 <div class="hero-actions">
                     <a id="downloadNow" href="https://github.com/Xenonesis/sysmon/releases/latest" target="_blank" rel="noopener" class="btn btn-primary">
@@ -85,16 +85,16 @@
                         <span class="stat-label">Rust — zero GC pauses</span>
                     </div>
                     <div class="stat-item">
-                        <span class="stat-value">~5 MB</span>
-                        <span class="stat-label">Installer footprint</span>
+                        <span class="stat-value">&lt;1%</span>
+                        <span class="stat-label">CPU footprint in background</span>
                     </div>
                     <div class="stat-item">
                         <span class="stat-value">60 FPS</span>
                         <span class="stat-label">TelemetryHub UI rendering</span>
                     </div>
                     <div class="stat-item">
-                        <span class="stat-value">12+</span>
-                        <span class="stat-label">Built-in modules</span>
+                        <span class="stat-value">~5 MB</span>
+                        <span class="stat-label">Lightweight standalone installer</span>
                     </div>
                 </div>
             </section>
@@ -111,32 +111,33 @@
                         <article class="feature-card feature-wide">
                             <div class="feature-icon"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></div>
                             <span class="feature-tag is-new">TelemetryHub</span>
-                            <h3 class="feature-title">Multi-Tier TelemetryHub &amp; Provider Architecture</h3>
-                            <p class="feature-desc">Dedicated background polling engine separating 60 FPS UI rendering from 1–5 Hz hardware sampling. Includes vendor-independent provider abstractions (Sysinfo, NVML, WMI) and bounded multi-resolution ring buffers.</p>
+                            <h3 class="feature-title">Multi-Tier Telemetry Architecture</h3>
+                            <p class="feature-desc">Dedicated background engine separating 60 FPS UI rendering from 1–5 Hz hardware sampling. Includes vendor-independent provider abstractions and bounded multi-resolution ring buffers.</p>
                         </article>
 
                         <article class="feature-card">
                             <div class="feature-icon"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 16V8a2 2 0 0 1 1 1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg></div>
                             <h3 class="feature-title">Process forensics</h3>
-                            <p class="feature-desc">Exact executable paths, command lines, working directories and parent processes — then terminate entire sub-trees with one action.</p>
+                            <p class="feature-desc">Trace exact executable paths, command lines, and working directories. Safely terminate sub-trees with integrated audit history.</p>
                         </article>
 
                         <article class="feature-card">
                             <div class="feature-icon"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="4" y="4" width="16" height="16" rx="2" ry="2"/><path d="M9 9h6v6H9z"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/></svg></div>
-                            <h3 class="feature-title">NVIDIA deep metrics</h3>
-                            <p class="feature-desc">VRAM, core clock, power draw in watts, and fan speed via NVML. Multiple adapters supported.</p>
+                            <h3 class="feature-title">Deep GPU metrics</h3>
+                            <p class="feature-desc">Monitor VRAM, core clocks, and power draw via NVIDIA NVML or native Windows fallback for vendor-neutral GPU telemetry.</p>
                         </article>
 
                         <article class="feature-card">
                             <div class="feature-icon"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></div>
-                            <h3 class="feature-title">Tray quick actions</h3>
-                            <p class="feature-desc">Clean RAM, open the process manager, pause monitoring or switch power plans — straight from the system tray.</p>
+                            <span class="feature-tag is-new">Diagnostics</span>
+                            <h3 class="feature-title">Evidence-based insights</h3>
+                            <p class="feature-desc">Automated findings with confidence ratings, plus opt-in local JSONL session recording to track transient slowdowns. Nothing is uploaded.</p>
                         </article>
 
                         <article class="feature-card">
                             <div class="feature-icon"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></div>
-                            <h3 class="feature-title">Smart alerts</h3>
-                            <p class="feature-desc">Configurable thresholds for CPU, memory, GPU temperature and disk space, with native toasts — deduplicated, multi-GPU aware.</p>
+                            <h3 class="feature-title">Smart alerts &amp; throttling</h3>
+                            <p class="feature-desc">Configurable alert thresholds alongside a background polling scheduler that throttles 5x when minimized to conserve power.</p>
                         </article>
 
                         <article class="feature-card feature-wide">
@@ -314,12 +315,20 @@
                             <p class="change-desc">Evidence-based findings with confidence ratings, plus opt-in local JSONL session recording to reproduce transient slowdowns. Nothing is uploaded.</p>
                         </div>
                         <div class="change-item">
-                            <span class="change-type">Guarded system actions</span>
-                            <p class="change-desc">Risk previews, elevation disclosure and confirmation before process, service, RAM and power actions — written to a local audit history with Undo for reversible operations.</p>
+                            <span class="change-type">Polling scheduler</span>
+                            <p class="change-desc">Throttles polling 5x when minimized to conserve CPU and power, ensuring minimal footprint.</p>
+                        </div>
+                        <div class="change-item">
+                            <span class="change-type">Graceful error isolation</span>
+                            <p class="change-desc">Independent provider failure handling — missing WMI or NVML no longer affects main telemetry.</p>
+                        </div>
+                        <div class="change-item">
+                            <span class="change-type">Safe action plans</span>
+                            <p class="change-desc">Risk previews, elevation disclosure, confirmation, and local audit history with Undo for known reversible operations.</p>
                         </div>
                         <div class="change-item">
                             <span class="change-type">Signed supply chain</span>
-                            <p class="change-desc">Signed release workflow with cert pinning, checksums, SPDX SBOM, GitHub provenance and Windows CI quality gates (fmt, strict Clippy, tests) on locked dependencies.</p>
+                            <p class="change-desc">Signed release workflow with cert pinning, checksums, SPDX SBOM, and Windows CI quality gates on locked dependencies.</p>
                         </div>
                     </div>
                     <div class="version-compare">
@@ -338,6 +347,12 @@
                                 <tr><td>Modules</td><td>4 tabs</td><td>7 tabs</td><td><strong>14 modules</strong></td></tr>
                             </tbody>
                         </table>
+                    </div>
+                    <div style="margin-top: var(--space-8); text-align: center;">
+                        <a href="https://github.com/Xenonesis/sysmon/blob/main/CHANGELOG.md" target="_blank" rel="noopener" class="btn btn-ghost">
+                            View full changelog
+                            <span class="doc-arrow" style="margin-left: 8px;">→</span>
+                        </a>
                     </div>
                 </div>
             </section>
