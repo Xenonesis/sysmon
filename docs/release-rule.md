@@ -1,6 +1,6 @@
 # SysMon release rule
 
-Production releases are created only by `.github/workflows/windows-release.yml` from a tag matching the version in `Cargo.toml`, for example `v3.5.0`.
+Production releases are created only by `.github/workflows/windows-release.yml` from a tag matching the version in `Cargo.toml`, for example `v3.6.0`.
 
 ## One-time repository setup
 

@@ -1,6 +1,6 @@
 ; System Monitor installer - Inno Setup 6
 #ifndef AppVersion
-  #define AppVersion "3.5.0"
+  #define AppVersion "3.6.0"
 #endif
 #define MyAppName "System Monitor"
 #define MyAppPublisher "Xenonesis"
