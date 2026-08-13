@@ -300,6 +300,7 @@ pub(crate) struct RamCleanerState {
     pub(crate) auto_clean_target: f32,    // stop cleaning once usage drops below this
     pub(crate) auto_clean_exclusions: Vec<String>, // process names never touched
     pub(crate) auto_clean_idle_only: bool, // clean only after idle period
+    pub(crate) auto_clean_smart_only: bool, // only clean inactive/background apps
     pub(crate) auto_clean_notify: bool,   // show freed-MB notification per auto-clean
     pub(crate) auto_clean_max_mb: u64,    // max MB freed per pass (0 = unlimited)
     pub(crate) is_cleaning: bool,
@@ -361,6 +362,8 @@ pub(crate) struct AppSettings {
     pub(crate) auto_clean_exclusions: Vec<String>,
     #[serde(default)]
     pub(crate) auto_clean_idle_only: bool,
+    #[serde(default)]
+    pub(crate) auto_clean_smart_only: bool,
     #[serde(default = "default_auto_clean_notify")]
     pub(crate) auto_clean_notify: bool,
     #[serde(default)]
@@ -459,6 +462,7 @@ impl Default for AppSettings {
             auto_clean_target: 70.0,
             auto_clean_exclusions: Vec::new(),
             auto_clean_idle_only: false,
+            auto_clean_smart_only: false,
             auto_clean_notify: true,
             auto_clean_max_mb: 0,
             show_cpu_cores: true,
@@ -735,7 +739,7 @@ impl SystemMonitor {
     }
 
     #[cfg(target_os = "windows")]
-    fn clean_ram(&mut self, exclusions: &[String]) -> u64 {
+    fn clean_ram(&mut self, exclusions: &[String], smart_only: bool) -> u64 {
         use windows::Win32::Foundation::CloseHandle;
         use windows::Win32::System::ProcessStatus::EmptyWorkingSet;
         use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_INFORMATION};
@@ -748,12 +752,26 @@ impl SystemMonitor {
         let mut success_count = 0;
         let mut fail_count = 0;
 
+        let mut foreground_pid = 0;
+        if smart_only {
+            unsafe {
+                use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId};
+                let hwnd = GetForegroundWindow();
+                if hwnd.0 != 0 {
+                    GetWindowThreadProcessId(hwnd, Some(&mut foreground_pid));
+                }
+            }
+        }
+
         unsafe {
             for (pid, process) in self.sys.processes() {
                 if is_excluded(process.name(), exclusions) {
                     continue;
                 }
                 let pid_u32 = pid.as_u32();
+                if smart_only && pid_u32 == foreground_pid {
+                    continue;
+                }
                 if let Ok(h) = OpenProcess(PROCESS_QUERY_INFORMATION, false, pid_u32) {
                     if !h.is_invalid() {
                         if EmptyWorkingSet(h).is_ok() {
@@ -784,7 +802,7 @@ impl SystemMonitor {
     }
 
     #[cfg(not(target_os = "windows"))]
-    fn clean_ram(&mut self, _exclusions: &[String]) -> u64 {
+    fn clean_ram(&mut self, _exclusions: &[String], _smart_only: bool) -> u64 {
         0
     }
 
@@ -826,7 +844,10 @@ impl SystemMonitor {
     }
 
     #[cfg(target_os = "windows")]
-    fn get_gpu_info(&self, include_wmi: bool) -> Vec<GpuInfo> {
+    fn get_gpu_info(
+        &self,
+        include_wmi: bool,
+    ) -> Vec<GpuInfo> {
         let mut gpus = Vec::new();
         let mut nvml_names: Vec<String> = Vec::new();
 
@@ -1455,6 +1476,10 @@ pub(crate) struct SystemMonitorApp {
         std::collections::HashMap<tray_icon::menu::MenuId, tray_icon::menu::CheckMenuItem>,
     #[cfg(target_os = "windows")]
     pub(crate) tray_menu_power_guids: std::collections::HashMap<tray_icon::menu::MenuId, String>,
+    #[cfg(target_os = "windows")]
+    pub(crate) hotkey_manager: Option<global_hotkey::GlobalHotKeyManager>,
+    #[cfg(target_os = "windows")]
+    pub(crate) clean_ram_hotkey: Option<global_hotkey::hotkey::HotKey>,
     pub(crate) is_hidden: bool,
     pub(crate) widget_open: bool,
     /// Whether we have already applied the start_minimized setting on the first frame.
@@ -2112,6 +2137,22 @@ impl SystemMonitorApp {
         let mut tray_menu_power_items: std::collections::HashMap<_, _> = Default::default();
         let mut tray_menu_power_guids: std::collections::HashMap<_, _> = Default::default();
 
+        let mut hotkey_manager = None;
+        let mut clean_ram_hotkey = None;
+        #[cfg(target_os = "windows")]
+        {
+            if let Ok(manager) = global_hotkey::GlobalHotKeyManager::new() {
+                let hotkey = global_hotkey::hotkey::HotKey::new(
+                    Some(global_hotkey::hotkey::Modifiers::CONTROL | global_hotkey::hotkey::Modifiers::ALT),
+                    global_hotkey::hotkey::Code::KeyC,
+                );
+                if manager.register(hotkey).is_ok() {
+                    hotkey_manager = Some(manager);
+                    clean_ram_hotkey = Some(hotkey);
+                }
+            }
+        }
+
         #[cfg(target_os = "windows")]
         if let Some(icon) = load_tray_icon() {
             let tray_menu = Menu::new();
@@ -2229,6 +2270,7 @@ impl SystemMonitorApp {
                 auto_clean_target: settings.auto_clean_target,
                 auto_clean_exclusions: settings.auto_clean_exclusions.clone(),
                 auto_clean_idle_only: settings.auto_clean_idle_only,
+                auto_clean_smart_only: settings.auto_clean_smart_only,
                 auto_clean_notify: settings.auto_clean_notify,
                 auto_clean_max_mb: settings.auto_clean_max_mb,
                 is_cleaning: false,
@@ -2278,6 +2320,10 @@ impl SystemMonitorApp {
             tray_menu_power_items,
             #[cfg(target_os = "windows")]
             tray_menu_power_guids,
+            #[cfg(target_os = "windows")]
+            hotkey_manager,
+            #[cfg(target_os = "windows")]
+            clean_ram_hotkey,
             is_hidden: false,
             widget_open: settings.show_widget,
             start_minimized_applied: false,
@@ -2453,14 +2499,26 @@ impl eframe::App for SystemMonitorApp {
                 data.high_impact_startup_count = startup::high_impact_count(items);
             }
         }
-        // Apply start_minimized on the very first frame
+        // Apply minimized setting immediately
         if !self.start_minimized_applied {
             self.start_minimized_applied = true;
             if self.settings.start_minimized {
-                ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
                 if self.settings.minimize_to_tray {
-                    ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
                     self.is_hidden = true;
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+                } else {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+                }
+            }
+        }
+
+        #[cfg(target_os = "windows")]
+        {
+            if let Ok(event) = global_hotkey::GlobalHotKeyEvent::receiver().try_recv() {
+                if let Some(hk) = &self.clean_ram_hotkey {
+                    if event.id == hk.id() {
+                        self.queue_action(app::commands::ActionCommand::CleanRam);
+                    }
                 }
             }
         }
@@ -2766,6 +2824,7 @@ impl eframe::App for SystemMonitorApp {
                 let max_mb = self.ram_cleaner_state.auto_clean_max_mb;
                 let notify = self.ram_cleaner_state.auto_clean_notify;
                 let exclusions = self.ram_cleaner_state.auto_clean_exclusions.clone();
+                let smart_only = self.ram_cleaner_state.auto_clean_smart_only;
                 let total_ram = data.memory_total;
                 let auto_event_sender = self.app_channels.event_sender.clone();
                 thread::Builder::new()
@@ -2777,7 +2836,7 @@ impl eframe::App for SystemMonitorApp {
                         let mut monitor = SystemMonitor::new();
                         let mut freed_total = 0u64;
                         for _pass in 0..5 {
-                            let freed = monitor.clean_ram(&exclusions);
+                            let freed = monitor.clean_ram(&exclusions, smart_only);
                             let budget_left = if max_mb == 0 {
                                 u64::MAX
                             } else {
@@ -3499,7 +3558,7 @@ pub(crate) fn run_action_worker(
                     .then_some(format!("Process {pid} priority set to {priority}"))
                     .ok_or(ActionError::AccessDenied)
             }
-            app::commands::ActionCommand::CleanRam => Ok(format!("Freed {} bytes", monitor.clean_ram(&[]))),
+            app::commands::ActionCommand::CleanRam => Ok(format!("Freed {} bytes", monitor.clean_ram(&[], false))),
             app::commands::ActionCommand::ControlService { name, action } => {
                 services::send_service_control(&name, action)
                     .then_some(format!("Service {name} action completed"))

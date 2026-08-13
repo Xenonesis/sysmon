@@ -32,7 +32,7 @@ if ($Clean) {
 
 # Build release + compile the Inno Setup.exe (build.ps1 does both)
 Write-Host "-> Building application and installer..." -ForegroundColor White
-& ".\build.ps1" -NoLaunch
+& ".\build.ps1" -NoLaunch -AllowDevelopmentCertificate
 if ($LASTEXITCODE -ne 0) {
     Write-Host "[FAIL] Build failed with exit code $LASTEXITCODE" -ForegroundColor Red
     exit 1

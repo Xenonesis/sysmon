@@ -102,7 +102,7 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
                     ui.label("Clean when RAM usage exceeds:");
                     if ui
                         .add(
-                            egui::Slider::new(&mut app.ram_cleaner_state.auto_clean_threshold, 50.0..=95.0).suffix("%"),
+                            egui::Slider::new(&mut app.ram_cleaner_state.auto_clean_threshold, 1.0..=99.0).suffix("%"),
                         )
                         .changed()
                     {
@@ -113,7 +113,7 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
                 ui.horizontal(|ui| {
                     ui.label("Clean until usage drops below:");
                     if ui
-                        .add(egui::Slider::new(&mut app.ram_cleaner_state.auto_clean_target, 30.0..=95.0).suffix("%"))
+                        .add(egui::Slider::new(&mut app.ram_cleaner_state.auto_clean_target, 1.0..=99.0).suffix("%"))
                         .changed()
                     {
                         app.settings.auto_clean_target = app.ram_cleaner_state.auto_clean_target;
@@ -124,7 +124,7 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
                     ui.label("Minimum interval between cleans:");
                     if ui
                         .add(
-                            egui::Slider::new(&mut app.ram_cleaner_state.auto_clean_interval, 60..=1800).suffix(" sec"),
+                            egui::Slider::new(&mut app.ram_cleaner_state.auto_clean_interval, 10..=7200).suffix(" sec"),
                         )
                         .changed()
                     {
@@ -135,7 +135,7 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
                 ui.horizontal(|ui| {
                     ui.label("Max RAM freed per clean:");
                     if ui
-                        .add(egui::Slider::new(&mut app.ram_cleaner_state.auto_clean_max_mb, 0..=2048).suffix(" MB"))
+                        .add(egui::Slider::new(&mut app.ram_cleaner_state.auto_clean_max_mb, 0..=16384).suffix(" MB"))
                         .on_hover_text("0 = unlimited; caps how much memory one auto-clean can free")
                         .changed()
                     {
@@ -153,6 +153,17 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
                     .changed()
                 {
                     app.settings.auto_clean_idle_only = app.ram_cleaner_state.auto_clean_idle_only;
+                    settings_changed = true;
+                }
+                if ui
+                    .checkbox(
+                        &mut app.ram_cleaner_state.auto_clean_smart_only,
+                        "Smart Clean (Ignore foreground app)",
+                    )
+                    .on_hover_text("Skips cleaning the application you are currently using")
+                    .changed()
+                {
+                    app.settings.auto_clean_smart_only = app.ram_cleaner_state.auto_clean_smart_only;
                     settings_changed = true;
                 }
                 if ui

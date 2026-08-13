@@ -175,7 +175,7 @@ if ($LASTEXITCODE -eq 0) {
     # ── Code Signing (Main EXE) ──
     if (Test-Path "sign-binary.ps1") {
         Write-Host "Signing executable..." -ForegroundColor Cyan
-        & .\sign-binary.ps1 -FilePath "target\release\system-monitor.exe"
+        & .\sign-binary.ps1 -FilePath "target\release\system-monitor.exe" -AllowDevelopmentCertificate
     }
 
     # -- Compile Installer (Inno Setup) --
@@ -190,7 +190,7 @@ if ($LASTEXITCODE -eq 0) {
             Write-Host "[OK] Installed to $downloadsFolder\$installerName" -ForegroundColor Green
             if (Test-Path "sign-binary.ps1") {
                 Write-Host "Signing installer..." -ForegroundColor Cyan
-                & .\sign-binary.ps1 -FilePath "$downloadsFolder\$installerName"
+                & .\sign-binary.ps1 -FilePath "$downloadsFolder\$installerName" -AllowDevelopmentCertificate
             }
         } else {
             Write-Host "[FAIL] Failed to compile installer." -ForegroundColor Red
