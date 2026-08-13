@@ -2609,22 +2609,20 @@ impl eframe::App for SystemMonitorApp {
                                         false,
                                         egui::Button::new(egui::RichText::new("⏳ Downloading…").strong()),
                                     );
-                                } else {
-                                    if ui.button(egui::RichText::new("Install Update").strong()).clicked() {
-                                        let download_url = update_info.download_url.clone();
-                                        let result_share = self.update_result_share.clone();
-                                        self.update_downloading = true;
-                                        self.update_error = None;
-                                        thread::Builder::new()
-                                            .name("updater_downloader".to_string())
-                                            .stack_size(8 * 1024 * 1024)
-                                            .spawn(move || {
-                                                let result =
-                                                    updater::Updater::new().download_and_install_update(&download_url);
-                                                *result_share.lock() = Some(result);
-                                            })
-                                            .expect("failed to spawn updater downloader thread");
-                                    }
+                                } else if ui.button(egui::RichText::new("Install Update").strong()).clicked() {
+                                    let download_url = update_info.download_url.clone();
+                                    let result_share = self.update_result_share.clone();
+                                    self.update_downloading = true;
+                                    self.update_error = None;
+                                    thread::Builder::new()
+                                        .name("updater_downloader".to_string())
+                                        .stack_size(8 * 1024 * 1024)
+                                        .spawn(move || {
+                                            let result =
+                                                updater::Updater::new().download_and_install_update(&download_url);
+                                            *result_share.lock() = Some(result);
+                                        })
+                                        .expect("failed to spawn updater downloader thread");
                                 }
                             });
                         });
