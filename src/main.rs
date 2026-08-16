@@ -89,9 +89,6 @@ impl eframe::App for SystemMonitorApp {
             let mut data = self.data.write();
             data.is_hidden = self.is_hidden;
             data.selected_tab = self.selected_tab;
-            if let Some(items) = &*self.startup_items_share.lock() {
-                data.high_impact_startup_count = startup::high_impact_count(items);
-            }
         }
         // Apply minimized setting immediately
         if !self.start_minimized_applied {

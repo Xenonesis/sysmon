@@ -333,9 +333,11 @@ fn collect_task_scheduler_items(items: &mut Vec<StartupItem>) {
 }
 
 #[cfg(target_os = "windows")]
-pub fn get_startup_items() -> Vec<StartupItem> {
+pub fn get_startup_data() -> (Vec<StartupItem>, Option<BootDiagnostics>) {
     use winreg::enums::*;
 
+    let diag = get_boot_diagnostics();
+    let degrading = diag.as_ref().map(|d| d.degrading_items.clone()).unwrap_or_default();
     let mut items = Vec::new();
 
     // 1. HKCU Run
@@ -429,14 +431,25 @@ pub fn get_startup_items() -> Vec<StartupItem> {
     // 8. Enrich items (executable verification, publisher, Authenticode signature)
     enrich_startup_items(&mut items);
 
-    // 9. Collect boot diagnostics and score impact
-    let degrading = get_boot_diagnostics().map(|b| b.degrading_items).unwrap_or_default();
+    // 9. Score impact
     score_startup_items(&mut items, &degrading);
 
-    items
+    (items, diag)
+}
+
+#[cfg(target_os = "windows")]
+#[allow(dead_code)]
+pub fn get_startup_items() -> Vec<StartupItem> {
+    get_startup_data().0
 }
 
 #[cfg(not(target_os = "windows"))]
+pub fn get_startup_data() -> (Vec<StartupItem>, Option<BootDiagnostics>) {
+    (Vec::new(), None)
+}
+
+#[cfg(not(target_os = "windows"))]
+#[allow(dead_code)]
 pub fn get_startup_items() -> Vec<StartupItem> {
     Vec::new()
 }
@@ -982,5 +995,14 @@ mod tests {
             println!("Item: {} ({}) - enabled={}", it.name, it.source, it.enabled);
         }
         assert!(!items.is_empty());
+    }
+
+    #[test]
+    fn test_notify_rust_windows() {
+        let res = notify_rust::Notification::new()
+            .summary("SysMon Test")
+            .body("Testing notification")
+            .show();
+        println!("Notify result: {:?}", res);
     }
 }

@@ -811,7 +811,7 @@ pub(crate) struct SystemMonitorApp {
     pub(crate) startup_filter_impact: Option<crate::startup::ImpactTier>,
     pub(crate) startup_filter_signed: Option<bool>,
     pub(crate) startup_filter_broken: bool,
-    pub(crate) startup_show_confirm: Option<usize>,
+    pub(crate) startup_show_confirm: Option<String>,
     pub(crate) boot_diagnostics: Option<crate::startup::BootDiagnostics>,
     pub(crate) boot_diagnostics_loaded: bool,
     pub(crate) boot_diagnostics_share: Arc<Mutex<Option<crate::startup::BootDiagnostics>>>,
@@ -1623,11 +1623,9 @@ impl SystemMonitorApp {
         std::thread::Builder::new()
             .name("startup_loader".to_string())
             .spawn(move || {
-                let items = crate::startup::get_startup_items();
+                let (items, diag) = crate::startup::get_startup_data();
                 *startup_share_clone.lock() = Some(items);
-                if let Some(diag) = crate::startup::get_boot_diagnostics() {
-                    *boot_share_clone.lock() = Some(diag);
-                }
+                *boot_share_clone.lock() = diag;
                 ctx_clone.request_repaint();
             })
             .ok();

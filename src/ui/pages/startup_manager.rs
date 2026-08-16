@@ -10,12 +10,12 @@ use std::sync::Arc;
 use std::thread;
 
 /// Resolves badge text and high-contrast semantic color for startup impact tiers.
-pub(crate) fn impact_tier_badge_color(tier: &ImpactTier) -> (&'static str, egui::Color32) {
+pub(crate) fn impact_tier_badge_color(tier: &ImpactTier, is_dark: bool) -> (&'static str, egui::Color32) {
     match tier {
         ImpactTier::High => ("HIGH", ThemePalette::STATUS_CRITICAL),
         ImpactTier::Medium => ("MED", ThemePalette::STATUS_WARNING),
         ImpactTier::Low => ("LOW", ThemePalette::STATUS_HEALTHY),
-        ImpactTier::Unknown => ("UNKNOWN", ThemePalette::text_dimmed(true)),
+        ImpactTier::Unknown => ("UNKNOWN", ThemePalette::text_dimmed(is_dark)),
     }
 }
 
@@ -34,19 +34,12 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui) {
                 .name("startup_loader".to_string())
                 .stack_size(8 * 1024 * 1024)
                 .spawn(move || {
-                    let items = startup::get_startup_items();
-                    let diag = startup::get_boot_diagnostics();
-                    {
-                        let mut share = startup_items_share.lock();
-                        *share = Some(items);
-                    }
-                    {
-                        let mut share = boot_diagnostics_share.lock();
-                        *share = diag;
-                    }
+                    let (items, diag) = startup::get_startup_data();
+                    *startup_items_share.lock() = Some(items);
+                    *boot_diagnostics_share.lock() = diag;
                     ctx.request_repaint();
                 })
-                .expect("failed to spawn startup loader thread");
+                .ok();
         }
 
         // Sync loaded data to app state (only when loading completes)
@@ -410,17 +403,20 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui) {
                 ui.add_space(12.0);
             });
         } else {
-            let mut action: Option<(usize, &str)> = None;
+            let mut action: Option<(String, String, String, &str)> = None;
 
             for &idx in &filtered_indices {
+                if idx >= app.startup_items.len() {
+                    continue;
+                }
                 let item = &app.startup_items[idx];
-                let is_confirming = app.startup_show_confirm == Some(idx);
+                let is_confirming = app.startup_show_confirm.as_deref() == Some(&item.name);
 
                 card_frame(is_dark).show(ui, |ui| {
                     // ── Row 1: High-Contrast Impact Badge + Signed Badge + Name + Source ──
                     ui.horizontal(|ui| {
                         // Impact tier badge
-                        let (badge_text, badge_color) = impact_tier_badge_color(&item.impact_tier);
+                        let (badge_text, badge_color) = impact_tier_badge_color(&item.impact_tier, is_dark);
                         status_pill(ui, badge_text, badge_color, is_dark);
 
                         // Signed/Verified Publisher Badge
@@ -464,11 +460,12 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui) {
                     ui.add_space(2.0);
 
                     // ── Row 2: Command path (Monospace) ──
-                    let cmd_display = if item.command.chars().count() > 90 {
-                        let truncated: String = item.command.chars().take(87).collect();
+                    let clean_cmd = item.command.replace('\0', "");
+                    let cmd_display = if clean_cmd.chars().count() > 90 {
+                        let truncated: String = clean_cmd.chars().take(87).collect();
                         format!("{}...", truncated)
                     } else {
-                        item.command.clone()
+                        clean_cmd.clone()
                     };
                     ui.label(
                         egui::RichText::new(cmd_display)
@@ -476,7 +473,7 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui) {
                             .size(11.0)
                             .color(ThemePalette::text_secondary(is_dark)),
                     )
-                    .on_hover_text(&item.command);
+                    .on_hover_text(&clean_cmd);
 
                     ui.add_space(2.0);
 
@@ -521,7 +518,8 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui) {
                                     .color(ThemePalette::STATUS_WARNING),
                             );
                             if ui.button(egui::RichText::new("Yes, disable").strong()).clicked() {
-                                action = Some((idx, "disable"));
+                                action =
+                                    Some((item.name.clone(), item.source.clone(), item.command.clone(), "disable"));
                                 app.startup_show_confirm = None;
                             }
                             if ui.button("Cancel").clicked() {
@@ -551,7 +549,7 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui) {
                                         })
                                         .clicked()
                                     {
-                                        app.startup_show_confirm = Some(idx);
+                                        app.startup_show_confirm = Some(item.name.clone());
                                     }
                                 });
                             } else {
@@ -569,7 +567,12 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui) {
                                         })
                                         .clicked()
                                     {
-                                        action = Some((idx, "enable"));
+                                        action = Some((
+                                            item.name.clone(),
+                                            item.source.clone(),
+                                            item.command.clone(),
+                                            "enable",
+                                        ));
                                     }
                                 });
                             }
@@ -619,7 +622,7 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui) {
                                     .on_hover_text("Permanently remove this startup item")
                                     .clicked()
                             {
-                                action = Some((idx, "remove"));
+                                action = Some((item.name.clone(), item.source.clone(), item.command.clone(), "remove"));
                             }
 
                             // Admin requirement notice
@@ -637,46 +640,48 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui) {
                 ui.add_space(4.0);
             }
 
-            // Process actions
-            if let Some((idx, act)) = action {
-                let item = &app.startup_items[idx];
-                let item_name = item.name.clone();
-                let item_source = item.source.clone();
-                let item_command = item.command.clone();
-                let tier_before = item.impact_tier.label().to_string();
-                let high_before = startup::high_impact_count(&app.startup_items);
-
+            // Process actions safely by matching (name, source)
+            if let Some((name, source, cmd, act)) = action {
                 let success = match act {
-                    "disable" => startup::disable_startup_item(&item_name, &item_source, &item_command),
-                    "enable" => startup::reenable_startup_item(&item_name, &item_source),
-                    "remove" => startup::remove_startup_item(&item_name, &item_source),
+                    "disable" => startup::disable_startup_item(&name, &source, &cmd),
+                    "enable" => startup::reenable_startup_item(&name, &source),
+                    "remove" => startup::remove_startup_item(&name, &source),
                     _ => false,
                 };
 
                 if success {
-                    if act == "disable" {
-                        app.startup_items[idx].enabled = false;
-                    } else if act == "enable" {
-                        app.startup_items[idx].enabled = true;
-                    } else if act == "remove" {
-                        app.startup_items.remove(idx);
+                    if let Some(pos) = app
+                        .startup_items
+                        .iter()
+                        .position(|it| it.name == name && it.source == source)
+                    {
+                        let tier_before = app.startup_items[pos].impact_tier.label().to_string();
+                        let high_before = startup::high_impact_count(&app.startup_items);
+
+                        if act == "disable" {
+                            app.startup_items[pos].enabled = false;
+                        } else if act == "enable" {
+                            app.startup_items[pos].enabled = true;
+                        } else if act == "remove" {
+                            app.startup_items.remove(pos);
+                        }
+
+                        let high_after = startup::high_impact_count(&app.startup_items);
+                        app.data.write().high_impact_startup_count = high_after;
+
+                        app.settings
+                            .startup_optimization_history
+                            .push(StartupOptimizationEntry {
+                                timestamp: chrono::Local::now().format("%Y-%m-%d %H:%M").to_string(),
+                                action: act.to_string(),
+                                item_name: name,
+                                item_source: source,
+                                impact_tier_before: tier_before,
+                                high_impact_count_before: high_before,
+                                high_impact_count_after: high_after,
+                            });
+                        let _ = app.settings.save();
                     }
-
-                    let high_after = startup::high_impact_count(&app.startup_items);
-                    app.data.write().high_impact_startup_count = high_after;
-
-                    app.settings
-                        .startup_optimization_history
-                        .push(StartupOptimizationEntry {
-                            timestamp: chrono::Local::now().format("%Y-%m-%d %H:%M").to_string(),
-                            action: act.to_string(),
-                            item_name: item_name.clone(),
-                            item_source,
-                            impact_tier_before: tier_before,
-                            high_impact_count_before: high_before,
-                            high_impact_count_after: high_after,
-                        });
-                    let _ = app.settings.save();
                 }
             }
         }
@@ -720,15 +725,15 @@ mod tests {
 
     #[test]
     fn test_impact_tier_badge_colors() {
-        let (label_high, color_high) = impact_tier_badge_color(&ImpactTier::High);
+        let (label_high, color_high) = impact_tier_badge_color(&ImpactTier::High, true);
         assert_eq!(label_high, "HIGH");
         assert_eq!(color_high, ThemePalette::STATUS_CRITICAL);
 
-        let (label_med, color_med) = impact_tier_badge_color(&ImpactTier::Medium);
+        let (label_med, color_med) = impact_tier_badge_color(&ImpactTier::Medium, true);
         assert_eq!(label_med, "MED");
         assert_eq!(color_med, ThemePalette::STATUS_WARNING);
 
-        let (label_low, color_low) = impact_tier_badge_color(&ImpactTier::Low);
+        let (label_low, color_low) = impact_tier_badge_color(&ImpactTier::Low, true);
         assert_eq!(label_low, "LOW");
         assert_eq!(color_low, ThemePalette::STATUS_HEALTHY);
     }
