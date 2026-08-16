@@ -14,8 +14,12 @@ SysMon runs as a normal desktop application. Standard monitoring never requires 
 - **Unified TelemetryHub:** replaceable latest-snapshot delivery keeps the UI current without a growing event backlog. The interface always renders the newest sample instead of replaying a queue of stale ones.
 - **Vendor-neutral GPU coverage:** NVIDIA NVML plus Windows/WMI adapters and GPU performance counters for Intel, AMD and other Windows GPUs. A machine without an NVIDIA card still gets meaningful GPU utilization and memory data.
 - **Multi-resolution history:** bounded 60-second, 5-minute, 30-minute and 1-hour windows with current, minimum, maximum and average statistics. Memory use stays constant regardless of how long the application runs.
-- **Explainable diagnostics:** findings include evidence, a recommendation and confidence instead of applying broad tweak scripts. SysMon tells you what it observed and why it matters; it never silently changes your system.
-- **Local session recording:** opt-in JSONL capture for reproducing transient slowdowns; no automatic upload. Nothing leaves your machine unless you decide to share a file.
+- **Floating Desktop HUD:** always-on-top compact telemetry widget (`Ctrl + M` or `[ ◰ HUD ]` header button) showing live CPU%, RAM%, GPU%, disk throughput, network rates, and an instant 1-click RAM cleaner.
+- **Active network socket inspection:** real-time TCP and UDP socket connection tables with PID resolution, process name mapping, and connection state filtering (`ESTABLISHED`, `LISTEN`, `TIME_WAIT`, `CLOSE_WAIT`).
+- **Storage S.M.A.R.T. and hardware detection:** auto-detects physical drives (`NVMe SSD`, `SATA SSD`, `USB`, `Virtual`) with health states, S.M.A.R.T. status, and media types.
+- **Process forensics & hierarchy:** search, inspect, sort by live per-process disk read/write bandwidth, toggle parent-child process tree hierarchy (`🌲 Process Tree`), and adjust CPU core affinity masks.
+- **Explainable diagnostics & CSV export:** findings include evidence, recommendations and confidence; 1-click CSV export of recorded JSONL sessions with aggregate summary analytics.
+- **Battery health & power plan switching:** live battery charge metrics, AC power status, and 1-click power scheme toggles (*Balanced*, *High Performance*, *Power Saver*).
 - **Guarded actions:** process, service, RAM and power actions show risk and administrator requirements before execution, then write a local audit record. Reversible actions offer Undo when the prior state is known.
 - **Secure updates:** HTTPS/repository asset validation, bounded downloads and SHA-256 checksum verification against the checksum published with each release. An installer that fails verification is deleted, never executed.
 
@@ -25,18 +29,18 @@ SysMon organizes its fourteen modules around the questions users actually ask:
 
 - **Overview** — a single-screen summary of CPU, memory, GPU, disk and network health with quick status indicators.
 - **Performance** — live graphs plus bounded summaries for the 60-second, 5-minute, 30-minute and 1-hour windows, each reporting average and maximum values.
-- **Diagnostics** — evidence-based findings with severity, recommendation and confidence, plus opt-in session recording for transient problems.
+- **Diagnostics** — evidence-based findings with severity, recommendation and confidence, opt-in session recording, and 1-click CSV session export with summary stats.
 - **CPU Cores** — per-core utilization so a single saturated thread is visible even when total CPU looks calm.
-- **Processes** — search, sort and inspect running programs; kill, kill-tree, suspend, resume and priority actions behind explicit confirmation.
+- **Processes** — search, sort by CPU, memory, PID, or per-process live disk read/write throughput; switch to hierarchical parent-child process tree mode (`🌲 Process Tree`); manage CPU core affinities; and execute kill, kill-tree, suspend, resume and priority actions behind explicit confirmation.
 - **Services** — start, stop or restart Windows services with dependency visibility before you confirm.
 - **Startup Manager** — inspect executable existence, publisher information, signature state, boot evidence and estimated impact; prefer reversible disable over permanent removal.
-- **Storage** — capacity and usage for all detected storage devices.
-- **Network** — real-time interface statistics with download and upload rates.
-- **RAM Cleaner** — bounded working-set cleanup with exclusions, idle-only option and per-pass limits, logged locally.
-- **Alerts** — threshold-based notifications for CPU, memory, GPU temperature and disk, deduplicated to avoid repeated noise.
-- **System Information** — complete hardware and OS specification reference.
-- **Settings** — refresh interval, alert thresholds, theme, tray behavior and the safety/audit history.
-- **About** — version, update status and project links.
+- **Storage** — capacity, partition usage, physical drive hardware detection (`NVMe SSD`, `SATA SSD`, `USB`), media types, and live S.M.A.R.T. health status.
+- **Network** — per-interface download/upload rates, live bandwidth graphs, and active TCP/UDP socket tables with PID and process name resolution.
+- **RAM Cleaner** — bounded working-set cleanup with exclusions, idle-only option, per-pass limits, and global `Ctrl + Alt + C` hotkey.
+- **Alerts** — threshold-based notifications for CPU, memory, GPU temperature and disk, with alert sound chime toggle and deduplication.
+- **System Information** — complete hardware/OS specification reference, real-time battery health diagnostics, and 1-click Windows power plan switcher (*Balanced*, *High Performance*, *Power Saver*).
+- **Desktop HUD** — standalone always-on-top floating telemetry HUD (`Ctrl + M`) with live stats and quick-clean memory button.
+- **Settings & About** — refresh interval, alert thresholds, theme, tray behavior, audit history, version, and verified update checks.
 
 ## Version comparison
 
@@ -51,8 +55,7 @@ SysMon organizes its fourteen modules around the questions users actually ask:
 | Action safety | — | — | **Risk preview, elevation disclosure, audit history, Undo** |
 | Update verification | Plain download | HTTPS + basic checks | **SHA-256 checksum verification**, SBOM, build provenance |
 | Supply chain / CI | — | Basic scripts | **Checksum + provenance release workflow**, Windows CI quality gates |
-| Views / modules | 4 tabs | 7 tabs | **14 modules** |
-| Themes | Single | Dark / Light | Dark / Light |
+| Views / modules | 4 tabs | 7 tabs | **14 modules** (incl. Process Tree, Sockets, Storage S.M.A.R.T., Desktop HUD) |
 
 See the [changelog](CHANGELOG.md) for the complete per-version history.
 
@@ -255,13 +258,11 @@ Tagged releases build the application and installer in CI, generate a SHA-256 ch
 
 Planned directions, in rough priority order:
 
-- **Diagnostics export** with sensitive command lines and user paths excluded by default, so findings can be shared with maintainers without leaking private data.
+- **Diagnostics export enhancements** with sensitive command lines and user paths excluded by default, so findings can be shared with maintainers without leaking private data.
 - **Alert center refinements** — active/resolved grouping, dismissal, cooldowns and per-source identity, building on the existing state-transition alert model.
-- **Deeper process manager** details and tree visualization, extending the current kill-tree and priority actions.
 - **Custom alert rules** and expanded threshold types beyond the current CPU, memory, GPU-temperature and disk set.
-- Longer-horizon ideas such as cross-platform support, a web dashboard and plugin architecture remain explicitly out of scope until the Windows core is finished; they are tracked in the [changelog](CHANGELOG.md) future-releases section.
-
-The roadmap deliberately favors depth on Windows over breadth across platforms. Every candidate feature is weighed against the project's invariants: standard-user monitoring, guarded actions, local-only data and verified updates.
+- **Plugin & scriptable provider hooks** for custom sensors and external metrics collection.
+- Longer-horizon ideas such as cross-platform support and a web dashboard remain explicitly out of scope until the Windows core is finished; they are tracked in the [changelog](CHANGELOG.md) future-releases section.
 
 ## Frequently asked questions
 

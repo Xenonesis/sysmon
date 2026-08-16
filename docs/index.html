@@ -116,9 +116,38 @@
                         </article>
 
                         <article class="feature-card">
+                            <div class="feature-icon"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></div>
+                            <span class="feature-tag is-new">HUD</span>
+                            <h3 class="feature-title">Floating Desktop HUD</h3>
+                            <p class="feature-desc">Always-on-top precision mini-widget (toggled via Ctrl+M or header icon) showing live CPU, RAM, GPU, disk throughput, network rates, and quick-clean memory.</p>
+                        </article>
+
+                        <article class="feature-card">
+                            <div class="feature-icon"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></div>
+                            <span class="feature-tag is-new">Sockets</span>
+                            <h3 class="feature-title">Active Network Sockets</h3>
+                            <p class="feature-desc">Real-time TCP/UDP socket table with live PID resolution, process name mapping, and connection state filtering (ESTABLISHED, LISTEN, TIME_WAIT, CLOSE_WAIT).</p>
+                        </article>
+
+                        <article class="feature-card">
                             <div class="feature-icon"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 16V8a2 2 0 0 1 1 1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg></div>
-                            <h3 class="feature-title">Process forensics</h3>
-                            <p class="feature-desc">Trace exact executable paths, command lines, and working directories. Safely terminate sub-trees with integrated audit history.</p>
+                            <span class="feature-tag is-new">Process Pro</span>
+                            <h3 class="feature-title">Process Tree &amp; Disk I/O</h3>
+                            <p class="feature-desc">Hierarchical parent-child process tree mode, real-time per-process disk read/write bandwidth, CPU core affinity controls, and kill-tree forensics.</p>
+                        </article>
+
+                        <article class="feature-card">
+                            <div class="feature-icon"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg></div>
+                            <span class="feature-tag is-new">Storage</span>
+                            <h3 class="feature-title">Storage S.M.A.R.T. Health</h3>
+                            <p class="feature-desc">Physical drive auto-detection (NVMe SSD, SATA SSD, USB) with live S.M.A.R.T. health status, drive type classification, and partition usage.</p>
+                        </article>
+
+                        <article class="feature-card">
+                            <div class="feature-icon"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></div>
+                            <span class="feature-tag is-new">Diagnostics</span>
+                            <h3 class="feature-title">Diagnostics &amp; CSV Export</h3>
+                            <p class="feature-desc">Automated findings with confidence ratings, local JSONL session recording, and 1-click CSV session export with aggregate statistics.</p>
                         </article>
 
                         <article class="feature-card">
@@ -127,73 +156,24 @@
                             <p class="feature-desc">Monitor VRAM, core clocks, and power draw via NVIDIA NVML or native Windows fallback for vendor-neutral GPU telemetry.</p>
                         </article>
 
-                        <article class="feature-card">
-                            <div class="feature-icon"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></div>
-                            <span class="feature-tag is-new">Diagnostics</span>
-                            <h3 class="feature-title">Evidence-based insights</h3>
-                            <p class="feature-desc">Automated findings with confidence ratings, plus opt-in local JSONL session recording to track transient slowdowns. Nothing is uploaded.</p>
-                        </article>
-
-                        <article class="feature-card">
-                            <div class="feature-icon"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></div>
-                            <h3 class="feature-title">Smart alerts &amp; throttling</h3>
-                            <p class="feature-desc">Configurable alert thresholds alongside a background polling scheduler that throttles 5x when minimized to conserve power.</p>
-                        </article>
-
                         <article class="feature-card feature-wide">
                             <div class="feature-icon"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M12 7v5l3 2"/></svg></div>
                             <span class="feature-tag">Utility</span>
                             <h3 class="feature-title">RAM cleaner — manual &amp; automatic</h3>
-                            <p class="feature-desc">Free memory on demand or automatically. Auto-clean is fully configurable: trigger threshold (down to 1%), target level, min interval, per-pass MB cap (up to 16GB), idle-only gating, Smart Clean (ignore active apps), excluded processes, and freed-MB notifications. Now with global Ctrl+Alt+C hotkey support.</p>
-                        </article>
-
-                        <article class="feature-card">
-                            <div class="feature-icon"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></div>
-                            <h3 class="feature-title">Startup manager</h3>
-                            <p class="feature-desc">Review and toggle Windows startup entries by name, publisher and boot-time impact.</p>
-                        </article>
-
-                        <article class="feature-card">
-                            <div class="feature-icon"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><rect x="14" y="14" width="6" height="6" rx="1"/></svg></div>
-                            <h3 class="feature-title">WMI system info</h3>
-                            <p class="feature-desc">Motherboard, BIOS version, GPU driver, OS build, battery health and power state — one place.</p>
-                        </article>
-
-                        <article class="feature-card">
-                            <div class="feature-icon"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="2" y="14" width="20" height="8" rx="2"/></svg></div>
-                            <h3 class="feature-title">Services manager</h3>
-                            <p class="feature-desc">Browse every Windows service by display name and state, colour-coded at a glance.</p>
+                            <p class="feature-desc">Free memory on demand or automatically with native WorkingSet quota APIs. Configurable trigger thresholds, per-pass caps, exclusions, and global Ctrl+Alt+C hotkey support.</p>
                         </article>
 
                         <article class="feature-card">
                             <div class="feature-icon"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg></div>
-                            <h3 class="feature-title">Power plan toggle</h3>
-                            <p class="feature-desc">Switch installed Windows power schemes from the tray — no Control Panel needed.</p>
-                        </article>
-
-                        <article class="feature-card">
-                            <div class="feature-icon"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></div>
-                            <span class="feature-tag is-new">New</span>
-                            <h3 class="feature-title">Desktop mini-widget</h3>
-                            <p class="feature-desc">A compact always-visible overlay with live CPU, RAM, GPU and network — toggled from Settings.</p>
+                            <span class="feature-tag is-new">Power</span>
+                            <h3 class="feature-title">Battery &amp; Power Plans</h3>
+                            <p class="feature-desc">Real-time battery charge percentage, AC power status, and 1-click switcher between Windows power schemes (Balanced, High Performance, Power Saver).</p>
                         </article>
 
                         <article class="feature-card">
                             <div class="feature-icon"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg></div>
                             <h3 class="feature-title">Verified auto-updates</h3>
-                            <p class="feature-desc">Checks GitHub every 24 h. Updates download only on explicit approval, after URL, size and SHA-256 checksum checks.</p>
-                        </article>
-
-                        <article class="feature-card">
-                            <div class="feature-icon"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></div>
-                            <h3 class="feature-title">Snapshots &amp; export</h3>
-                            <p class="feature-desc">Export the current system state to CSV, JSON or a redacted diagnostics report for scripts and support.</p>
-                        </article>
-
-                        <article class="feature-card">
-                            <div class="feature-icon"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></div>
-                            <h3 class="feature-title">Per-core CPU view</h3>
-                            <p class="feature-desc">Utilisation and thermal breakdown for every logical core, so you can see the real load.</p>
+                            <p class="feature-desc">Checks GitHub every 24 h. Updates download only on explicit approval, verified with SHA-256 checksums and GitHub build provenance.</p>
                         </article>
                     </div>
                 </div>
@@ -204,22 +184,24 @@
                 <div class="container">
                     <div class="section-head">
                         <p class="eyebrow">Built-in modules</p>
-                        <h2 class="section-title">Twelve focused tools. One interface.</h2>
+                        <h2 class="section-title">Fourteen focused tools. One interface.</h2>
                         <p class="section-lede">Switch between panels instantly from the sidebar — each one is a first-class citizen of the same window.</p>
                     </div>
                     <div class="module-list">
                         <div class="module-item"><span class="module-num">01</span><h3 class="module-name">Overview</h3><p class="module-desc">Live CPU, memory, GPU, per-core, disk and network at a glance.</p></div>
                         <div class="module-item"><span class="module-num">02</span><h3 class="module-name">Performance</h3><p class="module-desc">Historical graphs and rolling trends for CPU, RAM, GPU and network.</p></div>
-                        <div class="module-item"><span class="module-num">03</span><h3 class="module-name">Diagnostics</h3><p class="module-desc">Evidence-based findings with confidence ratings and opt-in local session recording.</p></div>
-                        <div class="module-item"><span class="module-num">04</span><h3 class="module-name">CPU Cores</h3><p class="module-desc">Per-core utilisation and thermal breakdown for every logical core.</p></div>
-                        <div class="module-item"><span class="module-num">05</span><h3 class="module-name">Processes</h3><p class="module-desc">Process Pro — details, priorities and deep kill-tree control.</p></div>
-                        <div class="module-item"><span class="module-num">06</span><h3 class="module-name">Storage</h3><p class="module-desc">Device capacities, used space and live read/write rates in MB/s.</p></div>
-                        <div class="module-item"><span class="module-num">07</span><h3 class="module-name">Network</h3><p class="module-desc">Per-interface download/upload rates and live throughput.</p></div>
-                        <div class="module-item"><span class="module-num">08</span><h3 class="module-name">Alerts</h3><p class="module-desc">Threshold management and notification history for all metrics.</p></div>
-                        <div class="module-item"><span class="module-num">09</span><h3 class="module-name">System Info</h3><p class="module-desc">WMI-powered motherboard, BIOS, GPU driver, OS and battery data.</p></div>
-                        <div class="module-item"><span class="module-num">10</span><h3 class="module-name">RAM Cleaner</h3><p class="module-desc">On-demand or threshold-triggered memory reclamation.</p></div>
+                        <div class="module-item"><span class="module-num">03</span><h3 class="module-name">Diagnostics</h3><p class="module-desc">Evidence-based findings with confidence ratings, session recording &amp; CSV export.</p></div>
+                        <div class="module-item"><span class="module-num">04</span><h3 class="module-name">CPU Cores</h3><p class="module-desc">Per-core utilisation and affinity controls for every logical core.</p></div>
+                        <div class="module-item"><span class="module-num">05</span><h3 class="module-name">Processes</h3><p class="module-desc">Process Pro — tree hierarchy, disk I/O rates, priorities and kill-tree control.</p></div>
+                        <div class="module-item"><span class="module-num">06</span><h3 class="module-name">Storage</h3><p class="module-desc">Physical drive auto-detection, S.M.A.R.T. health, and live read/write rates.</p></div>
+                        <div class="module-item"><span class="module-num">07</span><h3 class="module-name">Network</h3><p class="module-desc">Interface rates, bandwidth graphs, and active TCP/UDP socket tables.</p></div>
+                        <div class="module-item"><span class="module-num">08</span><h3 class="module-name">Alerts</h3><p class="module-desc">Threshold management, deduplication, and sound chime notifications.</p></div>
+                        <div class="module-item"><span class="module-num">09</span><h3 class="module-name">System Info</h3><p class="module-desc">WMI motherboard/OS specs, battery diagnostics, and power plan switcher.</p></div>
+                        <div class="module-item"><span class="module-num">10</span><h3 class="module-name">RAM Cleaner</h3><p class="module-desc">On-demand or threshold-triggered memory cleanup with global hotkey.</p></div>
                         <div class="module-item"><span class="module-num">11</span><h3 class="module-name">Startup Apps</h3><p class="module-desc">Manage Windows startup entries and their boot-time impact.</p></div>
-                        <div class="module-item"><span class="module-num">12</span><h3 class="module-name">Services</h3><p class="module-desc">Browse every Windows service and its current run state.</p></div>
+                        <div class="module-item"><span class="module-num">12</span><h3 class="module-name">Services</h3><p class="module-desc">Browse every Windows service and control run states with safety checks.</p></div>
+                        <div class="module-item"><span class="module-num">13</span><h3 class="module-name">Desktop HUD</h3><p class="module-desc">Always-on-top floating telemetry HUD (Ctrl+M) with quick RAM clean.</p></div>
+                        <div class="module-item"><span class="module-num">14</span><h3 class="module-name">Settings &amp; About</h3><p class="module-desc">Themes, polling intervals, audit history, and verified updates.</p></div>
                     </div>
                 </div>
             </section>
@@ -295,32 +277,32 @@
                     <div class="section-head">
                         <p class="eyebrow">Release notes</p>
                         <h2 class="section-title">What's new in v3.7.5</h2>
-                        <p class="section-lede" id="changelogLede">Floating desktop HUD mini-widget, process hierarchy tree view, CPU core affinity controls, battery health diagnostics, power plan switcher, and CSV telemetry exporter.</p>
+                        <p class="section-lede" id="changelogLede">Active network sockets table, storage S.M.A.R.T. health, process disk I/O &amp; tree view, floating desktop HUD, CPU core affinity controls, battery diagnostics, power plan switcher, and CSV telemetry exporter.</p>
                     </div>
                     <div class="changelog-grid">
                         <div class="change-item change-major">
-                            <span class="change-type">WMI telemetry restored</span>
-                            <p class="change-desc">Hardware identity, thermal-zone and vendor-neutral GPU counter providers now share a single COM security init, fixing the RPC_E_TOO_LATE failure that silently disabled them.</p>
+                            <span class="change-type">Active Network Sockets</span>
+                            <p class="change-desc">Real-time TCP and UDP socket connection monitor with PID resolution, process name mapping, and state filtering (ESTABLISHED, LISTEN, TIME_WAIT, CLOSE_WAIT).</p>
                         </div>
                         <div class="change-item change-major">
-                            <span class="change-type">RAM cleaner fixed</span>
-                            <p class="change-desc">Working-set trims now open processes with the required quota rights, so cleanup actually frees memory. Logs report trimmed / access-denied / errored counts.</p>
+                            <span class="change-type">Physical Storage S.M.A.R.T.</span>
+                            <p class="change-desc">Automatic physical drive scanner querying Win32_DiskDrive, identifying NVMe SSD, SATA SSD, and USB media types with live S.M.A.R.T. health statuses.</p>
+                        </div>
+                        <div class="change-item change-major">
+                            <span class="change-type">Process Tree &amp; Disk I/O</span>
+                            <p class="change-desc">Process table and Process Manager display live per-process read/write throughput (Disk I/O sort) and hierarchical parent-child process tree mode.</p>
                         </div>
                         <div class="change-item">
-                            <span class="change-type">Provider failure backoff</span>
-                            <p class="change-desc">A provider that fails five consecutive polls is disabled and logged once instead of retrying every second. A successful poll re-enables it.</p>
+                            <span class="change-type">Floating Desktop HUD</span>
+                            <p class="change-desc">Precision always-on-top mini-widget (Ctrl+M) showing live CPU%, RAM%, GPU%, disk throughput, network rates, and instant quick-clean RAM button.</p>
                         </div>
                         <div class="change-item">
-                            <span class="change-type">Services view fixed</span>
-                            <p class="change-desc">WMI service rows deserialize with PascalCase field names, restoring the service list that previously came back empty.</p>
+                            <span class="change-type">CPU Affinity &amp; Power Plans</span>
+                            <p class="change-desc">Interactive process CPU affinity controls via SetProcessAffinityMask and 1-click Windows power plan switcher (Balanced, High Performance, Power Saver).</p>
                         </div>
                         <div class="change-item">
-                            <span class="change-type">Quality gates green</span>
-                            <p class="change-desc">Removed 24 unused imports and re-applied formatting so the strict Clippy and rustfmt CI gates pass again.</p>
-                        </div>
-                        <div class="change-item">
-                            <span class="change-type">Hardened release pipeline</span>
-                            <p class="change-desc">The release workflow publishes the installer with its SHA-256 checksum and SPDX SBOM, attaches build provenance, and propagates native exit codes so failing quality gates can never publish.</p>
+                            <span class="change-type">Telemetry CSV Exporter</span>
+                            <p class="change-desc">1-click export of recorded JSONL telemetry sessions into multi-column CSVs with automatic aggregate summary statistics.</p>
                         </div>
                     </div>
                     <div class="version-compare">
