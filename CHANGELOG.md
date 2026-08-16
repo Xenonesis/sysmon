@@ -8,12 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [3.7.5] - 2026-08-16
 
 ### Added
+- **Active Network Sockets Table with Process Resolution:** Real-time TCP and UDP socket connection monitor displaying Local Address, Remote Address, State (`ESTABLISHED`, `LISTEN`, `TIME_WAIT`, `CLOSE_WAIT`), Process ID, and resolved Process Name. Includes live text filtering and socket state selector.
+- **Physical Storage Hardware & S.M.A.R.T. Health Detection:** Automatic physical drive scanner querying `Win32_DiskDrive` and storage interfaces (`NVMe SSD`, `SATA SSD`, `USB`, `Virtual`). Displays drive health status, S.M.A.R.T. status, media type, and capacity in the Storage page.
+- **Process Table Per-Process Disk I/O & Network Rates:** Process view and Process Manager now display real-time live per-process read and write bandwidth rates (R: X KB/s, W: Y KB/s) with 1-click `Disk I/O` sorting.
 - **Floating Desktop HUD Mini-Widget:** Precision always-on-top floating telemetry HUD (`Ctrl + M` or `[ ◰ HUD ]` header toggle) showing live CPU%, RAM%, GPU%, disk active throughput, and network rates with instant quick-clean RAM button.
-- **Process Tree Hierarchy View:** Added hierarchical parent-child process tree mode (`🌲 Process Tree`) in Process Manager with collapsible branch indentation (`├──`, `└──`, `│  `).
-- **CPU Core Affinity Controls:** Added interactive process processor affinity controls via `SetProcessAffinityMask` on Windows with 1-click All Cores, Core 0, Core 1, and custom mask presets.
-- **Battery Health Diagnostics & Power Plan Switcher:** Added real-time battery charge state, AC power detection, battery saver status, and 1-click switcher between Windows power schemes (*Balanced*, *High Performance*, *Power Saver*) in System Information.
-- **Telemetry Session CSV Exporter & Summary Analytics:** Added 1-click export of recorded JSONL telemetry sessions into standard multi-column CSVs and automatic aggregate statistics (average/peak CPU, RAM, GPU, and total network throughput).
-- **Crash Resilience:** Replaced unchecked `Instant` arithmetic in telemetry scheduler and ring buffer with safe monotonic operations, eliminating underflow panics on startup.
+- **Process Tree Hierarchy View:** Hierarchical parent-child process tree mode (`🌲 Process Tree`) in Process Manager with collapsible branch indentation (`├──`, `└──`, `│  `).
+- **CPU Core Affinity Controls:** Interactive process processor affinity controls via `SetProcessAffinityMask` on Windows with 1-click All Cores, Core 0, Core 1, and custom mask presets.
+- **Battery Health Diagnostics & Power Plan Switcher:** Real-time battery charge state, AC power detection, battery saver status, and 1-click switcher between Windows power schemes (*Balanced*, *High Performance*, *Power Saver*) in System Information.
+- **Telemetry Session CSV Exporter & Summary Analytics:** 1-click export of recorded JSONL telemetry sessions into standard multi-column CSVs and automatic aggregate statistics (average/peak CPU, RAM, GPU, and total network throughput).
+- **Crash Resilience:** Safe monotonic time math across telemetry scheduling and rolling ring buffers, eliminating underflow panics on system startup.
 
 ## [3.7.3] - 2026-08-16
 
