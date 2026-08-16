@@ -299,7 +299,7 @@ where
 {
     struct AppThemeVisitor;
 
-    impl<'de> serde::de::Visitor<'de> for AppThemeVisitor {
+    impl serde::de::Visitor<'_> for AppThemeVisitor {
         type Value = AppTheme;
 
         fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
