@@ -322,6 +322,130 @@
                             </tbody>
                         </table>
                     </div>
+                    <!-- Full Release History Timeline -->
+                    <div style="margin-top: var(--space-12);">
+                        <h3 class="compare-title">Complete Release History</h3>
+                        <div class="timeline">
+                            <article class="timeline-card">
+                                <div class="timeline-head">
+                                    <span class="timeline-ver">v3.7.5 <span class="feature-tag is-new">Latest</span></span>
+                                    <span class="timeline-date">2026-08-16</span>
+                                </div>
+                                <div class="timeline-title">Active Sockets, Storage S.M.A.R.T., Process Tree, HUD Widget &amp; CSV Exporter</div>
+                                <ul class="timeline-list">
+                                    <li>Real-time TCP/UDP active socket connection monitor with PID and process name resolution.</li>
+                                    <li>Physical storage hardware detection querying Win32_DiskDrive with live S.M.A.R.T. health statuses.</li>
+                                    <li>Process table live per-process read/write throughput and hierarchical parent-child process tree mode.</li>
+                                    <li>Precision always-on-top floating telemetry HUD mini-widget (Ctrl+M) with quick RAM cleaner.</li>
+                                    <li>CPU core processor affinity controls via SetProcessAffinityMask and 1-click Windows power plan switcher.</li>
+                                    <li>1-click telemetry session CSV exporter and aggregate summary analytics.</li>
+                                </ul>
+                            </article>
+
+                            <article class="timeline-card">
+                                <div class="timeline-head">
+                                    <span class="timeline-ver">v3.7.3</span>
+                                    <span class="timeline-date">2026-08-16</span>
+                                </div>
+                                <div class="timeline-title">Audio Chime Controls &amp; High-Contrast Navigation</div>
+                                <ul class="timeline-list">
+                                    <li>Alert notification sound chime toggle directly in Alerts view and Application Settings.</li>
+                                    <li>High-contrast sidebar icons and brand logo in both collapsed and expanded sidebar headers.</li>
+                                </ul>
+                            </article>
+
+                            <article class="timeline-card">
+                                <div class="timeline-head">
+                                    <span class="timeline-ver">v3.7.2</span>
+                                    <span class="timeline-date">2026-08-16</span>
+                                </div>
+                                <div class="timeline-title">WMI Security Unification, RAM Cleaner Quota Rights &amp; Checksum Verification</div>
+                                <ul class="timeline-list">
+                                    <li>Unified COM security initialization resolving RPC_E_TOO_LATE on WMI and GPU telemetry providers.</li>
+                                    <li>Enabled PROCESS_SET_QUOTA on RAM cleaner native API for actual working-set trimming.</li>
+                                    <li>Restored WMI Win32_Service deserialization with PascalCase field mapping.</li>
+                                    <li>Hardened release pipeline with SHA-256 checksums, SPDX SBOM, and GitHub build provenance attestation.</li>
+                                </ul>
+                            </article>
+
+                            <article class="timeline-card">
+                                <div class="timeline-head">
+                                    <span class="timeline-ver">v3.7.0</span>
+                                    <span class="timeline-date">2026-08-13</span>
+                                </div>
+                                <div class="timeline-title">TelemetryHub Architecture, Provider Abstraction &amp; Ring Buffers</div>
+                                <ul class="timeline-list">
+                                    <li>Decoupled 60 FPS UI rendering from 1–5 Hz background hardware polling via TelemetryHub.</li>
+                                    <li>Modular TelemetryProvider trait supporting sysinfo, NVML, WMI, and vendor-neutral Windows GPU counters.</li>
+                                    <li>Multi-resolution ring buffers (60s, 5m, 30m, 1hr) with running min, max, avg, and peak time statistics.</li>
+                                    <li>Evidence-based diagnostics workspace and guarded actions with local audit logging.</li>
+                                </ul>
+                            </article>
+
+                            <article class="timeline-card">
+                                <div class="timeline-head">
+                                    <span class="timeline-ver">v2.6.0 &ndash; v2.6.1</span>
+                                    <span class="timeline-date">2026-08-09</span>
+                                </div>
+                                <div class="timeline-title">Installer Packaging, Custom Auto RAM Clean &amp; Alert Deduplication</div>
+                                <ul class="timeline-list">
+                                    <li>Canonical Inno Setup Windows installer distribution and verified update path.</li>
+                                    <li>Customizable auto RAM cleaner with idle-only gating, caps up to 16 GB, and Ctrl+Alt+C hotkey.</li>
+                                    <li>Storage capacity monitoring, per-interface network metrics, and state-transition alert deduplication.</li>
+                                </ul>
+                            </article>
+
+                            <article class="timeline-card">
+                                <div class="timeline-head">
+                                    <span class="timeline-ver">v2.4.0 &ndash; v2.5.0</span>
+                                    <span class="timeline-date">2026-08-07 &ndash; 2026-08-08</span>
+                                </div>
+                                <div class="timeline-title">Deep Observer, Services Tab &amp; Power Plan Tray Toggle</div>
+                                <ul class="timeline-list">
+                                    <li>Live per-process disk read/write tracking and deep Process Pro details panel with kill-tree forensics.</li>
+                                    <li>Windows Services monitoring and control with run-state color indicators.</li>
+                                    <li>Battery diagnostics via WMI and 1-click Windows power plan switcher.</li>
+                                </ul>
+                            </article>
+
+                            <article class="timeline-card">
+                                <div class="timeline-head">
+                                    <span class="timeline-ver">v2.2.0 &ndash; v2.3.0</span>
+                                    <span class="timeline-date">2026-08-05 &ndash; 2026-08-07</span>
+                                </div>
+                                <div class="timeline-title">Inno Setup Installer, RAM Cleaner &amp; Startup Manager</div>
+                                <ul class="timeline-list">
+                                    <li>Inno Setup installer creation with Start Menu integration and clean uninstaller.</li>
+                                    <li>Working-set RAM memory optimization and Windows startup registry impact scanner.</li>
+                                    <li>Process suspension and transparent UAC elevation disclosure.</li>
+                                </ul>
+                            </article>
+
+                            <article class="timeline-card">
+                                <div class="timeline-head">
+                                    <span class="timeline-ver">v1.0.0 &ndash; v1.4.0</span>
+                                    <span class="timeline-date">2026-02-05 &ndash; 2026-02-06</span>
+                                </div>
+                                <div class="timeline-title">First Official Windows GUI &amp; Core Observability Suite</div>
+                                <ul class="timeline-list">
+                                    <li>First stable Windows GUI release with hardware-accelerated egui/eframe rendering.</li>
+                                    <li>Per-core CPU utilization breakdown, network graphs, alert notifications, and CSV data export.</li>
+                                    <li>Process Manager with priorities, instant search, and always-on-top mode.</li>
+                                </ul>
+                            </article>
+
+                            <article class="timeline-card">
+                                <div class="timeline-head">
+                                    <span class="timeline-ver">v0.1.0</span>
+                                    <span class="timeline-date">2025-12-15</span>
+                                </div>
+                                <div class="timeline-title">Initial Project Prototype</div>
+                                <ul class="timeline-list">
+                                    <li>Proof-of-concept system monitoring application for Windows.</li>
+                                </ul>
+                            </article>
+                        </div>
+                    </div>
                     <div style="margin-top: var(--space-8); text-align: center;">
                         <a href="https://github.com/Xenonesis/sysmon/blob/main/CHANGELOG.md" target="_blank" rel="noopener" class="btn btn-ghost">
                             View full changelog

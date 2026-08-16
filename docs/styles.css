@@ -278,6 +278,18 @@ h1, h2, h3, h4 {
 @media (max-width: 720px) { .compare-table { font-size: var(--text-xs); } .compare-table th, .compare-table td { padding: var(--space-2); } }
 
 
+/* ── Release Timeline ─────────────────────────────────────── */
+.timeline { margin-top: var(--space-8); display: flex; flex-direction: column; gap: var(--space-4); }
+.timeline-card { border: var(--hairline); border-radius: var(--radius-md); padding: var(--space-5); background: var(--paper-2); transition: border-color var(--dur-f) var(--ease-out); }
+.timeline-card:hover { border-color: var(--accent); }
+.timeline-head { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-2); }
+.timeline-ver { font-family: var(--font-mono); font-size: var(--text-md); font-weight: 600; color: var(--ink); display: inline-flex; align-items: center; gap: var(--space-2); }
+.timeline-date { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--ink-3); }
+.timeline-title { font-size: var(--text-sm); font-weight: 500; color: var(--accent-ink); margin-bottom: var(--space-2); }
+.timeline-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.timeline-list li { font-size: var(--text-sm); color: var(--ink-2); padding-left: var(--space-4); position: relative; }
+.timeline-list li::before { content: "▪"; position: absolute; left: 0; color: var(--accent); font-size: 10px; top: 2px; }
+
 /* ── Docs cards ───────────────────────────────────────────── */
 .docs-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-4); }
 .doc-card {
