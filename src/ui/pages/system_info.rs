@@ -3,7 +3,7 @@ use crate::ui::theme::ThemePalette;
 use crate::*;
 use eframe::egui;
 
-pub(crate) fn show(_app: &crate::SystemMonitorApp, ui: &mut egui::Ui, data: &SystemData) {
+pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &SystemData) {
     let is_dark = ui.visuals().dark_mode;
     paint_section_header(ui, "System Information & Hardware Specs", is_dark);
 
@@ -131,6 +131,100 @@ pub(crate) fn show(_app: &crate::SystemMonitorApp, ui: &mut egui::Ui, data: &Sys
                         ui.end_row();
                     }
                 });
+        });
+
+        ui.add_space(10.0);
+
+        // ── Power Management & Battery Diagnostics ──
+        let battery = crate::power::get_battery_health();
+        let power_plans = crate::power::get_power_plans();
+
+        card_frame(is_dark).show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(
+                    egui::RichText::new("POWER SCHEMES & BATTERY HEALTH")
+                        .size(11.0)
+                        .strong()
+                        .color(ThemePalette::text_secondary(is_dark)),
+                );
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if battery.has_battery {
+                        let batt_color = if battery.is_charging {
+                            ThemePalette::STATUS_HEALTHY
+                        } else if battery.percentage < 20.0 {
+                            ThemePalette::STATUS_CRITICAL
+                        } else {
+                            ThemePalette::ACCENT_PRIMARY
+                        };
+                        let charge_str = if battery.is_charging {
+                            "⚡ Charging"
+                        } else if battery.ac_online {
+                            "🔌 AC Online"
+                        } else {
+                            "🔋 On Battery"
+                        };
+                        status_pill(
+                            ui,
+                            &format!("{charge_str} · {:.0}%", battery.percentage),
+                            batt_color,
+                            is_dark,
+                        );
+                    } else {
+                        status_pill(ui, "DESKTOP / AC POWER", ThemePalette::STATUS_HEALTHY, is_dark);
+                    }
+                });
+            });
+
+            ui.add_space(8.0);
+
+            // Active Power Plan Switcher
+            ui.horizontal(|ui| {
+                ui.label(
+                    egui::RichText::new("Windows Power Scheme:")
+                        .size(11.5)
+                        .color(ThemePalette::text_secondary(is_dark)),
+                );
+                for plan in &power_plans {
+                    let is_active = plan.is_active;
+                    let btn = egui::Button::new(
+                        egui::RichText::new(if is_active {
+                            format!("✓ {}", plan.name)
+                        } else {
+                            plan.name.clone()
+                        })
+                        .size(11.0)
+                        .strong()
+                        .color(if is_active {
+                            ThemePalette::STATUS_HEALTHY
+                        } else {
+                            ThemePalette::text_secondary(is_dark)
+                        }),
+                    )
+                    .fill(if is_active {
+                        ThemePalette::STATUS_HEALTHY.gamma_multiply(if is_dark { 0.15 } else { 0.10 })
+                    } else {
+                        ThemePalette::bg_track(is_dark)
+                    })
+                    .stroke(egui::Stroke::new(
+                        1.0,
+                        if is_active {
+                            ThemePalette::STATUS_HEALTHY.gamma_multiply(0.4)
+                        } else {
+                            ThemePalette::border(is_dark)
+                        },
+                    ))
+                    .rounding(egui::Rounding::same(4.0));
+
+                    if ui
+                        .add(btn)
+                        .on_hover_text(format!("Switch to {} scheme", plan.name))
+                        .clicked()
+                        && !is_active
+                    {
+                        app.queue_action(crate::app::commands::ActionCommand::SetPowerPlan(plan.guid.clone()));
+                    }
+                }
+            });
         });
 
         ui.add_space(10.0);

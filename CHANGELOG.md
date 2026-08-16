@@ -5,6 +5,22 @@ All notable changes to System Monitor will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.7.5] - 2026-08-16
+
+### Added
+- **Floating Desktop HUD Mini-Widget:** Precision always-on-top floating telemetry HUD (`Ctrl + M` or `[ ◰ HUD ]` header toggle) showing live CPU%, RAM%, GPU%, disk active throughput, and network rates with instant quick-clean RAM button.
+- **Process Tree Hierarchy View:** Added hierarchical parent-child process tree mode (`🌲 Process Tree`) in Process Manager with collapsible branch indentation (`├──`, `└──`, `│  `).
+- **CPU Core Affinity Controls:** Added interactive process processor affinity controls via `SetProcessAffinityMask` on Windows with 1-click All Cores, Core 0, Core 1, and custom mask presets.
+- **Battery Health Diagnostics & Power Plan Switcher:** Added real-time battery charge state, AC power detection, battery saver status, and 1-click switcher between Windows power schemes (*Balanced*, *High Performance*, *Power Saver*) in System Information.
+- **Telemetry Session CSV Exporter & Summary Analytics:** Added 1-click export of recorded JSONL telemetry sessions into standard multi-column CSVs and automatic aggregate statistics (average/peak CPU, RAM, GPU, and total network throughput).
+- **Crash Resilience:** Replaced unchecked `Instant` arithmetic in telemetry scheduler and ring buffer with safe monotonic operations, eliminating underflow panics on startup.
+
+## [3.7.3] - 2026-08-16
+
+### Added
+- **Alert Audio Chime Toggle:** Added explicit controls to toggle alert notification sound on or off independently from general system event sounds. Users can toggle alert sound directly from the Alerts page (quick `🔔 Sound: ON` / `🔕 Sound: OFF` button) and in Application Settings under both General Preferences and Alert Thresholds.
+- **Sidebar Icons & Logo:** Upgraded collapsed and expanded sidebar navigation with high-contrast system icons and rendered the official application logo in both collapsed and expanded sidebar headers.
+
 ## [3.7.2] - 2026-08-16
 
 ### Fixed

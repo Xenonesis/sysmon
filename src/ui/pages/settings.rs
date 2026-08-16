@@ -52,6 +52,12 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui) {
                         .checkbox(&mut app.settings.show_notifications, "Enable Desktop Notifications")
                         .changed();
                     changed |= ui
+                        .checkbox(
+                            &mut app.settings.enable_alert_sound,
+                            "Enable Alert Sounds (Audio Chime)",
+                        )
+                        .changed();
+                    changed |= ui
                         .checkbox(&mut app.settings.enable_sounds, "Enable System Event Sounds")
                         .changed();
                     changed |= ui
@@ -197,6 +203,14 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui) {
                         .changed();
                     ui.end_row();
                 });
+
+            ui.add_space(8.0);
+            changed |= ui
+                .checkbox(
+                    &mut app.settings.enable_alert_sound,
+                    "Play audio chime when alert triggers",
+                )
+                .changed();
         });
 
         ui.add_space(10.0);

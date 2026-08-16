@@ -6,7 +6,7 @@ use sysinfo::{Pid, System};
 
 // ─── Data Models ─────────────────────────────────────────────
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct ProcessInfo {
     pub pid: u32,
     pub name: String,
@@ -121,6 +121,138 @@ pub fn kill_order(tree: &HashMap<u32, Vec<u32>>, root_pid: u32) -> Vec<u32> {
     let mut visited = std::collections::HashSet::new();
     visit(root_pid, tree, &mut visited, &mut order);
     order
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ProcessTreeRow {
+    pub process: ProcessInfo,
+    pub depth: usize,
+    pub has_children: bool,
+    pub prefix: String,
+}
+
+/// Build ordered hierarchical tree rows with indentation and visual branches.
+pub fn build_tree_rows(items: &[ProcessInfo], tree: &HashMap<u32, Vec<u32>>, query: &str) -> Vec<ProcessTreeRow> {
+    let item_map: HashMap<u32, &ProcessInfo> = items.iter().map(|p| (p.pid, p)).collect();
+    let mut rows = Vec::new();
+    let mut visited = std::collections::HashSet::new();
+
+    let mut root_pids: Vec<u32> = items
+        .iter()
+        .map(|p| p.pid)
+        .filter(|&pid| {
+            !items.iter().any(|parent| {
+                if let Some(children) = tree.get(&parent.pid) {
+                    children.contains(&pid)
+                } else {
+                    false
+                }
+            })
+        })
+        .collect();
+    root_pids.sort_unstable();
+
+    #[allow(clippy::too_many_arguments)]
+    fn traverse(
+        pid: u32,
+        depth: usize,
+        prefix: &str,
+        is_last: bool,
+        item_map: &HashMap<u32, &ProcessInfo>,
+        tree: &HashMap<u32, Vec<u32>>,
+        visited: &mut std::collections::HashSet<u32>,
+        rows: &mut Vec<ProcessTreeRow>,
+    ) {
+        if !visited.insert(pid) {
+            return;
+        }
+        let Some(&proc) = item_map.get(&pid) else {
+            return;
+        };
+
+        let branch = if depth == 0 {
+            String::new()
+        } else if is_last {
+            format!("{prefix}└─ ")
+        } else {
+            format!("{prefix}├─ ")
+        };
+
+        let children = tree.get(&pid);
+        let has_children = children.is_some_and(|c| !c.is_empty());
+
+        rows.push(ProcessTreeRow {
+            process: proc.clone(),
+            depth,
+            has_children,
+            prefix: branch,
+        });
+
+        if let Some(child_list) = children {
+            let next_prefix = if depth == 0 {
+                ""
+            } else if is_last {
+                &format!("{prefix}   ")
+            } else {
+                &format!("{prefix}│  ")
+            };
+
+            for (i, &child_pid) in child_list.iter().enumerate() {
+                let child_is_last = i == child_list.len() - 1;
+                traverse(
+                    child_pid,
+                    depth + 1,
+                    next_prefix,
+                    child_is_last,
+                    item_map,
+                    tree,
+                    visited,
+                    rows,
+                );
+            }
+        }
+    }
+
+    for root in root_pids {
+        traverse(root, 0, "", true, &item_map, tree, &mut visited, &mut rows);
+    }
+
+    if !query.is_empty() {
+        let q = query.to_lowercase();
+        rows.retain(|r| r.process.name.to_lowercase().contains(&q) || r.process.pid.to_string().contains(&q));
+    }
+
+    rows
+}
+
+/// Set CPU core affinity mask for a process by PID on Windows.
+#[cfg(target_os = "windows")]
+pub fn set_process_affinity(pid: u32, mask: usize) -> Result<(), String> {
+    use windows_sys::Win32::Foundation::{CloseHandle, GetLastError};
+    use windows_sys::Win32::System::Threading::{
+        OpenProcess, SetProcessAffinityMask, PROCESS_QUERY_INFORMATION, PROCESS_SET_INFORMATION,
+    };
+
+    unsafe {
+        let handle = OpenProcess(PROCESS_SET_INFORMATION | PROCESS_QUERY_INFORMATION, 0, pid);
+        if handle.is_null() {
+            return Err(format!("Failed to open process {pid} (error code {})", GetLastError()));
+        }
+        let result = SetProcessAffinityMask(handle, mask);
+        CloseHandle(handle);
+        if result == 0 {
+            return Err(format!(
+                "Failed to set affinity mask {mask:#x} for PID {pid} (error code {})",
+                GetLastError()
+            ));
+        }
+        Ok(())
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn set_process_affinity(_pid: u32, _mask: usize) -> Result<(), String> {
+    Err("Process affinity is only supported on Windows".into())
 }
 
 /// Look up detailed information for one PID from a sysinfo snapshot.
@@ -249,5 +381,45 @@ mod tests {
     fn kill_order_root_not_in_tree() {
         let tree: HashMap<u32, Vec<u32>> = HashMap::new();
         assert_eq!(kill_order(&tree, 999), vec![999]);
+    }
+
+    #[test]
+    fn build_tree_rows_constructs_hierarchy() {
+        let items = vec![
+            p(1, "system.exe", 1.0, 100, "Running"),
+            p(2, "smss.exe", 0.5, 50, "Running"),
+            p(3, "csrss.exe", 0.8, 80, "Running"),
+        ];
+        let parents: HashMap<u32, u32> = [(2, 1), (3, 2)].into_iter().collect();
+        let tree = build_tree(&parents);
+        let rows = build_tree_rows(&items, &tree, "");
+
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows[0].process.pid, 1);
+        assert_eq!(rows[0].depth, 0);
+        assert!(rows[0].has_children);
+
+        assert_eq!(rows[1].process.pid, 2);
+        assert_eq!(rows[1].depth, 1);
+        assert!(rows[1].has_children);
+        assert_eq!(rows[1].prefix, "└─ ");
+
+        assert_eq!(rows[2].process.pid, 3);
+        assert_eq!(rows[2].depth, 2);
+        assert!(!rows[2].has_children);
+        assert_eq!(rows[2].prefix, "   └─ ");
+    }
+
+    #[test]
+    fn build_tree_rows_filters_query() {
+        let items = vec![
+            p(1, "system.exe", 1.0, 100, "Running"),
+            p(2, "smss.exe", 0.5, 50, "Running"),
+            p(3, "csrss.exe", 0.8, 80, "Running"),
+        ];
+        let tree = HashMap::new();
+        let rows = build_tree_rows(&items, &tree, "csrss");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].process.pid, 3);
     }
 }

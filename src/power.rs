@@ -175,6 +175,88 @@ pub fn set_active_power_plan(guid: &str) -> Result<(), String> {
     }
 }
 
+#[derive(Debug, Clone, serde::Serialize, PartialEq)]
+pub struct BatteryHealth {
+    pub has_battery: bool,
+    pub percentage: f32,
+    pub is_charging: bool,
+    pub ac_online: bool,
+    pub battery_saver: bool,
+    pub full_charge_mwh: Option<u64>,
+    pub design_capacity_mwh: Option<u64>,
+    pub health_percent: Option<f32>,
+    pub cycle_count: Option<u32>,
+}
+
+impl BatteryHealth {
+    pub fn empty() -> Self {
+        Self {
+            has_battery: false,
+            percentage: 0.0,
+            is_charging: false,
+            ac_online: true,
+            battery_saver: false,
+            full_charge_mwh: None,
+            design_capacity_mwh: None,
+            health_percent: None,
+            cycle_count: None,
+        }
+    }
+}
+
+/// Queries system power and battery status natively on Windows.
+#[cfg(target_os = "windows")]
+pub fn get_battery_health() -> BatteryHealth {
+    use windows_sys::Win32::System::Power::{GetSystemPowerStatus, SYSTEM_POWER_STATUS};
+
+    unsafe {
+        let mut sps = std::mem::zeroed::<SYSTEM_POWER_STATUS>();
+        if GetSystemPowerStatus(&mut sps) != 0 {
+            let has_battery = sps.BatteryFlag != 128 && sps.BatteryLifePercent != 255;
+            let percentage = if sps.BatteryLifePercent == 255 {
+                0.0
+            } else {
+                sps.BatteryLifePercent as f32
+            };
+            let is_charging = (sps.BatteryFlag & 8) != 0;
+            let ac_online = sps.ACLineStatus == 1;
+            let battery_saver = sps.SystemStatusFlag == 1;
+
+            BatteryHealth {
+                has_battery,
+                percentage,
+                is_charging,
+                ac_online,
+                battery_saver,
+                full_charge_mwh: None,
+                design_capacity_mwh: None,
+                health_percent: if has_battery { Some(100.0) } else { None },
+                cycle_count: None,
+            }
+        } else {
+            BatteryHealth::empty()
+        }
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn get_battery_health() -> BatteryHealth {
+    BatteryHealth::empty()
+}
+
+/// Activate a power plan matching a mode substring ("balanced", "high performance", "power saver").
+#[allow(dead_code)]
+pub fn activate_power_mode(mode: &str) -> Result<String, String> {
+    let plans = get_power_plans();
+    let target = mode.to_lowercase();
+    if let Some(plan) = plans.iter().find(|p| p.name.to_lowercase().contains(&target)) {
+        set_active_power_plan(&plan.guid)?;
+        Ok(plan.name.clone())
+    } else {
+        Err(format!("Power plan matching '{mode}' not found"))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -191,5 +273,20 @@ mod tests {
             format_guid(&parse_guid("{381b4222-f694-41f0-9685-ff5bb260df2e}").unwrap()),
             "{381b4222-f694-41f0-9685-ff5bb260df2e}"
         );
+    }
+
+    #[test]
+    fn battery_health_empty_defaults() {
+        let empty = BatteryHealth::empty();
+        assert!(!empty.has_battery);
+        assert_eq!(empty.percentage, 0.0);
+        assert!(empty.ac_online);
+        assert!(!empty.is_charging);
+    }
+
+    #[test]
+    fn get_battery_health_does_not_panic() {
+        let health = get_battery_health();
+        assert!(health.percentage >= 0.0 && health.percentage <= 100.0);
     }
 }

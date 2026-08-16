@@ -340,6 +340,16 @@ impl eframe::App for SystemMonitorApp {
                 self.settings.sidebar_collapsed = !self.settings.sidebar_collapsed;
                 let _ = self.settings.save();
             }
+            if i.modifiers.ctrl && i.key_pressed(egui::Key::M) {
+                // Ctrl+M = Toggle Mini-Widget / HUD
+                self.widget_open = !self.widget_open;
+                self.settings.show_widget = self.widget_open;
+                let _ = self.settings.save();
+                {
+                    let mut shared = self.shared_settings.lock();
+                    *shared = self.settings.clone();
+                }
+            }
             if i.modifiers.ctrl && i.key_pressed(egui::Key::Comma) {
                 // Ctrl+, = Settings
                 self.show_settings = true;
@@ -397,6 +407,11 @@ impl eframe::App for SystemMonitorApp {
         // Handle process priority changes
         if let Some((pid, priority)) = self.priority_change.take() {
             self.queue_action(app::commands::ActionCommand::SetPriority { pid, priority });
+        }
+
+        // Handle process CPU affinity changes
+        if let Some((pid, mask)) = self.affinity_change.take() {
+            self.queue_action(app::commands::ActionCommand::SetAffinity { pid, mask });
         }
 
         // Auto RAM cleaning
@@ -728,8 +743,7 @@ impl eframe::App for SystemMonitorApp {
                         ui.painter().rect_filled(rect, egui::Rounding::same(4.0), hover_fill);
                     }
                     let logo_rect = egui::Rect::from_center_size(rect.center(), egui::vec2(22.0, 22.0));
-                    egui::Image::new(egui::include_image!("../assets/icon.png"))
-                        .paint_at(ui, logo_rect);
+                    egui::Image::new(egui::include_image!("../assets/icon.png")).paint_at(ui, logo_rect);
                 }
 
                 ui.add_space(10.0);
@@ -912,7 +926,11 @@ impl eframe::App for SystemMonitorApp {
                                 egui::Align2::LEFT_CENTER,
                                 item.icon,
                                 egui::FontId::proportional(13.0),
-                                if is_selected { ThemePalette::ACCENT_PRIMARY } else { text_color },
+                                if is_selected {
+                                    ThemePalette::ACCENT_PRIMARY
+                                } else {
+                                    text_color
+                                },
                             );
 
                             let text_pos = egui::pos2(rect.left() + 30.0, rect.center().y);
@@ -1300,6 +1318,49 @@ impl eframe::App for SystemMonitorApp {
                                 self.start_ram_clean(ctx);
                             }
                         });
+
+                        ui.add_space(6.0);
+
+                        // Mini-Widget / HUD Toggle button
+                        let hud_open = self.widget_open;
+                        let hud_btn = egui::Button::new(
+                            egui::RichText::new(if hud_open { "◰ HUD ON" } else { "◰ HUD" })
+                                .size(11.5)
+                                .strong()
+                                .color(if hud_open {
+                                    ThemePalette::ACCENT_PRIMARY
+                                } else {
+                                    ThemePalette::text_secondary(is_dark)
+                                }),
+                        )
+                        .fill(if hud_open {
+                            ThemePalette::ACCENT_PRIMARY.gamma_multiply(if is_dark { 0.18 } else { 0.12 })
+                        } else {
+                            ThemePalette::bg_track(is_dark)
+                        })
+                        .stroke(egui::Stroke::new(
+                            1.0,
+                            if hud_open {
+                                ThemePalette::ACCENT_PRIMARY.gamma_multiply(0.5)
+                            } else {
+                                ThemePalette::border(is_dark)
+                            },
+                        ))
+                        .rounding(egui::Rounding::same(4.0));
+
+                        if ui
+                            .add(hud_btn)
+                            .on_hover_text("Toggle Desktop Floating Mini-HUD (Ctrl+M)")
+                            .clicked()
+                        {
+                            self.widget_open = !self.widget_open;
+                            self.settings.show_widget = self.widget_open;
+                            let _ = self.settings.save();
+                            {
+                                let mut shared = self.shared_settings.lock();
+                                *shared = self.settings.clone();
+                            }
+                        }
                     });
                 });
             });
@@ -1454,68 +1515,174 @@ impl SystemMonitorApp {
     }
 
     /// Render the compact desktop mini-widget telemetry panel.
+    /// Render the precision desktop floating mini-widget telemetry HUD.
     fn render_widget(&mut self, ui: &mut egui::Ui, data: &SystemData) {
-        ui.spacing_mut().item_spacing = egui::vec2(8.0, 6.0);
-        ui.set_width(220.0);
+        let is_dark = ui.visuals().dark_mode;
+        ui.spacing_mut().item_spacing = egui::vec2(6.0, 5.0);
+        ui.set_width(240.0);
 
-        ui.vertical(|ui| {
-            ui.horizontal(|ui| {
-                let cpu_c = get_usage_color(data.cpu_usage);
-                ui.label("CPU");
-                ui.colored_label(cpu_c, egui::RichText::new(format!("{:.1}%", data.cpu_usage)).strong());
-                ui.weak(format!("{} cores", data.cpu_cores.len()));
+        // Header
+        ui.horizontal(|ui| {
+            ui.label(
+                egui::RichText::new("◰ HUD TELEMETRY")
+                    .size(11.0)
+                    .monospace()
+                    .strong()
+                    .color(ThemePalette::ACCENT_PRIMARY),
+            );
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui.small_button("✕").on_hover_text("Close HUD (Ctrl+M)").clicked() {
+                    self.widget_open = false;
+                    self.settings.show_widget = false;
+                    let _ = self.settings.save();
+                    {
+                        let mut shared = self.shared_settings.lock();
+                        *shared = self.settings.clone();
+                    }
+                }
             });
-            ui.horizontal(|ui| {
-                let mem_c = get_usage_color(data.memory_percentage);
-                ui.label("RAM");
-                ui.colored_label(
-                    mem_c,
-                    egui::RichText::new(format!("{:.1}%", data.memory_percentage)).strong(),
+        });
+
+        ui.add_space(2.0);
+
+        // CPU Metric
+        let cpu_color = get_usage_color(data.cpu_usage);
+        ui.horizontal(|ui| {
+            ui.label(
+                egui::RichText::new("CPU")
+                    .size(11.0)
+                    .monospace()
+                    .strong()
+                    .color(ThemePalette::text_secondary(is_dark)),
+            );
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if let Some(temp) = data.cpu_temperature {
+                    ui.label(
+                        egui::RichText::new(format!("{temp:.0}°C"))
+                            .size(10.5)
+                            .monospace()
+                            .color(ThemePalette::text_dimmed(is_dark)),
+                    );
+                    ui.add_space(4.0);
+                }
+                ui.label(
+                    egui::RichText::new(format!("{:.1}%", data.cpu_usage))
+                        .size(11.5)
+                        .monospace()
+                        .strong()
+                        .color(cpu_color),
                 );
-                ui.weak(format!(
-                    "{:.1} / {:.1} GB",
-                    data.memory_used as f64 / 1024.0 / 1024.0 / 1024.0,
-                    data.memory_total as f64 / 1024.0 / 1024.0 / 1024.0
-                ));
             });
+        });
+        crate::ui::components::paint_progress_bar(ui, data.cpu_usage / 100.0, cpu_color, 4.0, is_dark);
 
-            if let Some(gpu) = data.gpu_info.first() {
-                ui.horizontal(|ui| {
-                    let gpu_c = get_usage_color(gpu.utilization);
-                    ui.label("GPU");
-                    ui.colored_label(gpu_c, egui::RichText::new(format!("{:.1}%", gpu.utilization)).strong());
-                });
-            }
+        // RAM Metric
+        let mem_color = get_usage_color(data.memory_percentage);
+        ui.horizontal(|ui| {
+            ui.label(
+                egui::RichText::new("RAM")
+                    .size(11.0)
+                    .monospace()
+                    .strong()
+                    .color(ThemePalette::text_secondary(is_dark)),
+            );
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let used_gb = data.memory_used as f64 / 1024.0 / 1024.0 / 1024.0;
+                let total_gb = data.memory_total as f64 / 1024.0 / 1024.0 / 1024.0;
+                ui.label(
+                    egui::RichText::new(format!("{used_gb:.1}/{total_gb:.1}G"))
+                        .size(10.5)
+                        .monospace()
+                        .color(ThemePalette::text_dimmed(is_dark)),
+                );
+                ui.add_space(4.0);
+                ui.label(
+                    egui::RichText::new(format!("{:.1}%", data.memory_percentage))
+                        .size(11.5)
+                        .monospace()
+                        .strong()
+                        .color(mem_color),
+                );
+            });
+        });
+        crate::ui::components::paint_progress_bar(ui, data.memory_percentage / 100.0, mem_color, 4.0, is_dark);
 
-            ui.separator();
-            let dl: f64 = data.network_info.iter().map(|n| n.received_rate).sum();
-            let ul: f64 = data.network_info.iter().map(|n| n.transmitted_rate).sum();
+        // GPU Metric (if available)
+        if let Some(gpu) = data.gpu_info.first() {
+            let gpu_color = get_usage_color(gpu.utilization);
             ui.horizontal(|ui| {
-                ui.colored_label(ThemePalette::ACCENT_PRIMARY, format!("↓ {:.0} K/s", dl));
-                ui.add_space(8.0);
-                ui.colored_label(ThemePalette::ACCENT_ACTIVE, format!("↑ {:.0} K/s", ul));
-            });
-
-            if let Some(temp) = data.cpu_temperature {
-                ui.horizontal(|ui| {
-                    ui.label("CPU Temp");
-                    ui.strong(format!("{temp:.0}°C"));
+                ui.label(
+                    egui::RichText::new("GPU")
+                        .size(11.0)
+                        .monospace()
+                        .strong()
+                        .color(ThemePalette::text_secondary(is_dark)),
+                );
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if let Some(temp) = gpu.temperature {
+                        ui.label(
+                            egui::RichText::new(format!("{temp:.0}°C"))
+                                .size(10.5)
+                                .monospace()
+                                .color(ThemePalette::text_dimmed(is_dark)),
+                        );
+                        ui.add_space(4.0);
+                    }
+                    ui.label(
+                        egui::RichText::new(format!("{:.1}%", gpu.utilization))
+                            .size(11.5)
+                            .monospace()
+                            .strong()
+                            .color(gpu_color),
+                    );
                 });
-            }
+            });
+            crate::ui::components::paint_progress_bar(ui, gpu.utilization / 100.0, gpu_color, 4.0, is_dark);
+        }
+
+        // Network I/O
+        let dl: f64 = data.network_info.iter().map(|n| n.received_rate).sum();
+        let ul: f64 = data.network_info.iter().map(|n| n.transmitted_rate).sum();
+        ui.horizontal(|ui| {
+            ui.label(
+                egui::RichText::new(format!("↓ {:.0} KB/s", dl))
+                    .size(10.5)
+                    .monospace()
+                    .color(ThemePalette::ACCENT_PRIMARY),
+            );
+            ui.add_space(8.0);
+            ui.label(
+                egui::RichText::new(format!("↑ {:.0} KB/s", ul))
+                    .size(10.5)
+                    .monospace()
+                    .color(ThemePalette::ACCENT_ACTIVE),
+            );
         });
 
         ui.separator();
+
+        // Footer Actions
         ui.horizontal(|ui| {
-            if ui.small_button("Hide").clicked() {
-                self.widget_open = false;
-                self.settings.show_widget = false;
-                let _ = self.settings.save();
-                {
-                    let mut shared = self.shared_settings.lock();
-                    *shared = self.settings.clone();
-                }
+            let is_cleaning = self.ram_cleaner_state.is_cleaning;
+            let clean_label = if is_cleaning { "..." } else { "⚡ Clean RAM" };
+            if ui
+                .add_enabled(
+                    !is_cleaning,
+                    egui::Button::new(egui::RichText::new(clean_label).size(10.5)),
+                )
+                .clicked()
+            {
+                self.start_ram_clean(ui.ctx());
             }
-            ui.weak(&data.last_update);
+
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.label(
+                    egui::RichText::new(&data.last_update)
+                        .size(10.0)
+                        .monospace()
+                        .color(ThemePalette::text_dimmed(is_dark)),
+                );
+            });
         });
     }
 }
@@ -1577,6 +1744,9 @@ pub(crate) fn run_action_worker(
             }
             app::commands::ActionCommand::SetPowerPlan(guid) => power::set_active_power_plan(&guid)
                 .map(|_| "Power plan changed".into())
+                .map_err(ActionError::Failed),
+            app::commands::ActionCommand::SetAffinity { pid, mask } => processes::set_process_affinity(pid, mask)
+                .map(|_| format!("Process {pid} affinity set to {mask:#x}"))
                 .map_err(ActionError::Failed),
             app::commands::ActionCommand::KillProcessTree(root) => {
                 monitor.sys.refresh_processes();

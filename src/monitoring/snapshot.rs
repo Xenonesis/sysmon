@@ -1,16 +1,16 @@
 use std::collections::HashMap;
 use std::time::SystemTime;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProviderStatus {
     pub available: bool,
     pub stale: bool,
     pub error: Option<String>,
 }
 
-#[derive(Debug, Clone, Default, Serialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct GpuSnapshot {
     pub name: String,
     pub utilization: f32,
@@ -22,7 +22,7 @@ pub struct GpuSnapshot {
     pub fan_percent: Option<u32>,
 }
 
-#[derive(Debug, Clone, Default, Serialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct DiskSnapshot {
     pub name: String,
     pub mount_point: String,
@@ -34,7 +34,7 @@ pub struct DiskSnapshot {
     pub written_bytes_per_second: f64,
 }
 
-#[derive(Debug, Clone, Default, Serialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct NetworkSnapshot {
     pub interface: String,
     pub received: u64,
@@ -43,7 +43,7 @@ pub struct NetworkSnapshot {
     pub transmitted_bytes_per_second: f64,
 }
 
-#[derive(Debug, Clone, Default, Serialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ProcessSnapshot {
     pub pid: u32,
     pub name: String,
@@ -54,14 +54,14 @@ pub struct ProcessSnapshot {
     pub disk_written_bytes: u64,
 }
 
-#[derive(Debug, Clone, Default, Serialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SwapSnapshot {
     pub total: u64,
     pub used: u64,
     pub percentage: f32,
 }
 
-#[derive(Debug, Clone, Default, Serialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct BatterySnapshot {
     pub design_capacity: u32,
     pub full_charge_capacity: u32,
@@ -70,7 +70,7 @@ pub struct BatterySnapshot {
     pub present: bool,
 }
 
-#[derive(Debug, Clone, Default, Serialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SystemInfoSnapshot {
     pub os_name: String,
     pub os_version: String,
@@ -85,7 +85,7 @@ pub struct SystemInfoSnapshot {
     pub os_build: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SystemSnapshot {
     pub sampled_at: SystemTime,
     pub cpu_usage: f32,

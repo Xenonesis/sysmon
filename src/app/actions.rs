@@ -77,6 +77,14 @@ impl ActionPlan {
                 true,
                 None,
             ),
+            ActionCommand::SetAffinity { pid, mask } => Self::new(
+                command.clone(),
+                format!("Set process {pid} CPU affinity to {mask:#x}"),
+                "Constrains execution to specified logical CPU processor cores.",
+                RiskLevel::Medium,
+                true,
+                None,
+            ),
             ActionCommand::CleanRam => Self::new(
                 command.clone(),
                 "Trim process working sets".into(),

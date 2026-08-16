@@ -820,6 +820,8 @@ pub(crate) struct SystemMonitorApp {
     pub(crate) resume_process_pid: Option<u32>,
     pub(crate) suspended_pids: std::collections::HashSet<u32>,
     pub(crate) priority_change: Option<(u32, String)>,
+    pub(crate) process_tree_view: bool,
+    pub(crate) affinity_change: Option<(u32, usize)>,
     #[allow(dead_code)]
     #[cfg(target_os = "windows")]
     pub(crate) tray_icon: Option<tray_icon::TrayIcon>,
@@ -1389,7 +1391,10 @@ impl SystemMonitorApp {
                             data.alerts.iter().map(AlertInfo::key).collect();
                         new_alerts.retain(|alert| !active_keys.contains(&alert.key()));
 
-                        if !new_alerts.is_empty() && settings_snapshot.enable_sounds {
+                        if !new_alerts.is_empty()
+                            && settings_snapshot.enable_alert_sound
+                            && settings_snapshot.enable_sounds
+                        {
                             play_alert_sound();
                         }
 
@@ -1697,6 +1702,8 @@ impl SystemMonitorApp {
             resume_process_pid: None,
             suspended_pids: std::collections::HashSet::new(),
             priority_change: None,
+            process_tree_view: false,
+            affinity_change: None,
             service_search: String::new(),
             service_state_filter: None,
             pending_service_action: None,

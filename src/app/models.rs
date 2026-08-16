@@ -358,6 +358,8 @@ pub(crate) struct AppSettings {
     pub(crate) ram_clean_threshold: f32,
     #[serde(default = "default_enable_sounds")]
     pub(crate) enable_sounds: bool,
+    #[serde(default = "default_enable_alert_sound")]
+    pub(crate) enable_alert_sound: bool,
     #[serde(default)]
     pub(crate) startup_optimization_history: Vec<crate::startup::StartupOptimizationEntry>,
     #[serde(default)]
@@ -380,6 +382,10 @@ pub(crate) struct AppSettings {
     pub(crate) notification_disk_threshold: f32,
     #[serde(default)]
     pub(crate) sidebar_collapsed: bool,
+}
+
+fn default_enable_alert_sound() -> bool {
+    true
 }
 
 fn default_notification_disk_threshold() -> f32 {
@@ -466,6 +472,7 @@ impl Default for AppSettings {
             auto_ram_clean: false,
             ram_clean_threshold: 85.0,
             enable_sounds: true,
+            enable_alert_sound: true,
             startup_optimization_history: Vec::new(),
             last_boot_diagnostics: None,
             auto_clean_interval: 300,

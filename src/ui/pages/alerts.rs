@@ -38,6 +38,41 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
                             .size(13.0)
                             .color(ThemePalette::text_primary(is_dark)),
                     );
+
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        let sound_on = app.settings.enable_alert_sound && app.settings.enable_sounds;
+                        let sound_label = if sound_on { "🔔 Sound: ON" } else { "🔕 Sound: OFF" };
+                        let sound_btn = egui::Button::new(egui::RichText::new(sound_label).size(11.5).strong().color(
+                            if sound_on {
+                                ThemePalette::STATUS_HEALTHY
+                            } else {
+                                ThemePalette::text_dimmed(is_dark)
+                            },
+                        ))
+                        .fill(if sound_on {
+                            ThemePalette::STATUS_HEALTHY.gamma_multiply(if is_dark { 0.15 } else { 0.10 })
+                        } else {
+                            ThemePalette::bg_track(is_dark)
+                        })
+                        .stroke(egui::Stroke::new(
+                            1.0,
+                            if sound_on {
+                                ThemePalette::STATUS_HEALTHY.gamma_multiply(0.4)
+                            } else {
+                                ThemePalette::border(is_dark)
+                            },
+                        ))
+                        .rounding(egui::Rounding::same(4.0));
+
+                        if ui
+                            .add(sound_btn)
+                            .on_hover_text("Toggle alert notification audio chime on/off")
+                            .clicked()
+                        {
+                            app.settings.enable_alert_sound = !app.settings.enable_alert_sound;
+                            let _ = app.settings.save();
+                        }
+                    });
                 });
             });
 
@@ -148,6 +183,39 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
                         let mut app_data = app.data.write();
                         app_data.alerts.clear();
                     }
+
+                    let sound_on = app.settings.enable_alert_sound && app.settings.enable_sounds;
+                    let sound_label = if sound_on { "🔔 Sound: ON" } else { "🔕 Sound: OFF" };
+                    let sound_btn =
+                        egui::Button::new(egui::RichText::new(sound_label).size(11.5).strong().color(if sound_on {
+                            ThemePalette::STATUS_HEALTHY
+                        } else {
+                            ThemePalette::text_dimmed(is_dark)
+                        }))
+                        .fill(if sound_on {
+                            ThemePalette::STATUS_HEALTHY.gamma_multiply(if is_dark { 0.15 } else { 0.10 })
+                        } else {
+                            ThemePalette::bg_track(is_dark)
+                        })
+                        .stroke(egui::Stroke::new(
+                            1.0,
+                            if sound_on {
+                                ThemePalette::STATUS_HEALTHY.gamma_multiply(0.4)
+                            } else {
+                                ThemePalette::border(is_dark)
+                            },
+                        ))
+                        .rounding(egui::Rounding::same(4.0));
+
+                    if ui
+                        .add(sound_btn)
+                        .on_hover_text("Toggle alert notification audio chime on/off")
+                        .clicked()
+                    {
+                        app.settings.enable_alert_sound = !app.settings.enable_alert_sound;
+                        let _ = app.settings.save();
+                    }
+
                     if ui.button("Configure Thresholds").clicked() {
                         app.show_settings = true;
                     }

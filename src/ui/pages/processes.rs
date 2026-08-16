@@ -272,6 +272,38 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
                         })
                         .response
                         .on_hover_text("Set process scheduling priority");
+                        ui.menu_button("Affinity", |ui| {
+                            ui.label("CPU Core Affinity:");
+                            let num_cores = data.cpu_cores.len().max(1);
+                            let all_mask = if num_cores >= 64 {
+                                usize::MAX
+                            } else {
+                                (1usize << num_cores) - 1
+                            };
+                            if ui.button("All Cores (Default)").clicked() {
+                                app.affinity_change = Some((process.pid, all_mask));
+                                ui.close_menu();
+                            }
+                            if num_cores > 1 {
+                                if ui.button("Core 0 Only (0x1)").clicked() {
+                                    app.affinity_change = Some((process.pid, 1));
+                                    ui.close_menu();
+                                }
+                                if ui.button("Core 1 Only (0x2)").clicked() {
+                                    app.affinity_change = Some((process.pid, 2));
+                                    ui.close_menu();
+                                }
+                                if num_cores >= 4 {
+                                    let half_mask = (1usize << (num_cores / 2)) - 1;
+                                    if ui.button(format!("First {} Cores", num_cores / 2)).clicked() {
+                                        app.affinity_change = Some((process.pid, half_mask));
+                                        ui.close_menu();
+                                    }
+                                }
+                            }
+                        })
+                        .response
+                        .on_hover_text("Set process CPU core affinity mask");
                         if ui
                             .small_button("Copy PID")
                             .on_hover_text("Copy PID to clipboard")

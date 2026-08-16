@@ -20,6 +20,7 @@ pub(crate) enum ActionCommand {
     SuspendProcess(u32),
     ResumeProcess(u32),
     SetPriority { pid: u32, priority: String },
+    SetAffinity { pid: u32, mask: usize },
     CleanRam,
     ControlService { name: String, action: ServiceControlAction },
     SetPowerPlan(String),

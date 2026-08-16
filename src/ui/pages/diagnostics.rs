@@ -101,6 +101,115 @@ pub(crate) fn show(app: &mut SystemMonitorApp, ui: &mut egui::Ui, data: &SystemD
             }
         });
 
+        // ── 1b. Session History & Telemetry Exporter ──
+        let recorded_sessions = crate::persistence::session::list_recorded_sessions();
+        if !recorded_sessions.is_empty() {
+            ui.add_space(8.0);
+            card_frame(is_dark).show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new("RECORDED TELEMETRY SESSIONS")
+                            .size(11.0)
+                            .strong()
+                            .color(ThemePalette::text_secondary(is_dark)),
+                    );
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        status_pill(
+                            ui,
+                            &format!("{} SAVED SESSIONS", recorded_sessions.len()),
+                            ThemePalette::ACCENT_PRIMARY,
+                            is_dark,
+                        );
+                    });
+                });
+
+                ui.add_space(6.0);
+
+                if let Some(latest) = recorded_sessions.first() {
+                    if let Ok(summary) = crate::persistence::session::calculate_session_summary(latest) {
+                        ui.horizontal(|ui| {
+                            let file_name = latest.file_name().and_then(|n| n.to_str()).unwrap_or("session.jsonl");
+                            ui.label(
+                                egui::RichText::new(format!("Latest: {file_name}"))
+                                    .monospace()
+                                    .size(11.5)
+                                    .strong()
+                                    .color(ThemePalette::text_primary(is_dark)),
+                            );
+                            ui.label(
+                                egui::RichText::new(format!(
+                                    "({} samples · {}s)",
+                                    summary.sample_count, summary.duration_secs
+                                ))
+                                .monospace()
+                                .size(11.0)
+                                .color(ThemePalette::text_dimmed(is_dark)),
+                            );
+                        });
+
+                        ui.add_space(4.0);
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                egui::RichText::new(format!("Avg CPU: {:.1}%", summary.avg_cpu))
+                                    .monospace()
+                                    .size(11.0)
+                                    .color(ThemePalette::ACCENT_PRIMARY),
+                            );
+                            ui.add_space(8.0);
+                            ui.label(
+                                egui::RichText::new(format!("Peak CPU: {:.1}%", summary.max_cpu))
+                                    .monospace()
+                                    .size(11.0)
+                                    .color(ThemePalette::STATUS_WARNING),
+                            );
+                            ui.add_space(8.0);
+                            ui.label(
+                                egui::RichText::new(format!("Avg RAM: {:.1}%", summary.avg_memory_pct))
+                                    .monospace()
+                                    .size(11.0)
+                                    .color(ThemePalette::STATUS_HEALTHY),
+                            );
+                            ui.add_space(8.0);
+                            ui.label(
+                                egui::RichText::new(format!(
+                                    "Net Total: {:.1} MB",
+                                    summary.total_net_recv_mb + summary.total_net_sent_mb
+                                ))
+                                .monospace()
+                                .size(11.0)
+                                .color(ThemePalette::text_secondary(is_dark)),
+                            );
+                        });
+                    }
+
+                    ui.add_space(8.0);
+                    ui.horizontal(|ui| {
+                        let csv_path = latest.with_extension("csv");
+                        if ui
+                            .button(egui::RichText::new("📊 Export Latest to CSV").strong())
+                            .clicked()
+                        {
+                            match crate::persistence::session::export_session_to_csv(latest, &csv_path) {
+                                Ok(count) => {
+                                    app.session_status =
+                                        Some(format!("Exported {count} telemetry rows to {}", csv_path.display()));
+                                }
+                                Err(err) => {
+                                    app.session_status = Some(format!("Export error: {err}"));
+                                }
+                            }
+                        }
+
+                        if ui.button("📁 Open Sessions Folder").clicked() {
+                            if let Some(parent) = latest.parent() {
+                                let _ = std::process::Command::new("explorer").arg(parent).spawn();
+                            }
+                        }
+                    });
+                }
+            });
+        }
+
         ui.add_space(12.0);
 
         // ── 2. Diagnostic Analysis Findings ──
