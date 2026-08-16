@@ -1626,10 +1626,18 @@ impl SystemMonitorApp {
         let ctx_clone = cc.egui_ctx.clone();
         std::thread::Builder::new()
             .name("startup_loader".to_string())
+            .stack_size(8 * 1024 * 1024)
             .spawn(move || {
-                let (items, diag) = crate::startup::get_startup_data();
-                *startup_share_clone.lock() = Some(items);
-                *boot_share_clone.lock() = diag;
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(crate::startup::get_startup_data));
+                match result {
+                    Ok((items, diag)) => {
+                        *startup_share_clone.lock() = Some(items);
+                        *boot_share_clone.lock() = diag;
+                    }
+                    Err(_) => {
+                        *startup_share_clone.lock() = Some(Vec::new());
+                    }
+                }
                 ctx_clone.request_repaint();
             })
             .ok();

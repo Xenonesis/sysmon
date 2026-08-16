@@ -45,11 +45,12 @@ pub(crate) fn paint_startup_item_card(
 
             ui.add_space(4.0);
 
+            let clean_name = item.name.replace('\0', "");
             if item.enabled {
-                ui.strong(egui::RichText::new(&item.name).color(ThemePalette::text_primary(is_dark)));
+                ui.strong(egui::RichText::new(&clean_name).color(ThemePalette::text_primary(is_dark)));
             } else {
                 ui.label(
-                    egui::RichText::new(&item.name)
+                    egui::RichText::new(&clean_name)
                         .strong()
                         .strikethrough()
                         .color(ThemePalette::text_dimmed(is_dark)),
@@ -57,8 +58,9 @@ pub(crate) fn paint_startup_item_card(
             }
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let clean_source = item.source.replace('\0', "");
                 ui.label(
-                    egui::RichText::new(&item.source)
+                    egui::RichText::new(&clean_source)
                         .monospace()
                         .size(11.0)
                         .color(ThemePalette::text_secondary(is_dark)),
@@ -89,8 +91,9 @@ pub(crate) fn paint_startup_item_card(
         // ── Row 3: Publisher + Recommendation Reason ──
         ui.horizontal(|ui| {
             if let Some(pub_name) = &item.publisher {
+                let clean_pub = pub_name.replace('\0', "");
                 ui.label(
-                    egui::RichText::new(format!("Publisher: {}", pub_name))
+                    egui::RichText::new(format!("Publisher: {}", clean_pub))
                         .size(11.5)
                         .color(ThemePalette::text_secondary(is_dark)),
                 );
@@ -108,8 +111,9 @@ pub(crate) fn paint_startup_item_card(
                     .size(11.5)
                     .color(rec_color),
             );
+            let clean_reason = item.reason.replace('\0', "");
             ui.label(
-                egui::RichText::new(format!("— {}", item.reason))
+                egui::RichText::new(format!("— {}", clean_reason))
                     .size(11.5)
                     .color(ThemePalette::text_dimmed(is_dark)),
             );
@@ -121,8 +125,9 @@ pub(crate) fn paint_startup_item_card(
         if is_confirming {
             // Confirmation dialog
             ui.horizontal(|ui| {
+                let clean_name = item.name.replace('\0', "");
                 ui.label(
-                    egui::RichText::new(format!("Disable \"{}\" from startup?", item.name))
+                    egui::RichText::new(format!("Disable \"{}\" from startup?", clean_name))
                         .strong()
                         .color(ThemePalette::STATUS_WARNING),
                 );

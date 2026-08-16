@@ -15,6 +15,7 @@ pub(crate) fn paint_summary_card(app: &mut crate::SystemMonitorApp, ui: &mut egu
                     .clicked()
                 {
                     app.startup_items_loaded = false;
+                    app.startup_items_loading = false;
                     app.boot_diagnostics_loaded = false;
                     *app.startup_items_share.lock() = None;
                     *app.boot_diagnostics_share.lock() = None;

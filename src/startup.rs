@@ -168,23 +168,27 @@ pub fn parse_exe_from_command(cmd: &str) -> Option<String> {
         }
     }
 
-    // 3. Search for known executable extensions safely
+    // 3. Search for known executable extensions safely using char_indices
     for ext in &[".exe", ".cmd", ".bat", ".vbs", ".ps1"] {
-        let mut start = 0;
-        while let Some(pos) = lower[start..].find(ext) {
-            let abs_pos = start + pos + ext.len();
-            if abs_pos <= t.len() && t.is_char_boundary(abs_pos) {
-                let is_end = abs_pos == t.len()
-                    || t[abs_pos..].starts_with(' ')
-                    || t[abs_pos..].starts_with('"')
-                    || t[abs_pos..].starts_with('/');
-                if is_end {
-                    return Some(t[..abs_pos].trim_matches('"').to_string());
+        for (idx, _) in t.char_indices() {
+            if let Some(slice) = t.get(idx..) {
+                if slice.to_ascii_lowercase().starts_with(ext) {
+                    let end_pos = idx + ext.len();
+                    let is_end = match t.get(end_pos..) {
+                        None | Some("") => true,
+                        Some(rest) => {
+                            rest.starts_with(' ')
+                                || rest.starts_with('"')
+                                || rest.starts_with('/')
+                                || rest.starts_with(',')
+                        }
+                    };
+                    if is_end {
+                        if let Some(matched) = t.get(..end_pos) {
+                            return Some(matched.trim_matches('"').to_string());
+                        }
+                    }
                 }
-            }
-            start += pos + 1;
-            if start >= t.len() {
-                break;
             }
         }
     }
@@ -216,8 +220,11 @@ fn ps_run(script: &str) -> Option<String> {
     use std::os::windows::process::CommandExt;
     std::process::Command::new("powershell")
         .creation_flags(0x08000000)
+        .arg("-NoLogo")
         .arg("-NoProfile")
         .arg("-NonInteractive")
+        .arg("-ExecutionPolicy")
+        .arg("Bypass")
         .arg("-Command")
         .arg(script)
         .output()
@@ -991,6 +998,14 @@ mod tests {
         assert_eq!(
             parse_exe_from_command(r#"C:\Günlük\日本語\my_app.exe -silent"#),
             Some(r#"C:\Günlük\日本語\my_app.exe"#.to_string())
+        );
+        assert_eq!(
+            parse_exe_from_command(r#"C:\Users\Юрий\Programs\launcher.exe --user-data-dir="C:\Data""#),
+            Some(r#"C:\Users\Юрий\Programs\launcher.exe"#.to_string())
+        );
+        assert_eq!(
+            parse_exe_from_command(r#"C:\Users\André\app.bat"#),
+            Some(r#"C:\Users\André\app.bat"#.to_string())
         );
         assert_eq!(parse_exe_from_command(r#""#), None);
     }
