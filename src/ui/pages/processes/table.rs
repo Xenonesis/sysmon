@@ -4,83 +4,13 @@ use crate::ui::theme::ThemePalette;
 use crate::*;
 use eframe::egui;
 
-pub(crate) fn sort_header_label(
-    label: &str,
-    col: ProcessSortColumn,
-    current_col: ProcessSortColumn,
-    asc: bool,
-) -> String {
-    if col == current_col {
-        let arrow = if asc { " ▲" } else { " ▼" };
-        format!("{}{}", label, arrow)
-    } else {
-        label.to_string()
-    }
-}
-
-pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &SystemData) {
-    let is_dark = ui.visuals().dark_mode;
-    paint_section_header(ui, "Process Monitor", is_dark);
-
-    // Filter and Sort processes upfront
-    let mut filtered_processes = processes::filter_processes(&data.top_processes, &app.process_search);
-    let ascending = app.process_sort_ascending;
-    processes::sort_processes(&mut filtered_processes, app.process_sort_column, ascending);
-
-    // ── Integrated Toolbar Container ──
-    card_frame(is_dark).show(ui, |ui| {
-        ui.horizontal(|ui| {
-            // Search Input with integrated Clear button
-            ui.label(
-                egui::RichText::new("Search:")
-                    .strong()
-                    .color(ThemePalette::text_secondary(is_dark)),
-            );
-            ui.add(
-                egui::TextEdit::singleline(&mut app.process_search)
-                    .hint_text("Filter by name or PID...")
-                    .desired_width(220.0),
-            );
-            if !app.process_search.is_empty() && ui.small_button("×").on_hover_text("Clear search filter").clicked() {
-                app.process_search.clear();
-            }
-
-            ui.add_space(8.0);
-
-            // Process count badge
-            let count_label = format!("Showing {} / {}", filtered_processes.len(), data.top_processes.len());
-            status_pill(ui, &count_label, ThemePalette::ACCENT_PRIMARY, is_dark);
-
-            // Right-aligned management actions
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui
-                    .button(egui::RichText::new("Export JSON").strong())
-                    .on_hover_text("Export current process list to JSON")
-                    .clicked()
-                {
-                    app.show_export = true;
-                }
-                if ui
-                    .button(egui::RichText::new("Export CSV").strong())
-                    .on_hover_text("Export current process list to CSV")
-                    .clicked()
-                {
-                    app.show_export_csv = true;
-                }
-                if ui
-                    .button(egui::RichText::new("Full Process Manager").strong())
-                    .on_hover_text("Open advanced window with Kill, Suspend & Priority controls")
-                    .clicked()
-                {
-                    app.show_process_manager = true;
-                }
-            });
-        });
-    });
-
-    ui.add_space(8.0);
-
-    // ── Responsive Process Table ──
+pub(super) fn paint_process_table(
+    app: &mut crate::SystemMonitorApp,
+    ui: &mut egui::Ui,
+    filtered_processes: &[crate::processes::ProcessInfo],
+    data: &SystemData,
+    is_dark: bool,
+) {
     egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
         egui::Grid::new("full_process_grid")
             .striped(false)
@@ -97,7 +27,7 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
                                      current_col: ProcessSortColumn,
                                      asc: bool|
                  -> egui::Response {
-                    let text = sort_header_label(label, col, current_col, asc);
+                    let text = super::sort_header_label(label, col, current_col, asc);
                     let is_active = col == current_col;
                     let text_color = if is_active {
                         ThemePalette::ACCENT_PRIMARY
@@ -163,7 +93,7 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
                 ui.end_row();
 
                 // Process data rows
-                for process in &filtered_processes {
+                for process in filtered_processes {
                     let memory_mb = bytes_to_mb(process.memory);
 
                     let mut text_color = ThemePalette::text_primary(is_dark);
@@ -379,29 +309,4 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
             }
         }
     });
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_sort_header_label_indicators() {
-        assert_eq!(
-            sort_header_label("PID", ProcessSortColumn::Pid, ProcessSortColumn::Pid, true),
-            "PID ▲"
-        );
-        assert_eq!(
-            sort_header_label("PID", ProcessSortColumn::Pid, ProcessSortColumn::Pid, false),
-            "PID ▼"
-        );
-        assert_eq!(
-            sort_header_label("CPU %", ProcessSortColumn::Cpu, ProcessSortColumn::Memory, false),
-            "CPU %"
-        );
-        assert_eq!(
-            sort_header_label("Memory", ProcessSortColumn::Memory, ProcessSortColumn::Memory, false),
-            "Memory ▼"
-        );
-    }
 }
