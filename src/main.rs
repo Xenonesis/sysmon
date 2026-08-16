@@ -667,7 +667,7 @@ impl eframe::App for SystemMonitorApp {
         let is_dark = ThemePalette::is_dark_mode(self.settings.theme);
 
         let is_collapsed = self.settings.sidebar_collapsed;
-        let sidebar_width = if is_collapsed { 52.0 } else { 190.0 };
+        let sidebar_width = if is_collapsed { 52.0 } else { 200.0 };
         let sidebar_frame = egui::Frame::none()
             .fill(ThemePalette::bg_surface(is_dark))
             .stroke(egui::Stroke::new(1.0, ThemePalette::border(is_dark)));
@@ -1005,13 +1005,15 @@ impl eframe::App for SystemMonitorApp {
                             let dot_color = ThemePalette::STATUS_HEALTHY;
                             let (dot_rect, _) = ui.allocate_exact_size(egui::vec2(6.0, 6.0), egui::Sense::hover());
                             ui.painter().circle_filled(dot_rect.center(), 2.5, dot_color);
-                            ui.add_space(4.0);
+                            ui.add_space(5.0);
+                            let time_str = data.last_update.split_whitespace().nth(1).unwrap_or(&data.last_update);
                             ui.label(
-                                egui::RichText::new(format!("Updated: {}", data.last_update))
+                                egui::RichText::new(format!("Updated: {time_str}"))
                                     .size(10.5)
                                     .monospace()
                                     .color(ThemePalette::text_dimmed(is_dark)),
-                            );
+                            )
+                            .on_hover_text(format!("Live Heartbeat · Full Timestamp: {}", data.last_update));
                         });
                         ui.add_space(8.0);
                         ui.separator();
