@@ -437,9 +437,9 @@ processes with query rights only, so it had **never actually freed memory**
 0 failed / 1 ignored · release build OK · Inno Setup installer OK · app launches,
 window `System Monitor v3.7.1`, stable, zero provider failures.
 
-**Remaining manual items:** the 14-view UI walkthrough (test plan TC-3.4/TC-3.5)
-and publishing the `v3.7.1` release by pushing the tag (no signing secrets
-required after the §9 policy change).
+**Remaining manual items:** the 14-view UI walkthrough (test plan TC-3.4/TC-3.5).
+The release itself ships as **v3.7.2** (the never-published 3.7.1 version was
+folded into it; see §9) by pushing the tag — no signing secrets required.
 
 ---
 

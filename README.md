@@ -3,7 +3,7 @@
 [![Rust CI](https://github.com/Xenonesis/sysmon/actions/workflows/rust-ci.yml/badge.svg)](https://github.com/Xenonesis/sysmon/actions/workflows/rust-ci.yml)
 [![Rust 1.85+](https://img.shields.io/badge/Rust-1.85%2B-orange.svg)](https://www.rust-lang.org/)
 [![Windows](https://img.shields.io/badge/Windows-10%2F11-blue.svg)](https://www.microsoft.com/windows)
-[![Version](https://img.shields.io/badge/version-3.7.1-green.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-3.7.2-green.svg)](CHANGELOG.md)
 
 SysMon is a native Windows observability and diagnostics application written in Rust. It combines live CPU, memory, disk, network, process, service, startup, battery and GPU telemetry with evidence-based diagnostics and guarded system actions.
 
@@ -23,7 +23,7 @@ Overview, Performance, Diagnostics, CPU Cores, Processes, Services, Startup Mana
 
 ## Version comparison
 
-| Capability | 1.x (2024) | 2.6.x (2026-01) | 3.7.1 (current) |
+| Capability | 1.x (2024) | 2.6.x (2026-01) | 3.7.2 (current) |
 | --- | --- | --- | --- |
 | GUI framework | egui / eframe | egui / eframe | egui / eframe |
 | Telemetry engine | Single polling thread | Legacy polling thread | **TelemetryHub** (multi-tier, provider abstraction, background workers) |
@@ -43,7 +43,7 @@ See the [changelog](CHANGELOG.md) for the complete per-version history.
 
 Use the installer from [GitHub Releases](https://github.com/Xenonesis/sysmon/releases/latest). SysMon verifies the downloaded installer's SHA-256 checksum against the checksum file published with the release and refuses to install when they do not match or when no checksum is published.
 
-> Version 3.7.1 must be published through the release workflow before installed clients can receive it. Do not distribute a locally built installer as a production update.
+> Version 3.7.2 must be published through the release workflow before installed clients can receive it. Do not distribute a locally built installer as a production update.
 
 ## Build from source
 
