@@ -16,8 +16,6 @@ mod startup;
 pub mod telemetry;
 mod updater;
 use eframe::egui;
-use processes::ProcessSortColumn;
-use startup::{ImpactTier, Recommendation, StartupOptimizationEntry, StartupSortColumn};
 
 use rfd::FileDialog;
 use tracing::{error, info, warn};
@@ -337,6 +335,11 @@ impl eframe::App for SystemMonitorApp {
                 // Ctrl+E = Export
                 self.show_export = true;
             }
+            if i.modifiers.ctrl && i.key_pressed(egui::Key::B) {
+                // Ctrl+B = Toggle Sidebar
+                self.settings.sidebar_collapsed = !self.settings.sidebar_collapsed;
+                let _ = self.settings.save();
+            }
             if i.modifiers.ctrl && i.key_pressed(egui::Key::Comma) {
                 // Ctrl+, = Settings
                 self.show_settings = true;
@@ -647,123 +650,417 @@ impl eframe::App for SystemMonitorApp {
             data = data_arc_local.read();
         }
 
+        let is_dark = ThemePalette::is_dark_mode(self.settings.theme);
+
+        let is_collapsed = self.settings.sidebar_collapsed;
+        let sidebar_width = if is_collapsed { 52.0 } else { 190.0 };
         let sidebar_frame = egui::Frame::none()
-            .fill(ThemePalette::BG_SURFACE)
-            .stroke(egui::Stroke::new(1.0, ThemePalette::BORDER_LIGHT));
+            .fill(ThemePalette::bg_surface(is_dark))
+            .stroke(egui::Stroke::new(1.0, ThemePalette::border(is_dark)));
 
         // Modern sleek SidePanel for navigation
         egui::SidePanel::left("sidebar_panel")
             .resizable(false)
-            .exact_width(180.0)
+            .exact_width(sidebar_width)
             .frame(sidebar_frame)
             .show(ctx, |ui| {
-                ui.add_space(16.0);
+                ui.add_space(14.0);
 
-                // Brand Header
-                ui.horizontal(|ui| {
-                    ui.add_space(8.0);
-                    // Painted diamond glyph
-                    let r = ui.label(egui::RichText::new(" ").size(18.0));
-                    let cy = r.rect.center().y;
-                    let cx = r.rect.left() + 2.0;
-                    let sz = 8.0;
-                    let pts = vec![
-                        egui::pos2(cx, cy - sz),
-                        egui::pos2(cx + sz * 0.65, cy),
-                        egui::pos2(cx, cy + sz),
-                        egui::pos2(cx - sz * 0.65, cy),
-                    ];
-                    ui.painter().add(egui::Shape::convex_polygon(
-                        pts,
-                        ThemePalette::ACCENT_PRIMARY,
-                        egui::Stroke::NONE,
-                    ));
-                    ui.label(
-                        egui::RichText::new("Sys")
-                            .size(18.0)
-                            .strong()
-                            .color(ThemePalette::ACCENT_PRIMARY),
-                    );
-                    ui.label(
-                        egui::RichText::new("Mon")
-                            .size(18.0)
-                            .strong()
-                            .color(ThemePalette::TEXT_PRIMARY),
-                    );
-                });
+                if !is_collapsed {
+                    // Brand Header (Expanded)
+                    ui.horizontal(|ui| {
+                        ui.add_space(8.0);
+                        ui.add(
+                            egui::Image::new(egui::include_image!("../assets/icon.png"))
+                                .max_width(20.0)
+                                .max_height(20.0),
+                        );
+                        ui.add_space(2.0);
+                        ui.label(
+                            egui::RichText::new("Sys")
+                                .size(18.0)
+                                .strong()
+                                .color(ThemePalette::ACCENT_PRIMARY),
+                        );
+                        ui.label(
+                            egui::RichText::new("Mon")
+                                .size(18.0)
+                                .strong()
+                                .color(ThemePalette::text_primary(is_dark)),
+                        );
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.add_space(8.0);
+                            let collapse_btn = egui::Button::new(
+                                egui::RichText::new("◀")
+                                    .size(11.0)
+                                    .monospace()
+                                    .color(ThemePalette::text_secondary(is_dark)),
+                            )
+                            .fill(ThemePalette::bg_track(is_dark))
+                            .stroke(egui::Stroke::new(1.0, ThemePalette::border(is_dark)))
+                            .rounding(egui::Rounding::same(3.0));
 
-                ui.add_space(16.0);
+                            if ui
+                                .add(collapse_btn)
+                                .on_hover_text("Collapse Sidebar (Ctrl+B)")
+                                .clicked()
+                            {
+                                self.settings.sidebar_collapsed = true;
+                                let _ = self.settings.save();
+                            }
+                        });
+                    });
+                } else {
+                    // Brand Header (Collapsed)
+                    let (rect, response) =
+                        ui.allocate_exact_size(egui::vec2(ui.available_width(), 28.0), egui::Sense::click());
+                    let is_hovered = response.hovered();
+                    if response.on_hover_text("Expand Sidebar (Ctrl+B)").clicked() {
+                        self.settings.sidebar_collapsed = false;
+                        let _ = self.settings.save();
+                    }
+                    if is_hovered {
+                        let hover_fill = if is_dark {
+                            egui::Color32::from_rgb(32, 32, 36)
+                        } else {
+                            egui::Color32::from_rgb(235, 235, 238)
+                        };
+                        ui.painter().rect_filled(rect, egui::Rounding::same(4.0), hover_fill);
+                    }
+                    let logo_rect = egui::Rect::from_center_size(rect.center(), egui::vec2(22.0, 22.0));
+                    egui::Image::new(egui::include_image!("../assets/icon.png"))
+                        .paint_at(ui, logo_rect);
+                }
+
+                ui.add_space(10.0);
                 ui.separator();
-                ui.add_space(8.0);
+                ui.add_space(6.0);
 
-                // Navigation Menu
-                let tabs = [
-                    (Tab::Overview, "Overview"),
-                    (Tab::Performance, "Performance"),
-                    (Tab::Processes, "Processes"),
-                    (Tab::CpuCores, "CPU Cores"),
-                    (Tab::Storage, "Storage"),
-                    (Tab::Network, "Network"),
-                    (Tab::Alerts, "Alerts"),
-                    (Tab::SystemInfo, "System Info"),
-                    (Tab::RamCleaner, "RAM Cleaner"),
-                    (Tab::StartupManager, "Startup Apps"),
-                    (Tab::Services, "Services"),
-                    (Tab::Diagnostics, "Diagnostics"),
+                // Navigation Categories
+                // Navigation Categories
+                struct NavItem {
+                    tab: Tab,
+                    label: &'static str,
+                    icon: &'static str,
+                }
+
+                struct NavGroup {
+                    title: &'static str,
+                    items: Vec<NavItem>,
+                }
+
+                let groups = [
+                    NavGroup {
+                        title: "TELEMETRY",
+                        items: {
+                            let mut items = vec![
+                                NavItem {
+                                    tab: Tab::Overview,
+                                    label: "Overview",
+                                    icon: "📊",
+                                },
+                                NavItem {
+                                    tab: Tab::Performance,
+                                    label: "Performance",
+                                    icon: "📈",
+                                },
+                            ];
+                            if self.settings.show_cpu_cores {
+                                items.push(NavItem {
+                                    tab: Tab::CpuCores,
+                                    label: "CPU Cores",
+                                    icon: "⚡",
+                                });
+                            }
+                            items.push(NavItem {
+                                tab: Tab::Storage,
+                                label: "Storage",
+                                icon: "💾",
+                            });
+                            items.push(NavItem {
+                                tab: Tab::Network,
+                                label: "Network",
+                                icon: "🌐",
+                            });
+                            items
+                        },
+                    },
+                    NavGroup {
+                        title: "SYSTEM CONTROL",
+                        items: vec![
+                            NavItem {
+                                tab: Tab::Processes,
+                                label: "Processes",
+                                icon: "📋",
+                            },
+                            NavItem {
+                                tab: Tab::Services,
+                                label: "Services",
+                                icon: "⚙",
+                            },
+                            NavItem {
+                                tab: Tab::StartupManager,
+                                label: "Startup Apps",
+                                icon: "🚀",
+                            },
+                            NavItem {
+                                tab: Tab::RamCleaner,
+                                label: "RAM Cleaner",
+                                icon: "🧹",
+                            },
+                        ],
+                    },
+                    NavGroup {
+                        title: "DIAGNOSTICS & HEALTH",
+                        items: vec![
+                            NavItem {
+                                tab: Tab::Diagnostics,
+                                label: "Diagnostics",
+                                icon: "🩺",
+                            },
+                            NavItem {
+                                tab: Tab::SystemInfo,
+                                label: "System Info",
+                                icon: "💻",
+                            },
+                            NavItem {
+                                tab: Tab::Alerts,
+                                label: "Alerts",
+                                icon: "🔔",
+                            },
+                        ],
+                    },
                 ];
 
-                ui.spacing_mut().item_spacing.y = 4.0;
-                for (tab, label) in tabs {
-                    if tab == Tab::CpuCores && !self.settings.show_cpu_cores {
-                        continue;
+                for (g_idx, group) in groups.iter().enumerate() {
+                    if !is_collapsed {
+                        ui.add_space(6.0);
+                        ui.horizontal(|ui| {
+                            ui.add_space(8.0);
+                            ui.label(
+                                egui::RichText::new(group.title)
+                                    .size(9.5)
+                                    .strong()
+                                    .color(ThemePalette::text_dimmed(is_dark)),
+                            );
+                        });
+                        ui.add_space(2.0);
+                    } else if g_idx > 0 {
+                        ui.add_space(3.0);
+                        ui.separator();
+                        ui.add_space(3.0);
                     }
-                    let is_selected = self.selected_tab == tab;
-                    let text = if is_selected {
-                        egui::RichText::new(label).strong().color(ThemePalette::BG_DEEPEST)
-                    } else {
-                        egui::RichText::new(label).color(ThemePalette::TEXT_SECONDARY)
-                    };
 
-                    let btn = egui::Button::new(text)
-                        .fill(if is_selected {
-                            ThemePalette::ACCENT_ACTIVE
+                    ui.spacing_mut().item_spacing.y = 2.0;
+                    for item in &group.items {
+                        let is_selected = self.selected_tab == item.tab;
+                        let item_h = if is_collapsed { 30.0 } else { 28.0 };
+                        let (rect, response) =
+                            ui.allocate_exact_size(egui::vec2(ui.available_width(), item_h), egui::Sense::click());
+
+                        let tooltip_text = if item.tab == Tab::Alerts && !data.alerts.is_empty() {
+                            format!("{} ({} active)", item.label, data.alerts.len())
                         } else {
-                            egui::Color32::TRANSPARENT
-                        })
-                        .frame(is_selected);
+                            item.label.to_string()
+                        };
 
-                    if ui.add_sized([ui.available_width(), 32.0], btn).clicked() {
-                        self.selected_tab = tab;
+                        let is_hovered = response.hovered();
+                        if response.on_hover_text(tooltip_text).clicked() {
+                            self.selected_tab = item.tab;
+                        }
+
+                        if is_selected {
+                            let fill = if is_dark {
+                                egui::Color32::from_rgb(32, 32, 36)
+                            } else {
+                                egui::Color32::from_rgb(235, 235, 238)
+                            };
+                            ui.painter().rect_filled(rect, egui::Rounding::same(4.0), fill);
+
+                            // 3px solid #10B981 vertical left edge indicator
+                            let edge_rect =
+                                egui::Rect::from_min_max(rect.left_top(), egui::pos2(rect.left() + 3.0, rect.bottom()));
+                            ui.painter().rect_filled(
+                                edge_rect,
+                                egui::Rounding {
+                                    nw: 4.0,
+                                    sw: 4.0,
+                                    ne: 0.0,
+                                    se: 0.0,
+                                },
+                                ThemePalette::ACCENT_PRIMARY,
+                            );
+                        } else if is_hovered {
+                            let hover_fill = if is_dark {
+                                egui::Color32::from_rgb(28, 28, 31)
+                            } else {
+                                egui::Color32::from_rgb(240, 240, 243)
+                            };
+                            ui.painter().rect_filled(rect, egui::Rounding::same(4.0), hover_fill);
+                        }
+
+                        if !is_collapsed {
+                            let text_color = if is_selected || is_hovered {
+                                ThemePalette::text_primary(is_dark)
+                            } else {
+                                ThemePalette::text_secondary(is_dark)
+                            };
+
+                            let icon_pos = egui::pos2(rect.left() + 10.0, rect.center().y);
+                            ui.painter().text(
+                                icon_pos,
+                                egui::Align2::LEFT_CENTER,
+                                item.icon,
+                                egui::FontId::proportional(13.0),
+                                if is_selected { ThemePalette::ACCENT_PRIMARY } else { text_color },
+                            );
+
+                            let text_pos = egui::pos2(rect.left() + 30.0, rect.center().y);
+                            ui.painter().text(
+                                text_pos,
+                                egui::Align2::LEFT_CENTER,
+                                item.label,
+                                egui::FontId::proportional(12.5),
+                                text_color,
+                            );
+
+                            // Dynamic alert count pill [ N ] when item is Alerts and alerts exist
+                            if item.tab == Tab::Alerts && !data.alerts.is_empty() {
+                                let alerts_count = data.alerts.len();
+                                let badge_text = format!("{alerts_count}");
+                                let badge_color = ThemePalette::STATUS_WARNING;
+                                let badge_bg = badge_color.gamma_multiply(if is_dark { 0.2 } else { 0.15 });
+                                let badge_pos = egui::pos2(rect.right() - 8.0, rect.center().y);
+                                let badge_rect = egui::Rect::from_center_size(
+                                    badge_pos + egui::vec2(-8.0, 0.0),
+                                    egui::vec2(20.0, 15.0),
+                                );
+                                ui.painter()
+                                    .rect_filled(badge_rect, egui::Rounding::same(4.0), badge_bg);
+                                ui.painter().rect_stroke(
+                                    badge_rect,
+                                    egui::Rounding::same(4.0),
+                                    egui::Stroke::new(1.0, badge_color.gamma_multiply(0.4)),
+                                );
+                                ui.painter().text(
+                                    badge_rect.center(),
+                                    egui::Align2::CENTER_CENTER,
+                                    &badge_text,
+                                    egui::FontId::monospace(9.5),
+                                    badge_color,
+                                );
+                            }
+                        } else {
+                            // Collapsed mode: Centered Icon Glyph
+                            let icon_color = if is_selected {
+                                ThemePalette::ACCENT_PRIMARY
+                            } else if is_hovered {
+                                ThemePalette::text_primary(is_dark)
+                            } else {
+                                ThemePalette::text_secondary(is_dark)
+                            };
+
+                            ui.painter().text(
+                                rect.center(),
+                                egui::Align2::CENTER_CENTER,
+                                item.icon,
+                                egui::FontId::proportional(13.5),
+                                icon_color,
+                            );
+
+                            // Alert indicator dot on collapsed token
+                            if item.tab == Tab::Alerts && !data.alerts.is_empty() {
+                                let dot_pos = rect.right_top() + egui::vec2(-7.0, 6.0);
+                                ui.painter().circle_filled(dot_pos, 3.0, ThemePalette::STATUS_WARNING);
+                            }
+                        }
                     }
                 }
 
+                // Pinned Bottom Utility Dock
                 ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
-                    ui.add_space(16.0);
-                    ui.label(
-                        egui::RichText::new(format!("Updated: {}", data.last_update))
-                            .size(11.0)
-                            .color(ThemePalette::TEXT_DIMMED),
-                    );
-                    ui.add_space(8.0);
-                    if ui
-                        .add_sized([ui.available_width(), 28.0], egui::Button::new("Settings"))
-                        .clicked()
-                    {
-                        self.show_settings = true;
-                    }
-                    ui.add_space(4.0);
-                    if ui
-                        .add_sized([ui.available_width(), 28.0], egui::Button::new("Shortcuts"))
-                        .clicked()
-                    {
-                        self.show_shortcuts = true;
-                    }
-                    ui.add_space(4.0);
-                    if ui
-                        .add_sized([ui.available_width(), 28.0], egui::Button::new("About"))
-                        .clicked()
-                    {
-                        self.selected_tab = Tab::About;
+                    ui.add_space(10.0);
+
+                    if !is_collapsed {
+                        // Live heartbeat label (Updated: HH:MM:SS)
+                        ui.horizontal(|ui| {
+                            ui.add_space(8.0);
+                            let dot_color = ThemePalette::STATUS_HEALTHY;
+                            let (dot_rect, _) = ui.allocate_exact_size(egui::vec2(6.0, 6.0), egui::Sense::hover());
+                            ui.painter().circle_filled(dot_rect.center(), 2.5, dot_color);
+                            ui.add_space(4.0);
+                            ui.label(
+                                egui::RichText::new(format!("Updated: {}", data.last_update))
+                                    .size(10.5)
+                                    .monospace()
+                                    .color(ThemePalette::text_dimmed(is_dark)),
+                            );
+                        });
+                        ui.add_space(8.0);
+                        ui.separator();
+                        ui.add_space(4.0);
+
+                        // Utility buttons (Expanded)
+                        let util_btn = |ui: &mut egui::Ui, icon: &str, text: &str| {
+                            let btn = egui::Button::new(
+                                egui::RichText::new(format!("{icon}  {text}"))
+                                    .size(12.0)
+                                    .color(ThemePalette::text_secondary(is_dark)),
+                            )
+                            .fill(egui::Color32::TRANSPARENT)
+                            .stroke(egui::Stroke::NONE)
+                            .frame(false);
+                            ui.add_sized([ui.available_width(), 24.0], btn)
+                        };
+
+                        if util_btn(ui, "ℹ", "About").on_hover_text("About SysMon").clicked() {
+                            self.selected_tab = Tab::About;
+                        }
+                        if util_btn(ui, "⌨", "Shortcuts")
+                            .on_hover_text("Keyboard shortcuts (Ctrl+B, F5...)")
+                            .clicked()
+                        {
+                            self.show_shortcuts = true;
+                        }
+                        if util_btn(ui, "⚙", "Settings")
+                            .on_hover_text("Application settings (Ctrl+,)")
+                            .clicked()
+                        {
+                            self.show_settings = true;
+                        }
+                    } else {
+                        // Collapsed utility dock
+                        let (dot_rect, dot_resp) =
+                            ui.allocate_exact_size(egui::vec2(ui.available_width(), 16.0), egui::Sense::hover());
+                        dot_resp.on_hover_text(format!("Live Heartbeat · Updated: {}", data.last_update));
+                        ui.painter()
+                            .circle_filled(dot_rect.center(), 3.0, ThemePalette::STATUS_HEALTHY);
+
+                        ui.add_space(4.0);
+                        ui.separator();
+                        ui.add_space(4.0);
+
+                        let util_compact_btn = |ui: &mut egui::Ui, icon: &str, tip: &str| -> egui::Response {
+                            let btn = egui::Button::new(
+                                egui::RichText::new(icon)
+                                    .size(13.0)
+                                    .color(ThemePalette::text_secondary(is_dark)),
+                            )
+                            .fill(egui::Color32::TRANSPARENT)
+                            .stroke(egui::Stroke::NONE)
+                            .frame(false);
+                            ui.add_sized([ui.available_width(), 24.0], btn).on_hover_text(tip)
+                        };
+
+                        if util_compact_btn(ui, "ℹ", "About SysMon").clicked() {
+                            self.selected_tab = Tab::About;
+                        }
+                        if util_compact_btn(ui, "⌨", "Keyboard Shortcuts").clicked() {
+                            self.show_shortcuts = true;
+                        }
+                        if util_compact_btn(ui, "⚙", "Settings (Ctrl+,)").clicked() {
+                            self.show_settings = true;
+                        }
                     }
                 });
             });
@@ -786,6 +1083,7 @@ impl eframe::App for SystemMonitorApp {
                     egui::Grid::new("shortcuts_grid").spacing([20.0, 6.0]).show(ui, |ui| {
                         let shortcuts = [
                             ("F5", "Refresh / Reset statistics"),
+                            ("Ctrl + B", "Toggle Sidebar (Collapse/Expand)"),
                             ("Ctrl + E", "Export data to JSON"),
                             ("Ctrl + ,", "Open Settings"),
                             ("Ctrl + U", "Check for updates"),
@@ -828,64 +1126,183 @@ impl eframe::App for SystemMonitorApp {
 
         // Global always-visible status bar header
         let status_bar_frame = egui::Frame::none()
-            .fill(ctx.style().visuals.extreme_bg_color)
-            .inner_margin(egui::Margin::symmetric(16.0, 0.0))
-            .stroke(egui::Stroke::new(
-                1.0,
-                ctx.style().visuals.widgets.noninteractive.bg_stroke.color,
-            ));
+            .fill(ThemePalette::bg_deepest(is_dark))
+            .inner_margin(egui::Margin::symmetric(14.0, 0.0))
+            .stroke(egui::Stroke::new(1.0, ThemePalette::border(is_dark)));
 
         egui::TopBottomPanel::top("global_status_bar")
-            .exact_height(48.0)
+            .exact_height(42.0)
             .frame(status_bar_frame)
             .show(ctx, |ui| {
                 ui.horizontal_centered(|ui| {
-                    ui.add_space(8.0);
+                    if is_collapsed {
+                        let expand_btn =
+                            egui::Button::new(egui::RichText::new("☰").size(13.0).color(ThemePalette::ACCENT_PRIMARY))
+                                .fill(ThemePalette::bg_surface(is_dark))
+                                .stroke(egui::Stroke::new(1.0, ThemePalette::border(is_dark)))
+                                .rounding(egui::Rounding::same(3.0));
 
-                    // Quick stats
+                        if ui.add(expand_btn).on_hover_text("Expand Sidebar (Ctrl+B)").clicked() {
+                            self.settings.sidebar_collapsed = false;
+                            let _ = self.settings.save();
+                        }
+                        ui.add_space(6.0);
+                    }
+                    ui.add_space(4.0);
+                    // CPU status pill
                     let cpu_c = get_usage_color(data.cpu_usage);
-                    ui.label("CPU: ");
-                    ui.colored_label(cpu_c, egui::RichText::new(format!("{:.1}%", data.cpu_usage)).strong());
+                    status_pill(ui, &format!("CPU: {:.1}%", data.cpu_usage), cpu_c, is_dark);
 
-                    ui.add_space(16.0);
-                    ui.separator();
-                    ui.add_space(16.0);
+                    ui.add_space(6.0);
 
+                    // RAM status pill
                     let mem_c = get_usage_color(data.memory_percentage);
-                    ui.label("RAM: ");
-                    ui.colored_label(
-                        mem_c,
-                        egui::RichText::new(format!("{:.1}%", data.memory_percentage)).strong(),
-                    );
+                    status_pill(ui, &format!("RAM: {:.1}%", data.memory_percentage), mem_c, is_dark);
 
+                    ui.add_space(6.0);
+
+                    // GPU status pill
                     if let Some(gpu) = data.gpu_info.first() {
-                        ui.add_space(16.0);
-                        ui.separator();
-                        ui.add_space(16.0);
                         let gpu_c = get_usage_color(gpu.utilization);
-                        ui.label("GPU: ");
-                        ui.colored_label(gpu_c, egui::RichText::new(format!("{:.1}%", gpu.utilization)).strong());
+                        status_pill(ui, &format!("GPU: {:.1}%", gpu.utilization), gpu_c, is_dark);
+                    } else {
+                        status_pill(ui, "GPU: N/A", ThemePalette::text_dimmed(is_dark), is_dark);
                     }
 
-                    // Alerts indicator
+                    ui.add_space(6.0);
+
+                    // NET status pill
+                    let net_total_rate: f64 = data
+                        .network_info
+                        .iter()
+                        .map(|n| n.received_rate + n.transmitted_rate)
+                        .sum();
+                    let net_c = if net_total_rate > 50.0 {
+                        ThemePalette::STATUS_CRITICAL
+                    } else if net_total_rate > 10.0 {
+                        ThemePalette::STATUS_WARNING
+                    } else {
+                        ThemePalette::STATUS_HEALTHY
+                    };
+                    status_pill(ui, &format!("NET: {:.1} MB/s", net_total_rate), net_c, is_dark);
+
+                    // Right side Quick Action Hub
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.add_space(8.0);
+                        ui.add_space(4.0);
+
+                        // Alerts badge / button
                         if !data.alerts.is_empty() {
-                            let recent_alerts = data.alerts.len();
-                            let btn = ui.button(
-                                egui::RichText::new(format!("{} Alerts", recent_alerts))
+                            let alert_count = data.alerts.len();
+                            let alert_btn = egui::Button::new(
+                                egui::RichText::new(format!("⚠ {alert_count} Alerts"))
+                                    .size(11.5)
+                                    .strong()
                                     .color(ThemePalette::STATUS_WARNING),
-                            );
-                            if btn.clicked() {
+                            )
+                            .fill(ThemePalette::STATUS_WARNING.gamma_multiply(if is_dark { 0.15 } else { 0.12 }))
+                            .stroke(egui::Stroke::new(1.0, ThemePalette::STATUS_WARNING.gamma_multiply(0.4)))
+                            .rounding(egui::Rounding::same(4.0));
+
+                            if ui.add(alert_btn).on_hover_text("View active system alerts").clicked() {
                                 self.selected_tab = Tab::Alerts;
                             }
                         } else {
-                            ui.label(egui::RichText::new("All Good").color(ThemePalette::STATUS_HEALTHY));
+                            let healthy_frame = egui::Frame::none()
+                                .fill(ThemePalette::STATUS_HEALTHY.gamma_multiply(if is_dark { 0.15 } else { 0.12 }))
+                                .stroke(egui::Stroke::new(1.0, ThemePalette::STATUS_HEALTHY.gamma_multiply(0.4)))
+                                .rounding(egui::Rounding::same(4.0))
+                                .inner_margin(egui::Margin::symmetric(8.0, 3.0));
+                            healthy_frame.show(ui, |ui| {
+                                ui.label(
+                                    egui::RichText::new("All Good")
+                                        .size(11.0)
+                                        .strong()
+                                        .color(ThemePalette::STATUS_HEALTHY),
+                                );
+                            });
                         }
+
+                        ui.add_space(6.0);
+
+                        // Diagnostic Session Record toggle button
+                        let is_recording = self.session_recorder.is_recording();
+                        let (rec_text, rec_color) = if is_recording {
+                            (
+                                format!("⏹ Rec ({})", self.session_recorder.sample_count()),
+                                ThemePalette::STATUS_CRITICAL,
+                            )
+                        } else {
+                            ("⏺ Record".to_string(), ThemePalette::text_secondary(is_dark))
+                        };
+
+                        let rec_btn =
+                            egui::Button::new(egui::RichText::new(&rec_text).size(11.5).strong().color(rec_color))
+                                .fill(if is_recording {
+                                    ThemePalette::STATUS_CRITICAL.gamma_multiply(if is_dark { 0.18 } else { 0.12 })
+                                } else {
+                                    ThemePalette::bg_track(is_dark)
+                                })
+                                .stroke(egui::Stroke::new(
+                                    1.0,
+                                    if is_recording {
+                                        ThemePalette::STATUS_CRITICAL.gamma_multiply(0.5)
+                                    } else {
+                                        ThemePalette::border(is_dark)
+                                    },
+                                ))
+                                .rounding(egui::Rounding::same(4.0));
+
+                        if ui
+                            .add(rec_btn)
+                            .on_hover_text(if is_recording {
+                                "Stop diagnostic recording session"
+                            } else {
+                                "Start diagnostic recording session"
+                            })
+                            .clicked()
+                        {
+                            let was_recording = is_recording;
+                            self.session_status = Some(match self.session_recorder.toggle() {
+                                Ok(Some(path)) => {
+                                    if was_recording {
+                                        format!("Session saved to {}", path.display())
+                                    } else {
+                                        format!("Recording to {}", path.display())
+                                    }
+                                }
+                                Ok(None) => "Session stopped".into(),
+                                Err(error) => format!("Session recorder error: {error}"),
+                            });
+                        }
+
+                        ui.add_space(6.0);
+
+                        // Clean RAM button
+                        let is_cleaning = self.ram_cleaner_state.is_cleaning;
+                        let clean_text = if is_cleaning { "Cleaning..." } else { "🧹 Clean RAM" };
+                        let clean_btn = egui::Button::new(egui::RichText::new(clean_text).size(11.5).strong().color(
+                            if is_cleaning {
+                                ThemePalette::text_dimmed(is_dark)
+                            } else {
+                                ThemePalette::ACCENT_PRIMARY
+                            },
+                        ))
+                        .fill(ThemePalette::ACCENT_PRIMARY.gamma_multiply(if is_dark { 0.15 } else { 0.12 }))
+                        .stroke(egui::Stroke::new(1.0, ThemePalette::ACCENT_PRIMARY.gamma_multiply(0.4)))
+                        .rounding(egui::Rounding::same(4.0));
+
+                        ui.add_enabled_ui(!is_cleaning, |ui| {
+                            if ui
+                                .add(clean_btn)
+                                .on_hover_text("Free working sets of running processes")
+                                .clicked()
+                            {
+                                self.start_ram_clean(ctx);
+                            }
+                        });
                     });
                 });
             });
-
         // Main content area
         egui::CentralPanel::default().show(ctx, |ui| match self.selected_tab {
             Tab::Overview => crate::ui::pages::overview::show(self, ui, &data),
@@ -1610,5 +2027,18 @@ mod ram_cleaner_tests {
         let c = crate::persistence::settings::validated(s2);
         assert_eq!(c.auto_clean_target, 30.0);
         assert_eq!(c.auto_clean_max_mb, 4096);
+    }
+
+    #[test]
+    fn settings_sidebar_collapsed_default_and_serde() {
+        let s = AppSettings::default();
+        assert!(!s.sidebar_collapsed);
+        let json = serde_json::to_string(&s).unwrap();
+        let mut deserialized: AppSettings = serde_json::from_str(&json).unwrap();
+        assert!(!deserialized.sidebar_collapsed);
+        deserialized.sidebar_collapsed = true;
+        let json2 = serde_json::to_string(&deserialized).unwrap();
+        let deserialized2: AppSettings = serde_json::from_str(&json2).unwrap();
+        assert!(deserialized2.sidebar_collapsed);
     }
 }

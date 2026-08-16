@@ -14,10 +14,10 @@ pub(crate) enum Severity {
 impl Severity {
     pub(crate) fn label(self) -> &'static str {
         match self {
-            Self::Healthy => "Healthy",
-            Self::Info => "Information",
-            Self::Warning => "Warning",
-            Self::Critical => "Critical",
+            Self::Healthy => "HEALTHY",
+            Self::Info => "INFO",
+            Self::Warning => "WARNING",
+            Self::Critical => "CRITICAL",
         }
     }
 }

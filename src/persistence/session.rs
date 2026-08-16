@@ -56,6 +56,14 @@ impl SessionRecorder {
         Ok(self.path.clone())
     }
 
+    pub(crate) fn toggle(&mut self) -> Result<Option<PathBuf>, std::io::Error> {
+        if self.is_recording() {
+            self.stop()
+        } else {
+            self.start().map(Some)
+        }
+    }
+
     pub(crate) fn is_recording(&self) -> bool {
         self.writer.is_some()
     }
@@ -66,5 +74,25 @@ impl SessionRecorder {
 
     pub(crate) fn sample_count(&self) -> u64 {
         self.sample_count
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn session_recorder_toggle() {
+        let mut recorder = SessionRecorder::default();
+        assert!(!recorder.is_recording());
+        assert_eq!(recorder.sample_count(), 0);
+
+        let start_res = recorder.toggle();
+        assert!(start_res.is_ok());
+        assert!(recorder.is_recording());
+
+        let stop_res = recorder.toggle();
+        assert!(stop_res.is_ok());
+        assert!(!recorder.is_recording());
     }
 }

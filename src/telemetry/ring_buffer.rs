@@ -127,7 +127,9 @@ impl MetricHistory {
 
     /// Trim entries older than the given duration from now.
     pub fn trim_older_than(&mut self, max_age: std::time::Duration) {
-        let cutoff = Instant::now() - max_age;
+        let Some(cutoff) = Instant::now().checked_sub(max_age) else {
+            return;
+        };
         while let Some(front) = self.buffer.front() {
             if front.timestamp < cutoff {
                 if let Some(old) = self.buffer.pop_front() {
@@ -302,5 +304,14 @@ mod tests {
         assert_eq!(history.medium.len(), 1);
         assert_eq!(history.long.len(), 1);
         assert_eq!(history.extended.len(), 1);
+    }
+
+    #[test]
+    fn trim_older_than_huge_duration_does_not_panic() {
+        let mut history = MetricHistory::new(10);
+        history.push(10.0);
+        history.push(20.0);
+        history.trim_older_than(Duration::from_secs(365 * 24 * 3600));
+        assert_eq!(history.len(), 2);
     }
 }

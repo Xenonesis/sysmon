@@ -4,110 +4,209 @@ use crate::*;
 use eframe::egui;
 
 pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &SystemData) {
-    paint_section_header(ui, "System Alerts");
+    let is_dark = ui.visuals().dark_mode;
+    paint_section_header(ui, "System Alerts & Incident Feed", is_dark);
 
-    // Warn when desktop notifications are off — alerts tracked in-app only
-    if !app.settings.show_notifications {
-        ui.group(|ui| {
-            ui.horizontal(|ui| {
-                ui.colored_label(ThemePalette::STATUS_WARNING, "⚠  Desktop notifications are disabled.");
-                ui.label("Alerts are tracked inside the app only.");
-                if ui.small_button("Enable in Settings").clicked() {
+    egui::ScrollArea::vertical().show(ui, |ui| {
+        // ── 1. Notification Warning Banner ──
+        if !app.settings.show_notifications {
+            card_frame(is_dark).show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    status_pill(ui, "NOTIFICATIONS DISABLED", ThemePalette::STATUS_WARNING, is_dark);
+                    ui.label(
+                        egui::RichText::new("Desktop notifications are off; alerts are tracked in-app only.")
+                            .size(12.0)
+                            .color(ThemePalette::text_secondary(is_dark)),
+                    );
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.button("Enable in Settings").clicked() {
+                            app.show_settings = true;
+                        }
+                    });
+                });
+            });
+            ui.add_space(8.0);
+        }
+
+        // ── 2. Alerts Feed or Empty State ──
+        if data.alerts.is_empty() {
+            card_frame(is_dark).show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    status_pill(ui, "ALL SYSTEMS NORMAL", ThemePalette::STATUS_HEALTHY, is_dark);
+                    ui.label(
+                        egui::RichText::new("Zero active hardware bottlenecks or metric threshold violations.")
+                            .size(13.0)
+                            .color(ThemePalette::text_primary(is_dark)),
+                    );
+                });
+            });
+
+            ui.add_space(10.0);
+
+            card_frame(is_dark).show(ui, |ui| {
+                ui.label(
+                    egui::RichText::new("CURRENT ALERT THRESHOLDS")
+                        .size(11.0)
+                        .strong()
+                        .color(ThemePalette::text_secondary(is_dark)),
+                );
+                ui.add_space(6.0);
+                ui.label(
+                    egui::RichText::new("Alerts trigger automatically when telemetry exceeds configured limits:")
+                        .size(12.0)
+                        .color(ThemePalette::text_secondary(is_dark)),
+                );
+                ui.add_space(8.0);
+
+                egui::Grid::new("alerts_threshold_info_grid")
+                    .num_columns(2)
+                    .spacing([24.0, 6.0])
+                    .show(ui, |ui| {
+                        ui.label(
+                            egui::RichText::new("CPU Saturation:")
+                                .size(11.5)
+                                .color(ThemePalette::text_secondary(is_dark)),
+                        );
+                        ui.label(
+                            egui::RichText::new(format!("> {:.0}%", app.settings.notification_cpu_threshold))
+                                .monospace()
+                                .strong()
+                                .color(ThemePalette::text_primary(is_dark)),
+                        );
+                        ui.end_row();
+
+                        ui.label(
+                            egui::RichText::new("Memory Exhaustion:")
+                                .size(11.5)
+                                .color(ThemePalette::text_secondary(is_dark)),
+                        );
+                        ui.label(
+                            egui::RichText::new(format!("> {:.0}%", app.settings.notification_memory_threshold))
+                                .monospace()
+                                .strong()
+                                .color(ThemePalette::text_primary(is_dark)),
+                        );
+                        ui.end_row();
+
+                        ui.label(
+                            egui::RichText::new("GPU Temperature:")
+                                .size(11.5)
+                                .color(ThemePalette::text_secondary(is_dark)),
+                        );
+                        ui.label(
+                            egui::RichText::new(format!("> {} °C", app.settings.notification_temp_threshold))
+                                .monospace()
+                                .strong()
+                                .color(ThemePalette::text_primary(is_dark)),
+                        );
+                        ui.end_row();
+
+                        ui.label(
+                            egui::RichText::new("Disk Space Warning:")
+                                .size(11.5)
+                                .color(ThemePalette::text_secondary(is_dark)),
+                        );
+                        ui.label(
+                            egui::RichText::new(format!("> {:.0}%", app.settings.notification_disk_threshold))
+                                .monospace()
+                                .strong()
+                                .color(ThemePalette::text_primary(is_dark)),
+                        );
+                        ui.end_row();
+                    });
+
+                ui.add_space(10.0);
+                if ui.button("Configure Alert Thresholds in Settings").clicked() {
                     app.show_settings = true;
                 }
             });
-        });
-        ui.add_space(8.0);
-    }
-
-    if data.alerts.is_empty() {
-        ui.group(|ui| {
-            ui.add_space(20.0);
+        } else {
+            // Control Header
             ui.horizontal(|ui| {
-                ui.add_space(20.0);
-                ui.colored_label(egui::Color32::GREEN, "OK");
-                ui.heading("All Systems Normal");
+                ui.label(
+                    egui::RichText::new("ACTIVE INCIDENTS & ALERTS")
+                        .size(11.0)
+                        .strong()
+                        .color(ThemePalette::text_secondary(is_dark)),
+                );
+                ui.label(
+                    egui::RichText::new(format!("({} active)", data.alerts.len()))
+                        .monospace()
+                        .size(11.0)
+                        .color(ThemePalette::STATUS_WARNING),
+                );
+
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui
+                        .button(
+                            egui::RichText::new("Clear All Alerts")
+                                .strong()
+                                .color(ThemePalette::STATUS_CRITICAL),
+                        )
+                        .clicked()
+                    {
+                        let mut app_data = app.data.write();
+                        app_data.alerts.clear();
+                    }
+                    if ui.button("Configure Thresholds").clicked() {
+                        app.show_settings = true;
+                    }
+                });
             });
-            ui.add_space(10.0);
-            ui.label("No alerts detected. Your system is running smoothly.");
-            ui.add_space(20.0);
-        });
 
-        ui.add_space(10.0);
+            ui.add_space(6.0);
 
-        ui.group(|ui| {
-            ui.heading("Alert Configuration");
-            ui.separator();
-            ui.label("Alerts are triggered when:");
-            ui.label(format!(
-                "  • CPU usage > {:.0}%",
-                app.settings.notification_cpu_threshold
-            ));
-            ui.label(format!(
-                "  • Memory usage > {:.0}%",
-                app.settings.notification_memory_threshold
-            ));
-            ui.label(format!(
-                "  • GPU temperature > {}°C",
-                app.settings.notification_temp_threshold
-            ));
-            ui.label("  • Disk usage > 90%");
-            ui.add_space(5.0);
-            if ui.button("Configure Alert Thresholds").clicked() {
-                app.show_settings = true;
-            }
-        });
-    } else {
-        ui.label(format!("{} active alert(s)", data.alerts.len()));
-        ui.add_space(10.0);
-
-        egui::ScrollArea::vertical().show(ui, |ui| {
             for (i, alert) in data.alerts.iter().enumerate() {
-                ui.group(|ui| {
-                    let (icon, color, severity) = match alert.alert_type {
-                        AlertType::CpuHigh => ("CPU", egui::Color32::YELLOW, "WARNING"),
-                        AlertType::MemoryHigh => ("RAM", egui::Color32::YELLOW, "WARNING"),
-                        AlertType::GpuTempHigh => ("GPU", egui::Color32::RED, "CRITICAL"),
-                        AlertType::DiskSpaceLow => ("DISK", egui::Color32::RED, "CRITICAL"),
-                        AlertType::StartupHighImpact => ("STARTUP", egui::Color32::YELLOW, "INFO"),
+                card_frame(is_dark).show(ui, |ui| {
+                    let (cat_label, color, severity_label) = match alert.alert_type {
+                        AlertType::CpuHigh => ("CPU", ThemePalette::STATUS_WARNING, "WARNING"),
+                        AlertType::MemoryHigh => ("RAM", ThemePalette::STATUS_WARNING, "WARNING"),
+                        AlertType::GpuTempHigh => ("GPU", ThemePalette::STATUS_CRITICAL, "CRITICAL"),
+                        AlertType::DiskSpaceLow => ("DISK", ThemePalette::STATUS_CRITICAL, "CRITICAL"),
+                        AlertType::StartupHighImpact => ("STARTUP", ThemePalette::ACCENT_PRIMARY, "INFO"),
                     };
 
                     ui.horizontal(|ui| {
-                        ui.colored_label(color, icon);
-                        ui.colored_label(color, severity);
-                        ui.separator();
-                        ui.strong(&alert.message);
+                        status_pill(ui, severity_label, color, is_dark);
+                        status_pill(ui, cat_label, ThemePalette::text_secondary(is_dark), is_dark);
+                        ui.label(
+                            egui::RichText::new(&alert.message)
+                                .strong()
+                                .size(13.5)
+                                .color(ThemePalette::text_primary(is_dark)),
+                        );
+
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.label(
+                                egui::RichText::new(format!("Trigger Value: {:.1}", alert.value))
+                                    .monospace()
+                                    .strong()
+                                    .size(12.0)
+                                    .color(color),
+                            );
+                        });
                     });
 
+                    ui.add_space(6.0);
                     ui.horizontal(|ui| {
-                        ui.label("Time:");
-                        ui.label(&alert.timestamp);
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            ui.label(format!("Value: {:.1}", alert.value));
-                        });
+                        ui.label(
+                            egui::RichText::new("Timestamp:")
+                                .size(11.0)
+                                .color(ThemePalette::text_secondary(is_dark)),
+                        );
+                        ui.label(
+                            egui::RichText::new(&alert.timestamp)
+                                .monospace()
+                                .size(11.0)
+                                .color(ThemePalette::text_dimmed(is_dark)),
+                        );
                     });
                 });
 
                 if i < data.alerts.len() - 1 {
-                    ui.add_space(5.0);
+                    ui.add_space(6.0);
                 }
             }
-        });
-
-        ui.add_space(10.0);
-        ui.separator();
-
-        ui.horizontal(|ui| {
-            if ui.button("Clear All Alerts").clicked() {
-                {
-                    let mut data = app.data.write();
-                    data.alerts.clear();
-                }
-            }
-
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.label("Tip: Configure alert thresholds in Settings");
-            });
-        });
-    }
+        }
+    });
 }

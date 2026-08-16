@@ -3,44 +3,34 @@ use crate::ui::theme::ThemePalette;
 use crate::*;
 use eframe::egui;
 
+/// Resolves semantic color for Windows service states.
+pub(crate) fn service_state_color(state: &str, is_dark: bool) -> egui::Color32 {
+    match state.to_lowercase().as_str() {
+        "running" => ThemePalette::STATUS_HEALTHY,
+        "stopped" => ThemePalette::text_dimmed(is_dark),
+        "paused" | "start pending" | "stop pending" | "continue pending" | "pause pending" => {
+            ThemePalette::STATUS_WARNING
+        }
+        _ => ThemePalette::text_secondary(is_dark),
+    }
+}
+
 pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &SystemData) {
-    paint_section_header(ui, "Windows Services");
+    let is_dark = ui.visuals().dark_mode;
+    let is_elevated = privilege::is_app_elevated();
+    paint_section_header(ui, "Windows Services", is_dark);
 
     if data.services.is_empty() {
         ui.add_space(16.0);
-        ui.label(egui::RichText::new("Loading services…").color(ThemePalette::TEXT_SECONDARY));
+        card_frame(is_dark).show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(
+                    egui::RichText::new("Loading services telemetry...").color(ThemePalette::text_secondary(is_dark)),
+                );
+            });
+        });
         return;
     }
-
-    // Search + state filter bar
-    ui.horizontal(|ui| {
-        ui.label("Search:");
-        ui.add(
-            egui::TextEdit::singleline(&mut app.service_search)
-                .hint_text("Filter by name…")
-                .desired_width(200.0),
-        );
-        ui.add_space(16.0);
-        ui.label("State:");
-        egui::ComboBox::from_id_source("svc_state_filter")
-            .selected_text(app.service_state_filter.as_deref().unwrap_or("All"))
-            .show_ui(ui, |ui| {
-                if ui.selectable_label(app.service_state_filter.is_none(), "All").clicked() {
-                    app.service_state_filter = None;
-                }
-                for state in &["Running", "Stopped", "Start Pending", "Stop Pending", "Paused"] {
-                    let selected = app.service_state_filter.as_deref() == Some(state);
-                    if ui.selectable_label(selected, *state).clicked() {
-                        app.service_state_filter = Some(state.to_string());
-                    }
-                }
-            });
-        if ui.small_button("✕ Clear").clicked() {
-            app.service_search.clear();
-            app.service_state_filter = None;
-        }
-    });
-    ui.add_space(8.0);
 
     // Apply filters
     let query = app.service_search.to_lowercase();
@@ -56,56 +46,174 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
         })
         .collect();
 
-    ui.label(
-        egui::RichText::new(format!("{} / {} services", filtered.len(), data.services.len()))
-            .size(11.0)
-            .color(ThemePalette::TEXT_DIMMED),
-    );
-    ui.add_space(4.0);
+    // ── Search & State Filter Toolbar ──
+    card_frame(is_dark).show(ui, |ui| {
+        ui.horizontal(|ui| {
+            // Search Input with integrated Clear button
+            ui.label(
+                egui::RichText::new("Search:")
+                    .strong()
+                    .color(ThemePalette::text_secondary(is_dark)),
+            );
+            ui.add(
+                egui::TextEdit::singleline(&mut app.service_search)
+                    .hint_text("Filter by name or display...")
+                    .desired_width(220.0),
+            );
+            if !app.service_search.is_empty() && ui.small_button("×").on_hover_text("Clear search filter").clicked() {
+                app.service_search.clear();
+            }
 
-    egui::ScrollArea::vertical().show(ui, |ui| {
+            ui.add_space(12.0);
+
+            // State filter ComboBox
+            ui.label(
+                egui::RichText::new("State:")
+                    .strong()
+                    .color(ThemePalette::text_secondary(is_dark)),
+            );
+            egui::ComboBox::from_id_source("svc_state_filter")
+                .selected_text(app.service_state_filter.as_deref().unwrap_or("All"))
+                .show_ui(ui, |ui| {
+                    if ui.selectable_label(app.service_state_filter.is_none(), "All").clicked() {
+                        app.service_state_filter = None;
+                    }
+                    for state in &["Running", "Stopped", "Start Pending", "Stop Pending", "Paused"] {
+                        let selected = app.service_state_filter.as_deref() == Some(state);
+                        if ui.selectable_label(selected, *state).clicked() {
+                            app.service_state_filter = Some(state.to_string());
+                        }
+                    }
+                });
+
+            let has_active_filter = !app.service_search.is_empty() || app.service_state_filter.is_some();
+            if has_active_filter
+                && ui
+                    .small_button("Reset")
+                    .on_hover_text("Reset search and state filters")
+                    .clicked()
+            {
+                app.service_search.clear();
+                app.service_state_filter = None;
+            }
+
+            ui.add_space(8.0);
+
+            // Count badge
+            let count_label = format!("Showing {} / {}", filtered.len(), data.services.len());
+            status_pill(ui, &count_label, ThemePalette::ACCENT_PRIMARY, is_dark);
+
+            // Elevation Status Banner
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if is_elevated {
+                    status_pill(ui, "ADMIN ELEVATED", ThemePalette::STATUS_HEALTHY, is_dark);
+                } else {
+                    status_pill(ui, "ADMIN REQUIRED FOR CONTROL", ThemePalette::STATUS_WARNING, is_dark);
+                }
+            });
+        });
+    });
+
+    ui.add_space(8.0);
+
+    // ── Responsive Services Table ──
+    egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
         egui::Grid::new("services_grid")
-            .striped(true)
-            .min_col_width(200.0)
+            .striped(false)
+            .spacing([16.0, 6.0])
+            .min_col_width(120.0)
             .show(ui, |ui| {
-                ui.strong("Display Name");
-                ui.strong("Service Name");
-                ui.strong("State");
-                ui.strong("Actions");
+                ui.label(
+                    egui::RichText::new("Display Name")
+                        .strong()
+                        .color(ThemePalette::text_secondary(is_dark)),
+                );
+                ui.label(
+                    egui::RichText::new("Service Identifier")
+                        .strong()
+                        .color(ThemePalette::text_secondary(is_dark)),
+                );
+                ui.label(
+                    egui::RichText::new("State")
+                        .strong()
+                        .color(ThemePalette::text_secondary(is_dark)),
+                );
+                ui.label(
+                    egui::RichText::new("Actions")
+                        .strong()
+                        .color(ThemePalette::text_secondary(is_dark)),
+                );
                 ui.end_row();
 
                 for svc in &filtered {
-                    ui.label(&svc.display_name);
-                    ui.label(&svc.name);
-                    let color = if svc.state == "Running" {
-                        egui::Color32::from_rgb(0, 200, 100)
+                    // Display Name
+                    let display = if svc.display_name.chars().count() > 45 {
+                        let trunc: String = svc.display_name.chars().take(42).collect();
+                        format!("{}...", trunc)
                     } else {
-                        ThemePalette::TEXT_SECONDARY
+                        svc.display_name.clone()
                     };
-                    ui.colored_label(color, &svc.state);
+                    ui.label(
+                        egui::RichText::new(display)
+                            .strong()
+                            .color(ThemePalette::text_primary(is_dark)),
+                    )
+                    .on_hover_text(&svc.display_name);
 
+                    // Service Identifier (Monospace)
+                    ui.label(
+                        egui::RichText::new(&svc.name)
+                            .monospace()
+                            .color(ThemePalette::text_secondary(is_dark)),
+                    )
+                    .on_hover_text(&svc.name);
+
+                    // State Pill (RUNNING in Emerald, STOPPED in Dimmed Steel)
+                    let state_c = service_state_color(&svc.state, is_dark);
+                    status_pill(ui, &svc.state.to_uppercase(), state_c, is_dark);
+
+                    // Action buttons with Elevation Protection
                     ui.horizontal(|ui| {
-                        let start_btn = ui.small_button("Start");
-                        let stop_btn = ui.small_button("Stop");
-                        let restart_btn = ui.small_button("Restart");
-                        if start_btn.clicked() {
-                            app.pending_service_action = Some(services::ServiceAction {
-                                name: svc.name.clone(),
-                                action: services::ServiceControlAction::Start,
-                            });
-                        }
-                        if stop_btn.clicked() {
-                            app.pending_service_action = Some(services::ServiceAction {
-                                name: svc.name.clone(),
-                                action: services::ServiceControlAction::Stop,
-                            });
-                        }
-                        if restart_btn.clicked() {
-                            app.pending_service_action = Some(services::ServiceAction {
-                                name: svc.name.clone(),
-                                action: services::ServiceControlAction::Restart,
-                            });
-                        }
+                        ui.add_enabled_ui(is_elevated, |ui| {
+                            let is_running = svc.state.eq_ignore_ascii_case("running");
+                            let is_stopped = svc.state.eq_ignore_ascii_case("stopped");
+
+                            let start_btn =
+                                ui.add_enabled(!is_running, egui::Button::new(egui::RichText::new("Start").small()));
+                            let stop_btn = ui.add_enabled(
+                                !is_stopped,
+                                egui::Button::new(
+                                    egui::RichText::new("Stop").small().color(ThemePalette::STATUS_CRITICAL),
+                                ),
+                            );
+                            let restart_btn =
+                                ui.add_enabled(is_running, egui::Button::new(egui::RichText::new("Restart").small()));
+
+                            let tooltip = if !is_elevated {
+                                "Requires Administrator privileges"
+                            } else {
+                                "Send service control command"
+                            };
+
+                            if start_btn.on_hover_text(tooltip).clicked() {
+                                app.pending_service_action = Some(services::ServiceAction {
+                                    name: svc.name.clone(),
+                                    action: services::ServiceControlAction::Start,
+                                });
+                            }
+                            if stop_btn.on_hover_text(tooltip).clicked() {
+                                app.pending_service_action = Some(services::ServiceAction {
+                                    name: svc.name.clone(),
+                                    action: services::ServiceControlAction::Stop,
+                                });
+                            }
+                            if restart_btn.on_hover_text(tooltip).clicked() {
+                                app.pending_service_action = Some(services::ServiceAction {
+                                    name: svc.name.clone(),
+                                    action: services::ServiceControlAction::Restart,
+                                });
+                            }
+                        });
                     });
                     ui.end_row();
                 }
@@ -117,5 +225,20 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
             name: action.name,
             action: action.action,
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_service_state_color_mapping() {
+        assert_eq!(service_state_color("Running", true), ThemePalette::STATUS_HEALTHY);
+        assert_eq!(service_state_color("RUNNING", false), ThemePalette::STATUS_HEALTHY);
+        assert_eq!(service_state_color("Stopped", true), ThemePalette::text_dimmed(true));
+        assert_eq!(service_state_color("Paused", true), ThemePalette::STATUS_WARNING);
+        assert_eq!(service_state_color("Start Pending", true), ThemePalette::STATUS_WARNING);
+        assert_eq!(service_state_color("Stop Pending", false), ThemePalette::STATUS_WARNING);
     }
 }

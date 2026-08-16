@@ -31,9 +31,9 @@ impl PollingScheduler {
     /// Register a provider with its desired polling interval.
     pub fn register(&mut self, name: &str, interval: Duration) {
         self.intervals.insert(name.to_string(), interval);
-        // Set last_poll to epoch so first poll fires immediately
-        self.last_poll
-            .insert(name.to_string(), Instant::now() - interval - Duration::from_secs(1));
+        // Omit from last_poll so `is_due` returns true immediately on the first tick
+        // without unsafe Instant subtraction underflow.
+        self.last_poll.remove(name);
     }
 
     /// Check if a provider is due for polling.
@@ -159,5 +159,12 @@ mod tests {
         // In background mode, 100ms * 5 = 500ms, so should not be due after 100ms
         std::thread::sleep(Duration::from_millis(110));
         assert!(!sched.is_due("test"));
+    }
+
+    #[test]
+    fn register_with_huge_interval_does_not_panic() {
+        let mut sched = PollingScheduler::new();
+        sched.register("large_interval", Duration::from_secs(365 * 24 * 3600));
+        assert!(sched.is_due("large_interval"));
     }
 }

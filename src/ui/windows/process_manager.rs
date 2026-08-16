@@ -1,3 +1,4 @@
+use crate::processes::ProcessSortColumn;
 use crate::ui::components::*;
 use crate::ui::theme::ThemePalette;
 use crate::*;

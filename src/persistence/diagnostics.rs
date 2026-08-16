@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::{monitoring::SystemSnapshot, AppSettings};
+use crate::{app::models::AppTheme, monitoring::SystemSnapshot, AppSettings};
 use serde::Serialize;
 
 #[derive(Serialize)]
@@ -14,7 +14,7 @@ struct Diagnostics<'a> {
 #[derive(Serialize)]
 struct RedactedSettings {
     refresh_interval: u64,
-    theme_dark: bool,
+    theme: AppTheme,
     show_notifications: bool,
 }
 
@@ -30,7 +30,7 @@ pub(crate) fn export(
         snapshot,
         settings: RedactedSettings {
             refresh_interval: settings.refresh_interval,
-            theme_dark: settings.theme_dark,
+            theme: settings.theme,
             show_notifications: settings.show_notifications,
         },
     };

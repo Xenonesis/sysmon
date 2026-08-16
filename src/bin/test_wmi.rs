@@ -2,7 +2,6 @@ use serde::Deserialize;
 use wmi::{COMLibrary, WMIConnection};
 
 #[derive(Deserialize, Debug)]
-#[serde(rename_all = "PascalCase")]
 #[allow(non_camel_case_types, dead_code)]
 struct Win32_Service {
     name: String,

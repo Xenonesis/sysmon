@@ -907,6 +907,31 @@ impl SystemMonitorApp {
                 }
             }
 
+            // Load Segoe UI Symbol and Emoji fonts for crisp system symbols and icons
+            let sym_paths = [
+                ("segoe_symbol", "C:\\Windows\\Fonts\\seguisym.ttf"),
+                ("segoe_symbol", "C:\\Windows\\Fonts\\SeguiSym.ttf"),
+                ("segoe_emoji", "C:\\Windows\\Fonts\\seguiemj.ttf"),
+                ("segoe_emoji", "C:\\Windows\\Fonts\\SeguiEmj.ttf"),
+            ];
+            for (key, path) in &sym_paths {
+                if let Ok(font_bytes) = std::fs::read(path) {
+                    fonts
+                        .font_data
+                        .insert(key.to_string(), egui::FontData::from_owned(font_bytes));
+                    fonts
+                        .families
+                        .entry(egui::FontFamily::Proportional)
+                        .or_default()
+                        .push(key.to_string());
+                    fonts
+                        .families
+                        .entry(egui::FontFamily::Monospace)
+                        .or_default()
+                        .push(key.to_string());
+                }
+            }
+
             // Load Consolas for monospace text
             let mono_paths = ["C:\\Windows\\Fonts\\consola.ttf", "C:\\Windows\\Fonts\\Consola.ttf"];
             for path in &mono_paths {
@@ -954,8 +979,9 @@ impl SystemMonitorApp {
         ]
         .into();
 
-        // Apply theme — custom "Terminal Noir" / "Midnight Indigo" dark or standard light
-        if settings.theme_dark {
+        // Apply theme — custom "Terminal Noir" dark or clean light
+        let is_dark = crate::ui::theme::ThemePalette::is_dark_mode(settings.theme);
+        if is_dark {
             let mut visuals = egui::Visuals::dark();
             // Deep charcoal backgrounds
             visuals.panel_fill = crate::ui::theme::ThemePalette::BG_DEEP;

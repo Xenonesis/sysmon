@@ -285,6 +285,50 @@ pub(crate) struct SystemInfo {
     pub(crate) os_build: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum AppTheme {
+    #[default]
+    Dark,
+    Light,
+    System,
+}
+
+fn deserialize_app_theme<'de, D>(deserializer: D) -> Result<AppTheme, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    struct AppThemeVisitor;
+
+    impl<'de> serde::de::Visitor<'de> for AppThemeVisitor {
+        type Value = AppTheme;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("a boolean or theme string ('Dark', 'Light', 'System')")
+        }
+
+        fn visit_bool<E>(self, v: bool) -> Result<Self::Value, E>
+        where
+            E: serde::de::Error,
+        {
+            Ok(if v { AppTheme::Dark } else { AppTheme::Light })
+        }
+
+        fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+        where
+            E: serde::de::Error,
+        {
+            match v.to_ascii_lowercase().as_str() {
+                "dark" => Ok(AppTheme::Dark),
+                "light" => Ok(AppTheme::Light),
+                "system" => Ok(AppTheme::System),
+                _ => Err(serde::de::Error::unknown_variant(v, &["Dark", "Light", "System"])),
+            }
+        }
+    }
+
+    deserializer.deserialize_any(AppThemeVisitor)
+}
+
 // Settings structure
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub(crate) struct AppSettings {
@@ -296,7 +340,8 @@ pub(crate) struct AppSettings {
     pub(crate) notification_cpu_threshold: f32,
     pub(crate) notification_memory_threshold: f32,
     pub(crate) notification_temp_threshold: u32,
-    pub(crate) theme_dark: bool,
+    #[serde(default, alias = "theme_dark", deserialize_with = "deserialize_app_theme")]
+    pub(crate) theme: AppTheme,
     pub(crate) show_per_core_cpu: bool,
     pub(crate) process_count: usize,
     pub(crate) auto_clear_alerts: bool,
@@ -333,6 +378,8 @@ pub(crate) struct AppSettings {
     pub(crate) auto_clean_max_mb: u64,
     #[serde(default = "default_notification_disk_threshold")]
     pub(crate) notification_disk_threshold: f32,
+    #[serde(default)]
+    pub(crate) sidebar_collapsed: bool,
 }
 
 fn default_notification_disk_threshold() -> f32 {
@@ -409,7 +456,7 @@ impl Default for AppSettings {
             notification_cpu_threshold: 90.0,
             notification_memory_threshold: 90.0,
             notification_temp_threshold: 85,
-            theme_dark: true,
+            theme: AppTheme::Dark,
             show_per_core_cpu: false,
             process_count: 15,
             auto_clear_alerts: false,
@@ -431,6 +478,7 @@ impl Default for AppSettings {
             show_cpu_cores: true,
             show_widget: false,
             notification_disk_threshold: 90.0,
+            sidebar_collapsed: false,
         }
     }
 }
@@ -601,5 +649,52 @@ impl Default for SystemData {
             telemetry_history_stats: std::collections::HashMap::new(),
             provider_status: std::collections::HashMap::new(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn app_theme_defaults_to_dark() {
+        assert_eq!(AppTheme::default(), AppTheme::Dark);
+    }
+
+    #[test]
+    fn app_settings_deserializes_legacy_theme_dark_boolean() {
+        let json_true = r#"{"refresh_interval":2,"show_graphs":true,"show_gpu":true,"show_processes":true,"show_notifications":false,"notification_cpu_threshold":90.0,"notification_memory_threshold":90.0,"notification_temp_threshold":85,"theme_dark":true,"show_per_core_cpu":false,"process_count":15,"auto_clear_alerts":false,"auto_start":false,"start_minimized":false,"minimize_to_tray":false}"#;
+        let settings_dark: AppSettings = serde_json::from_str(json_true).unwrap();
+        assert_eq!(settings_dark.theme, AppTheme::Dark);
+
+        let json_false = r#"{"refresh_interval":2,"show_graphs":true,"show_gpu":true,"show_processes":true,"show_notifications":false,"notification_cpu_threshold":90.0,"notification_memory_threshold":90.0,"notification_temp_threshold":85,"theme_dark":false,"show_per_core_cpu":false,"process_count":15,"auto_clear_alerts":false,"auto_start":false,"start_minimized":false,"minimize_to_tray":false}"#;
+        let settings_light: AppSettings = serde_json::from_str(json_false).unwrap();
+        assert_eq!(settings_light.theme, AppTheme::Light);
+    }
+
+    #[test]
+    fn app_settings_deserializes_new_theme_enum() {
+        let json_dark = r#"{"refresh_interval":2,"show_graphs":true,"show_gpu":true,"show_processes":true,"show_notifications":false,"notification_cpu_threshold":90.0,"notification_memory_threshold":90.0,"notification_temp_threshold":85,"theme":"Dark","show_per_core_cpu":false,"process_count":15,"auto_clear_alerts":false,"auto_start":false,"start_minimized":false,"minimize_to_tray":false}"#;
+        let settings: AppSettings = serde_json::from_str(json_dark).unwrap();
+        assert_eq!(settings.theme, AppTheme::Dark);
+
+        let json_light = r#"{"refresh_interval":2,"show_graphs":true,"show_gpu":true,"show_processes":true,"show_notifications":false,"notification_cpu_threshold":90.0,"notification_memory_threshold":90.0,"notification_temp_threshold":85,"theme":"Light","show_per_core_cpu":false,"process_count":15,"auto_clear_alerts":false,"auto_start":false,"start_minimized":false,"minimize_to_tray":false}"#;
+        let settings: AppSettings = serde_json::from_str(json_light).unwrap();
+        assert_eq!(settings.theme, AppTheme::Light);
+
+        let json_system = r#"{"refresh_interval":2,"show_graphs":true,"show_gpu":true,"show_processes":true,"show_notifications":false,"notification_cpu_threshold":90.0,"notification_memory_threshold":90.0,"notification_temp_threshold":85,"theme":"System","show_per_core_cpu":false,"process_count":15,"auto_clear_alerts":false,"auto_start":false,"start_minimized":false,"minimize_to_tray":false}"#;
+        let settings: AppSettings = serde_json::from_str(json_system).unwrap();
+        assert_eq!(settings.theme, AppTheme::System);
+    }
+
+    #[test]
+    fn app_settings_round_trip_serialization() {
+        let original = AppSettings {
+            theme: AppTheme::System,
+            ..Default::default()
+        };
+        let serialized = serde_json::to_string(&original).unwrap();
+        let deserialized: AppSettings = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(deserialized.theme, AppTheme::System);
     }
 }
