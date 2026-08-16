@@ -307,9 +307,19 @@ fn parse_checksum_file(text: &str) -> Option<String> {
     None
 }
 
+fn hex_digest(digest: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut out = String::with_capacity(digest.len() * 2);
+    for &b in digest {
+        out.push(HEX[(b >> 4) as usize] as char);
+        out.push(HEX[(b & 0x0f) as usize] as char);
+    }
+    out
+}
+
 fn verify_sha256(bytes: &[u8], expected_hex: &str) -> Result<(), String> {
     let digest = Sha256::digest(bytes);
-    let actual: String = digest.iter().map(|b| format!("{b:02x}")).collect();
+    let actual = hex_digest(&digest);
     if actual.eq_ignore_ascii_case(expected_hex.trim()) {
         Ok(())
     } else {
@@ -392,7 +402,7 @@ mod tests {
     fn verifies_installer_checksum() {
         let bytes = b"sysmon installer payload";
         let digest = Sha256::digest(bytes);
-        let hex: String = digest.iter().map(|b| format!("{b:02x}")).collect();
+        let hex = hex_digest(&digest);
         assert!(verify_sha256(bytes, &hex).is_ok());
         // Case-insensitive comparison against the published hash.
         assert!(verify_sha256(bytes, &hex.to_uppercase()).is_ok());
