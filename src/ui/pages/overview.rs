@@ -28,9 +28,11 @@ pub(crate) fn format_uptime(uptime_secs: u64) -> String {
 struct MetricCard {
     title: &'static str,
     accent: egui::Color32,
+    value_text: String,
     subtitle: String,
     fraction: f32,
     color: egui::Color32,
+    status_label: &'static str,
 }
 
 fn paint_metric_card(ui: &mut egui::Ui, cr: egui::Rect, card: &MetricCard, is_dark: bool) {
@@ -38,32 +40,72 @@ fn paint_metric_card(ui: &mut egui::Ui, cr: egui::Rect, card: &MetricCard, is_da
     let card_border = egui::Stroke::new(1.0, ThemePalette::border(is_dark));
     let card_rnd = egui::Rounding::same(6.0);
 
-    // Card background & 1px border
+    // Card background & 1px structural border
     ui.painter().rect_filled(cr, card_rnd, card_bg);
     ui.painter().rect_stroke(cr, card_rnd, card_border);
 
-    // Accent indicator dot
+    // Header Row: Accent indicator + Title
     ui.painter()
         .circle_filled(cr.min + egui::vec2(14.0, 14.0), 3.0, card.accent);
 
-    // Title (Monospace uppercase)
     ui.painter().text(
-        cr.min + egui::vec2(22.0, 7.0),
+        cr.min + egui::vec2(22.0, 8.0),
         egui::Align2::LEFT_TOP,
         card.title,
         egui::FontId::monospace(10.5),
         ThemePalette::text_secondary(is_dark),
     );
 
-    // Precision circular telemetry gauge
-    let radius = 25.0;
-    let center = cr.min + egui::vec2(cr.width() / 2.0, 62.0);
-    paint_circular_gauge(ui, center, radius, card.fraction, card.color, is_dark);
-
-    // Monospace secondary subtitle
+    // Top-Right Status Badge
+    let status_bg = card.color.gamma_multiply(if is_dark { 0.15 } else { 0.12 });
+    let status_border = egui::Stroke::new(1.0, card.color.gamma_multiply(0.4));
+    let badge_rect = egui::Rect::from_min_size(egui::pos2(cr.max.x - 72.0, cr.min.y + 8.0), egui::vec2(60.0, 18.0));
+    ui.painter()
+        .rect_filled(badge_rect, egui::Rounding::same(3.0), status_bg);
+    ui.painter()
+        .rect_stroke(badge_rect, egui::Rounding::same(3.0), status_border);
     ui.painter().text(
-        cr.min + egui::vec2(cr.width() / 2.0, cr.height() - 11.0),
-        egui::Align2::CENTER_BOTTOM,
+        badge_rect.center(),
+        egui::Align2::CENTER_CENTER,
+        card.status_label,
+        egui::FontId::monospace(9.0),
+        card.color,
+    );
+
+    // Large Bold Primary Telemetry Value
+    ui.painter().text(
+        cr.min + egui::vec2(14.0, 32.0),
+        egui::Align2::LEFT_TOP,
+        &card.value_text,
+        egui::FontId::monospace(22.0),
+        ThemePalette::text_primary(is_dark),
+    );
+
+    // Horizontal Precision Load Bar Track
+    let bar_margin_x = 14.0;
+    let bar_w = cr.width() - (bar_margin_x * 2.0);
+    let bar_h = 4.5;
+    let bar_y = cr.min.y + 66.0;
+    let bar_track_rect =
+        egui::Rect::from_min_size(egui::pos2(cr.min.x + bar_margin_x, bar_y), egui::vec2(bar_w, bar_h));
+    let bar_rnd = egui::Rounding::same(2.0);
+
+    ui.painter()
+        .rect_filled(bar_track_rect, bar_rnd, ThemePalette::bg_deepest(is_dark));
+    ui.painter().rect_stroke(
+        bar_track_rect,
+        bar_rnd,
+        egui::Stroke::new(1.0, ThemePalette::bg_track(is_dark)),
+    );
+
+    let filled_w = (bar_w * card.fraction.clamp(0.0, 1.0)).max(2.0);
+    let bar_fill_rect = egui::Rect::from_min_size(bar_track_rect.min, egui::vec2(filled_w, bar_h));
+    ui.painter().rect_filled(bar_fill_rect, bar_rnd, card.color);
+
+    // Footer Secondary Subtitle
+    ui.painter().text(
+        cr.min + egui::vec2(14.0, cr.height() - 11.0),
+        egui::Align2::LEFT_BOTTOM,
         &card.subtitle,
         egui::FontId::monospace(10.0),
         ThemePalette::text_dimmed(is_dark),
@@ -157,15 +199,24 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
 
         let cards = [
             MetricCard {
-                title: "CPU",
+                title: "CPU LOAD",
                 accent: ThemePalette::ACCENT_PRIMARY,
+                value_text: format!("{:.1}%", data.cpu_usage),
                 subtitle: cpu_sub,
                 fraction: (data.cpu_usage / 100.0).clamp(0.0, 1.0),
                 color: cpu_c,
+                status_label: if data.cpu_usage > 90.0 {
+                    "CRITICAL"
+                } else if data.cpu_usage > 70.0 {
+                    "ELEVATED"
+                } else {
+                    "NOMINAL"
+                },
             },
             MetricCard {
                 title: "MEMORY",
                 accent: ThemePalette::ACCENT_ACTIVE,
+                value_text: format!("{:.1}%", data.memory_percentage),
                 subtitle: format!(
                     "{:.1} / {:.1} GB",
                     bytes_to_gb(data.memory_used),
@@ -173,17 +224,37 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
                 ),
                 fraction: (data.memory_percentage / 100.0).clamp(0.0, 1.0),
                 color: mem_c,
+                status_label: if data.memory_percentage > 90.0 {
+                    "CRITICAL"
+                } else if data.memory_percentage > 75.0 {
+                    "ELEVATED"
+                } else {
+                    "NOMINAL"
+                },
             },
             MetricCard {
-                title: "GPU",
+                title: "GPU ENGINE",
                 accent: ThemePalette::text_secondary(is_dark),
+                value_text: if data.gpu_info.is_empty() {
+                    "N/A".to_string()
+                } else {
+                    format!("{:.1}%", data.gpu_info[0].utilization)
+                },
                 subtitle: gpu_sub,
                 fraction: gpu_frac,
                 color: gpu_c,
+                status_label: if data.gpu_info.is_empty() {
+                    "STANDBY"
+                } else if data.gpu_info[0].utilization > 90.0 {
+                    "CRITICAL"
+                } else {
+                    "ONLINE"
+                },
             },
             MetricCard {
-                title: "DISK I/O",
+                title: "STORAGE I/O",
                 accent: ThemePalette::text_secondary(is_dark),
+                value_text: format_rate(disk_total_rate),
                 subtitle: format!(
                     "R: {} · W: {}",
                     format_rate(data.disk_read_rate),
@@ -191,22 +262,37 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
                 ),
                 fraction: ((disk_total_rate / 200.0).clamp(0.0, 1.0) as f32),
                 color: disk_c,
+                status_label: if disk_total_rate > 100.0 {
+                    "CRITICAL"
+                } else if disk_total_rate > 20.0 {
+                    "ACTIVE"
+                } else {
+                    "IDLE"
+                },
             },
             MetricCard {
-                title: "NETWORK",
+                title: "NETWORK FLOW",
                 accent: ThemePalette::text_secondary(is_dark),
+                value_text: format_rate(net_total_rate),
                 subtitle: format!(
-                    "D: {} · U: {}",
+                    "↓ {} · ↑ {}",
                     format_rate(net_download_rate),
                     format_rate(net_upload_rate)
                 ),
                 fraction: ((net_total_rate / 10.0).clamp(0.0, 1.0) as f32),
                 color: net_c,
+                status_label: if net_total_rate > 25.0 {
+                    "HEAVY"
+                } else if net_total_rate > 1.0 {
+                    "STREAM"
+                } else {
+                    "QUIET"
+                },
             },
         ];
 
-        let card_spacing = 10.0;
-        let card_height = 126.0;
+        let card_spacing = 8.0;
+        let card_height = 104.0;
         let rows = calculate_metric_grid_rows(avail_w);
 
         for row_indices in rows {
@@ -462,15 +548,13 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
             ui.add_space(10.0);
         }
 
-        // ── 4. Startup & Boot Health Quick Card ──
-        {
-            let high = startup::high_impact_count(&app.startup_items);
-            let total = app.startup_items.len();
-
-            card_frame(is_dark).show(ui, |ui| {
+        // ── 4. Two-Column System Health & Storage Insights Deck ──
+        ui.columns(2, |cols| {
+            // Column 1: Storage Volumes Quick View
+            card_frame(is_dark).show(&mut cols[0], |ui| {
                 ui.horizontal(|ui| {
                     ui.label(
-                        egui::RichText::new("STARTUP & BOOT TELEMETRY")
+                        egui::RichText::new("STORAGE VOLUMES")
                             .size(11.0)
                             .monospace()
                             .strong()
@@ -478,18 +562,94 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
                     );
 
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui
-                            .button(egui::RichText::new("Manage Startup Apps →").size(11.0))
-                            .clicked()
-                        {
+                        if ui.button(egui::RichText::new("Storage Hub →").size(10.5)).clicked() {
+                            app.selected_tab = Tab::Storage;
+                        }
+                    });
+                });
+
+                ui.add_space(4.0);
+                ui.separator();
+                ui.add_space(4.0);
+
+                if data.disk_info.is_empty() {
+                    ui.label(
+                        egui::RichText::new("No storage devices detected")
+                            .size(11.0)
+                            .monospace()
+                            .color(ThemePalette::text_dimmed(is_dark)),
+                    );
+                } else {
+                    for disk in data.disk_info.iter().take(3) {
+                        let frac = (disk.usage_percentage / 100.0).clamp(0.0, 1.0);
+                        let dc = get_usage_color(disk.usage_percentage);
+                        let used_gb = bytes_to_gb(disk.total_space.saturating_sub(disk.available_space));
+                        let total_gb = bytes_to_gb(disk.total_space);
+
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                egui::RichText::new(&disk.name)
+                                    .size(11.5)
+                                    .monospace()
+                                    .strong()
+                                    .color(ThemePalette::text_primary(is_dark)),
+                            );
+                            if !disk.file_system.is_empty() {
+                                ui.label(
+                                    egui::RichText::new(&disk.file_system)
+                                        .size(10.0)
+                                        .monospace()
+                                        .color(ThemePalette::text_dimmed(is_dark)),
+                                );
+                            }
+
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                ui.label(
+                                    egui::RichText::new(format!("{:.0}%", disk.usage_percentage))
+                                        .size(11.0)
+                                        .monospace()
+                                        .strong()
+                                        .color(dc),
+                                );
+                                ui.label(
+                                    egui::RichText::new(format!("{:.0}/{:.0} GB", used_gb, total_gb))
+                                        .size(10.5)
+                                        .monospace()
+                                        .color(ThemePalette::text_secondary(is_dark)),
+                                );
+                            });
+                        });
+
+                        paint_progress_bar(ui, frac, dc, 4.0, is_dark);
+                        ui.add_space(3.0);
+                    }
+                }
+            });
+
+            // Column 2: Startup & System Health Overview
+            card_frame(is_dark).show(&mut cols[1], |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new("BOOT & SYSTEM HEALTH")
+                            .size(11.0)
+                            .monospace()
+                            .strong()
+                            .color(ThemePalette::text_secondary(is_dark)),
+                    );
+
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.button(egui::RichText::new("Startup Apps →").size(10.5)).clicked() {
                             app.selected_tab = Tab::StartupManager;
                         }
                     });
                 });
 
-                ui.add_space(6.0);
+                ui.add_space(4.0);
                 ui.separator();
                 ui.add_space(4.0);
+
+                let high = startup::high_impact_count(&app.startup_items);
+                let total = app.startup_items.len();
 
                 ui.horizontal(|ui| {
                     if let Some(boot_ms) = app.boot_diagnostics.as_ref().and_then(|bd| bd.boot_duration_ms) {
@@ -502,9 +662,10 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
                             ThemePalette::STATUS_CRITICAL
                         };
                         ui.label(
-                            egui::RichText::new(format!("Boot Duration: {:.1}s", sec))
+                            egui::RichText::new(format!("Boot: {:.1}s", sec))
                                 .monospace()
                                 .strong()
+                                .size(11.5)
                                 .color(c),
                         );
                         ui.separator();
@@ -518,18 +679,39 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
                             is_dark,
                         );
                     } else {
-                        status_pill(ui, "● 0 High Impact", ThemePalette::STATUS_HEALTHY, is_dark);
+                        status_pill(ui, "0 High Impact", ThemePalette::STATUS_HEALTHY, is_dark);
                     }
 
-                    ui.separator();
                     ui.label(
-                        egui::RichText::new(format!("{} Registered Items", total))
+                        egui::RichText::new(format!("{} Items", total))
                             .monospace()
+                            .size(10.5)
                             .color(ThemePalette::text_secondary(is_dark)),
                     );
                 });
+
+                ui.add_space(6.0);
+
+                ui.horizontal(|ui| {
+                    if !data.alerts.is_empty() {
+                        status_pill(
+                            ui,
+                            &format!("⚠ {} Active Alerts", data.alerts.len()),
+                            ThemePalette::STATUS_WARNING,
+                            is_dark,
+                        );
+                    } else {
+                        status_pill(ui, "✓ No Alerts Active", ThemePalette::STATUS_HEALTHY, is_dark);
+                    }
+
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.button(egui::RichText::new("Diagnostics →").size(10.5)).clicked() {
+                            app.selected_tab = Tab::Diagnostics;
+                        }
+                    });
+                });
             });
-        }
+        });
 
         ui.add_space(10.0);
 
@@ -555,7 +737,7 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
                     });
                 });
 
-                ui.add_space(6.0);
+                ui.add_space(4.0);
                 ui.separator();
                 ui.add_space(4.0);
 
@@ -654,15 +836,15 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
                                     );
                                 });
 
-                                // CPU %
-                                let cpu_c = get_usage_color(process.cpu_usage);
+                                // CPU % with status color
+                                let cc = get_usage_color(process.cpu_usage);
                                 ui.label(
                                     egui::RichText::new(format!("{:>5.1}%", process.cpu_usage))
                                         .size(11.0)
                                         .monospace()
-                                        .color(cpu_c),
+                                        .strong()
+                                        .color(cc),
                                 );
-
                                 ui.end_row();
                             }
                         });

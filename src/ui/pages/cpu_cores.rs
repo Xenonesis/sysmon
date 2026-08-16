@@ -106,15 +106,33 @@ pub(crate) fn show(_app: &crate::SystemMonitorApp, ui: &mut egui::Ui, data: &Sys
         ui.add_space(10.0);
 
         // ── 2. Per-Core Topology Grid ──
-        ui.label(
-            egui::RichText::new("LOGICAL CORE LOAD METERS")
-                .size(11.0)
-                .strong()
-                .color(ThemePalette::text_secondary(is_dark)),
-        );
+        ui.horizontal(|ui| {
+            ui.label(
+                egui::RichText::new("LOGICAL PROCESSOR TOPOLOGY & REAL-TIME LOAD")
+                    .size(11.0)
+                    .monospace()
+                    .strong()
+                    .color(ThemePalette::text_secondary(is_dark)),
+            );
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.label(
+                    egui::RichText::new(format!("{} Core Meters Active", total_cores))
+                        .size(10.5)
+                        .monospace()
+                        .color(ThemePalette::text_dimmed(is_dark)),
+                );
+            });
+        });
         ui.add_space(6.0);
 
-        let cores_per_row = 4;
+        let avail_w = ui.available_width();
+        let cores_per_row = if avail_w >= 1100.0 {
+            6
+        } else if avail_w >= 750.0 {
+            4
+        } else {
+            2
+        };
         let mut core_index = 0;
 
         while core_index < data.cpu_cores.len() {
@@ -126,31 +144,34 @@ pub(crate) fn show(_app: &crate::SystemMonitorApp, ui: &mut egui::Ui, data: &Sys
 
                     let core = &data.cpu_cores[core_index];
                     let color = get_usage_color(core.usage);
+                    let frac = (core.usage / 100.0).clamp(0.0, 1.0);
 
                     card_frame(is_dark)
                         .inner_margin(egui::Margin::symmetric(10.0, 8.0))
                         .show(col, |ui| {
                             ui.horizontal(|ui| {
+                                let (dot, _) = ui.allocate_exact_size(egui::vec2(5.0, 5.0), egui::Sense::hover());
+                                ui.painter().circle_filled(dot.center(), 2.0, color);
                                 ui.label(
-                                    egui::RichText::new(format!("Core {:02}", core.core_id))
+                                    egui::RichText::new(format!("C{:02}", core.core_id))
                                         .monospace()
                                         .strong()
-                                        .size(12.0)
-                                        .color(ThemePalette::text_primary(is_dark)),
+                                        .size(11.0)
+                                        .color(ThemePalette::text_dimmed(is_dark)),
                                 );
                                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                                     ui.label(
                                         egui::RichText::new(format!("{:.1}%", core.usage))
                                             .monospace()
                                             .strong()
-                                            .size(12.0)
+                                            .size(12.5)
                                             .color(color),
                                     );
                                 });
                             });
 
                             ui.add_space(4.0);
-                            paint_progress_bar(ui, core.usage / 100.0, color, 6.0, is_dark);
+                            paint_progress_bar(ui, frac, color, 4.0, is_dark);
                         });
 
                     core_index += 1;

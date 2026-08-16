@@ -49,20 +49,21 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui) {
                 .expect("failed to spawn startup loader thread");
         }
 
-        // Sync loaded data to app state
+        // Sync loaded data to app state (only when loading completes)
         let is_loading = {
             let share = app.startup_items_share.lock();
             if let Some(items) = &*share {
-                app.startup_items = items.clone();
-                app.startup_items_loaded = true;
-                app.startup_items_loading = false;
+                if !app.startup_items_loaded {
+                    app.startup_items = items.clone();
+                    app.startup_items_loaded = true;
+                    app.startup_items_loading = false;
 
-                let high_impact_count = items
-                    .iter()
-                    .filter(|i| i.impact_tier == ImpactTier::High && i.enabled)
-                    .count();
-                app.data.write().high_impact_startup_count = high_impact_count;
-
+                    let high_impact_count = items
+                        .iter()
+                        .filter(|i| i.impact_tier == ImpactTier::High && i.enabled)
+                        .count();
+                    app.data.write().high_impact_startup_count = high_impact_count;
+                }
                 false
             } else {
                 true
@@ -70,10 +71,11 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui) {
         };
 
         if let Some(diag) = &*app.boot_diagnostics_share.lock() {
-            app.boot_diagnostics = Some(diag.clone());
-            app.boot_diagnostics_loaded = true;
+            if !app.boot_diagnostics_loaded {
+                app.boot_diagnostics = Some(diag.clone());
+                app.boot_diagnostics_loaded = true;
+            }
         }
-
         if is_loading {
             ui.add_space(20.0);
             card_frame(is_dark).show(ui, |ui| {
@@ -652,15 +654,16 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui) {
                 };
 
                 if success {
-                    let high_after = if app.startup_items[idx].impact_tier == ImpactTier::High {
-                        if act == "disable" {
-                            high_before.saturating_sub(1)
-                        } else {
-                            high_before + 1
-                        }
-                    } else {
-                        high_before
-                    };
+                    if act == "disable" {
+                        app.startup_items[idx].enabled = false;
+                    } else if act == "enable" {
+                        app.startup_items[idx].enabled = true;
+                    } else if act == "remove" {
+                        app.startup_items.remove(idx);
+                    }
+
+                    let high_after = startup::high_impact_count(&app.startup_items);
+                    app.data.write().high_impact_startup_count = high_after;
 
                     app.settings
                         .startup_optimization_history
@@ -674,9 +677,6 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui) {
                             high_impact_count_after: high_after,
                         });
                     let _ = app.settings.save();
-                    app.startup_items_loaded = false;
-                    *app.startup_items_share.lock() = None;
-                    *app.boot_diagnostics_share.lock() = None;
                 }
             }
         }

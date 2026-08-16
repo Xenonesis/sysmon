@@ -1,27 +1,48 @@
 use crate::ui::theme::ThemePalette;
 use eframe::egui;
 
-/// Modern section header with strong typography and flat Diagnostic Emerald accent underline.
+/// Modern section header with strong typography, live indicator, and structural hairline divider.
 pub(crate) fn paint_section_header(ui: &mut egui::Ui, text: &str, is_dark: bool) {
-    ui.add_space(4.0);
-    let r = ui.label(
-        egui::RichText::new(text)
-            .text_style(egui::TextStyle::Heading)
-            .strong()
-            .color(ThemePalette::text_primary(is_dark)),
+    ui.add_space(2.0);
+    ui.horizontal(|ui| {
+        ui.label(
+            egui::RichText::new(text)
+                .size(15.5)
+                .strong()
+                .color(ThemePalette::text_primary(is_dark)),
+        );
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.label(
+                egui::RichText::new("LIVE")
+                    .size(9.5)
+                    .monospace()
+                    .strong()
+                    .color(ThemePalette::ACCENT_PRIMARY),
+            );
+            let (dot_rect, _) = ui.allocate_exact_size(egui::vec2(6.0, 6.0), egui::Sense::hover());
+            ui.painter()
+                .circle_filled(dot_rect.center(), 2.5, ThemePalette::ACCENT_PRIMARY);
+        });
+    });
+    ui.add_space(3.0);
+    let full_w = ui.available_width();
+    let (line_rect, _) = ui.allocate_exact_size(egui::vec2(full_w, 1.0), egui::Sense::hover());
+    let accent_w = 48.0f32.min(full_w);
+    let accent_rect = egui::Rect::from_min_size(line_rect.min, egui::vec2(accent_w, 1.0));
+    let remainder_rect = egui::Rect::from_min_size(
+        egui::pos2(line_rect.min.x + accent_w, line_rect.min.y),
+        egui::vec2((full_w - accent_w).max(0.0), 1.0),
     );
-    let y = r.rect.bottom() + 4.0;
-
-    let underline_w = r.rect.width();
-    ui.painter().line_segment(
-        [egui::pos2(r.rect.left(), y), egui::pos2(r.rect.left() + underline_w, y)],
-        egui::Stroke::new(3.0, ThemePalette::ACCENT_PRIMARY),
-    );
-    ui.add_space(12.0);
+    ui.painter()
+        .rect_filled(accent_rect, egui::Rounding::ZERO, ThemePalette::ACCENT_PRIMARY);
+    ui.painter()
+        .rect_filled(remainder_rect, egui::Rounding::ZERO, ThemePalette::border(is_dark));
+    ui.add_space(10.0);
 }
 
 /// Precision circular telemetry gauge with anti-aliased background track, smooth arc geometry,
 /// and centered monospace percentage readout.
+#[allow(dead_code)]
 pub(crate) fn paint_circular_gauge(
     ui: &mut egui::Ui,
     center: egui::Pos2,
@@ -92,27 +113,27 @@ pub(crate) fn paint_telemetry_chip(
         .fill(ThemePalette::bg_surface(is_dark))
         .stroke(egui::Stroke::new(1.0, ThemePalette::border(is_dark)))
         .rounding(egui::Rounding::same(4.0))
-        .inner_margin(egui::Margin::symmetric(9.0, 5.0));
+        .inner_margin(egui::Margin::symmetric(7.0, 3.5));
 
     frame.show(ui, |ui| {
         ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 6.0;
+            ui.spacing_mut().item_spacing.x = 4.5;
             ui.label(
                 egui::RichText::new(label)
-                    .size(10.5)
+                    .size(10.0)
                     .strong()
                     .color(ThemePalette::text_dimmed(is_dark)),
             );
-            ui.label(egui::RichText::new(value).size(11.5).monospace().strong().color(color));
+            ui.label(egui::RichText::new(value).size(11.0).monospace().strong().color(color));
             if let Some(frac) = fraction {
-                let bar_w = 24.0;
-                let bar_h = 4.0;
+                let bar_w = 18.0;
+                let bar_h = 3.5;
                 let (rect, _) = ui.allocate_exact_size(egui::vec2(bar_w, bar_h), egui::Sense::hover());
                 ui.painter()
-                    .rect_filled(rect, egui::Rounding::same(2.0), ThemePalette::bg_track(is_dark));
+                    .rect_filled(rect, egui::Rounding::same(1.5), ThemePalette::bg_track(is_dark));
                 let filled_w = (bar_w * frac.clamp(0.0, 1.0)).max(1.0);
                 let fill_rect = egui::Rect::from_min_size(rect.min, egui::vec2(filled_w, bar_h));
-                ui.painter().rect_filled(fill_rect, egui::Rounding::same(2.0), color);
+                ui.painter().rect_filled(fill_rect, egui::Rounding::same(1.5), color);
             }
         });
     });

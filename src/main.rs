@@ -1136,7 +1136,6 @@ impl eframe::App for SystemMonitorApp {
                                 .fill(ThemePalette::bg_surface(is_dark))
                                 .stroke(egui::Stroke::new(1.0, ThemePalette::border(is_dark)))
                                 .rounding(egui::Rounding::same(4.0));
-
                         if ui.add(expand_btn).on_hover_text("Expand Sidebar (Ctrl+B)").clicked() {
                             self.settings.sidebar_collapsed = false;
                             let _ = self.settings.save();
@@ -1144,7 +1143,11 @@ impl eframe::App for SystemMonitorApp {
                         ui.add_space(4.0);
                     }
 
-                    // Telemetry Ribbon: CPU, RAM, GPU, NET with live micro progress tracks
+                    let avail_w = ui.available_width();
+                    let show_gpu = avail_w >= 720.0;
+                    let show_net = avail_w >= 840.0;
+
+                    // Telemetry Ribbon: CPU & RAM always visible; GPU & NET responsive
                     let cpu_c = get_usage_color(data.cpu_usage);
                     paint_telemetry_chip(
                         ui,
@@ -1165,47 +1168,56 @@ impl eframe::App for SystemMonitorApp {
                         mem_c,
                         is_dark,
                     );
-                    ui.add_space(3.0);
 
-                    if let Some(gpu) = data.gpu_info.first() {
-                        let gpu_c = get_usage_color(gpu.utilization);
-                        paint_telemetry_chip(
-                            ui,
-                            "GPU",
-                            &format!("{:.1}%", gpu.utilization),
-                            Some(gpu.utilization / 100.0),
-                            gpu_c,
-                            is_dark,
-                        );
-                    } else {
-                        paint_telemetry_chip(ui, "GPU", "N/A", None, ThemePalette::text_dimmed(is_dark), is_dark);
+                    if show_gpu {
+                        ui.add_space(3.0);
+                        if let Some(gpu) = data.gpu_info.first() {
+                            let gpu_c = get_usage_color(gpu.utilization);
+                            paint_telemetry_chip(
+                                ui,
+                                "GPU",
+                                &format!("{:.1}%", gpu.utilization),
+                                Some(gpu.utilization / 100.0),
+                                gpu_c,
+                                is_dark,
+                            );
+                        } else {
+                            paint_telemetry_chip(ui, "GPU", "N/A", None, ThemePalette::text_dimmed(is_dark), is_dark);
+                        }
                     }
-                    ui.add_space(3.0);
 
-                    let net_total_rate: f64 = data
-                        .network_info
-                        .iter()
-                        .map(|n| n.received_rate + n.transmitted_rate)
-                        .sum();
-                    let net_c = if net_total_rate > 50.0 {
-                        ThemePalette::STATUS_CRITICAL
-                    } else if net_total_rate > 10.0 {
-                        ThemePalette::STATUS_WARNING
-                    } else {
-                        ThemePalette::STATUS_HEALTHY
-                    };
-                    paint_telemetry_chip(ui, "NET", &format!("{:.1} MB/s", net_total_rate), None, net_c, is_dark);
+                    if show_net {
+                        ui.add_space(3.0);
+                        let net_total_rate: f64 = data
+                            .network_info
+                            .iter()
+                            .map(|n| n.received_rate + n.transmitted_rate)
+                            .sum();
+                        let net_c = if net_total_rate > 50.0 {
+                            ThemePalette::STATUS_CRITICAL
+                        } else if net_total_rate > 10.0 {
+                            ThemePalette::STATUS_WARNING
+                        } else {
+                            ThemePalette::STATUS_HEALTHY
+                        };
+                        paint_telemetry_chip(ui, "NET", &format!("{:.1} MB/s", net_total_rate), None, net_c, is_dark);
+                    }
 
                     // Right side Quick Action Hub
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.add_space(4.0);
+                        ui.add_space(2.0);
 
                         // Alerts badge / button
                         if !data.alerts.is_empty() {
                             let alert_count = data.alerts.len();
+                            let label = if avail_w >= 780.0 {
+                                format!("⚠ {alert_count} ALERTS")
+                            } else {
+                                format!("⚠ {alert_count}")
+                            };
                             let alert_btn = egui::Button::new(
-                                egui::RichText::new(format!("⚠ {alert_count} ALERTS"))
-                                    .size(11.0)
+                                egui::RichText::new(label)
+                                    .size(10.5)
                                     .strong()
                                     .color(ThemePalette::STATUS_WARNING),
                             )
@@ -1217,9 +1229,10 @@ impl eframe::App for SystemMonitorApp {
                                 self.selected_tab = Tab::Alerts;
                             }
                         } else {
+                            let label = if avail_w >= 780.0 { "✓ NORMAL" } else { "✓" };
                             let nominal_btn = egui::Button::new(
-                                egui::RichText::new("✓ NORMAL")
-                                    .size(10.5)
+                                egui::RichText::new(label)
+                                    .size(10.0)
                                     .strong()
                                     .color(ThemePalette::STATUS_HEALTHY),
                             )
@@ -1236,21 +1249,23 @@ impl eframe::App for SystemMonitorApp {
                             }
                         }
 
-                        ui.add_space(5.0);
+                        ui.add_space(3.0);
 
                         // Diagnostic Session Record toggle button
                         let is_recording = self.session_recorder.is_recording();
                         let (rec_text, rec_color) = if is_recording {
                             (
-                                format!("⏹ Rec ({})", self.session_recorder.sample_count()),
+                                format!("⏹ ({})", self.session_recorder.sample_count()),
                                 ThemePalette::STATUS_CRITICAL,
                             )
-                        } else {
+                        } else if avail_w >= 820.0 {
                             ("⏺ Record".to_string(), ThemePalette::text_secondary(is_dark))
+                        } else {
+                            ("⏺ Rec".to_string(), ThemePalette::text_secondary(is_dark))
                         };
 
                         let rec_btn =
-                            egui::Button::new(egui::RichText::new(&rec_text).size(11.0).strong().color(rec_color))
+                            egui::Button::new(egui::RichText::new(&rec_text).size(10.5).strong().color(rec_color))
                                 .fill(if is_recording {
                                     ThemePalette::STATUS_CRITICAL.gamma_multiply(if is_dark { 0.20 } else { 0.12 })
                                 } else {
@@ -1289,16 +1304,18 @@ impl eframe::App for SystemMonitorApp {
                             });
                         }
 
-                        ui.add_space(5.0);
+                        ui.add_space(3.0);
 
                         // Clean RAM button
                         let is_cleaning = self.ram_cleaner_state.is_cleaning;
                         let clean_text = if is_cleaning {
-                            "🧹 Cleaning..."
-                        } else {
+                            "🧹 ..."
+                        } else if avail_w >= 820.0 {
                             "🧹 Free RAM"
+                        } else {
+                            "🧹 RAM"
                         };
-                        let clean_btn = egui::Button::new(egui::RichText::new(clean_text).size(11.0).strong().color(
+                        let clean_btn = egui::Button::new(egui::RichText::new(clean_text).size(10.5).strong().color(
                             if is_cleaning {
                                 ThemePalette::text_dimmed(is_dark)
                             } else {
@@ -1330,34 +1347,39 @@ impl eframe::App for SystemMonitorApp {
                             }
                         });
 
-                        ui.add_space(5.0);
+                        ui.add_space(3.0);
 
                         // Mini-Widget / HUD Toggle button
                         let hud_open = self.widget_open;
-                        let hud_btn = egui::Button::new(
-                            egui::RichText::new(if hud_open { "◰ HUD ON" } else { "◰ HUD" })
-                                .size(11.0)
-                                .strong()
-                                .color(if hud_open {
-                                    ThemePalette::ACCENT_PRIMARY
-                                } else {
-                                    ThemePalette::text_secondary(is_dark)
-                                }),
-                        )
-                        .fill(if hud_open {
-                            ThemePalette::ACCENT_PRIMARY.gamma_multiply(if is_dark { 0.18 } else { 0.12 })
-                        } else {
-                            ThemePalette::bg_surface(is_dark)
-                        })
-                        .stroke(egui::Stroke::new(
-                            1.0,
-                            if hud_open {
-                                ThemePalette::ACCENT_PRIMARY.gamma_multiply(0.5)
+                        let hud_label = if hud_open {
+                            if avail_w >= 820.0 {
+                                "◰ HUD ON"
                             } else {
-                                ThemePalette::border(is_dark)
-                            },
-                        ))
-                        .rounding(egui::Rounding::same(4.0));
+                                "◰ ON"
+                            }
+                        } else {
+                            "◰ HUD"
+                        };
+                        let hud_btn =
+                            egui::Button::new(egui::RichText::new(hud_label).size(10.5).strong().color(if hud_open {
+                                ThemePalette::ACCENT_PRIMARY
+                            } else {
+                                ThemePalette::text_secondary(is_dark)
+                            }))
+                            .fill(if hud_open {
+                                ThemePalette::ACCENT_PRIMARY.gamma_multiply(if is_dark { 0.18 } else { 0.12 })
+                            } else {
+                                ThemePalette::bg_surface(is_dark)
+                            })
+                            .stroke(egui::Stroke::new(
+                                1.0,
+                                if hud_open {
+                                    ThemePalette::ACCENT_PRIMARY.gamma_multiply(0.5)
+                                } else {
+                                    ThemePalette::border(is_dark)
+                                },
+                            ))
+                            .rounding(egui::Rounding::same(4.0));
 
                         if ui
                             .add(hud_btn)
