@@ -25,9 +25,9 @@ impl WmiProvider {
 
         #[cfg(target_os = "windows")]
         {
-            use wmi::{COMLibrary, Variant, WMIConnection};
+            use wmi::{Variant, WMIConnection};
 
-            let com = COMLibrary::new().map_err(|e| ProviderError::InitFailed(format!("COM init: {}", e)))?;
+            let com = super::init_com().map_err(|e| ProviderError::InitFailed(format!("COM init: {}", e)))?;
             let wmi_con = WMIConnection::new(com.into())
                 .map_err(|e| ProviderError::InitFailed(format!("WMI connection: {}", e)))?;
 

@@ -54,9 +54,9 @@ impl TelemetryProvider for WindowsGpuProvider {
         #[cfg(target_os = "windows")]
         {
             use std::collections::HashMap;
-            use wmi::{COMLibrary, Variant, WMIConnection};
+            use wmi::{Variant, WMIConnection};
 
-            let com = COMLibrary::new().map_err(|error| ProviderError::InitFailed(error.to_string()))?;
+            let com = super::init_com().map_err(|error| ProviderError::InitFailed(error.to_string()))?;
             let connection =
                 WMIConnection::new(com.into()).map_err(|error| ProviderError::InitFailed(error.to_string()))?;
 

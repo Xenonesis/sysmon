@@ -1,23 +1,11 @@
-use parking_lot::{Mutex, RwLock};
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::fs;
-use std::sync::Arc;
-use std::thread;
-use std::time::{Duration, Instant};
-use sysinfo::{Disks, Networks, Pid, System};
+use std::time::Instant;
+use sysinfo::{Disks, Networks, System};
 
 #[cfg(target_os = "windows")]
 use nvml_wrapper::Nvml;
-#[cfg(target_os = "windows")]
-use tray_icon::{
-    menu::{CheckMenuItem, Menu, MenuEvent, MenuItem, Submenu},
-    TrayIconBuilder,
-};
-#[cfg(target_os = "windows")]
-use wmi::COMLibrary;
-use wmi::WMIConnection;
-use crate::telemetry::TelemetrySnapshot;
 #[cfg(target_os = "windows")]
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "PascalCase")]
@@ -63,8 +51,6 @@ pub(crate) fn get_battery_info(wmi_con: &wmi::WMIConnection) -> Option<BatteryIn
     }
     None
 }
-
-
 
 #[cfg(target_os = "windows")]
 pub(crate) fn play_alert_sound() {
@@ -617,4 +603,3 @@ impl Default for SystemData {
         }
     }
 }
-

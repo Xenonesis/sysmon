@@ -16,8 +16,8 @@ mod startup;
 pub mod telemetry;
 mod updater;
 use eframe::egui;
-use processes::{ProcessInfo, ProcessSortColumn};
-use startup::{BootDiagnostics, ImpactTier, Recommendation, StartupItem, StartupOptimizationEntry, StartupSortColumn};
+use processes::ProcessSortColumn;
+use startup::{ImpactTier, Recommendation, StartupOptimizationEntry, StartupSortColumn};
 
 use rfd::FileDialog;
 use tracing::{error, info, warn};
@@ -26,23 +26,11 @@ const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub(crate) use crate::app::models::*;
 pub(crate) use crate::monitoring::engine::*;
-use parking_lot::{Mutex, RwLock};
-use std::collections::VecDeque;
-use std::fs;
 use std::sync::Arc;
 use std::thread;
-use std::time::{Duration, Instant};
-use sysinfo::{Disks, Networks, Pid, System};
+use std::time::Instant;
 #[cfg(target_os = "windows")]
-use nvml_wrapper::Nvml;
-#[cfg(target_os = "windows")]
-use tray_icon::{
-    menu::{CheckMenuItem, Menu, MenuEvent, MenuItem, Submenu, MenuId},
-    TrayIconBuilder,
-    TrayIcon
-};
-#[cfg(target_os = "windows")]
-use wmi::COMLibrary;
+use tray_icon::menu::MenuEvent;
 
 impl eframe::App for SystemMonitorApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {

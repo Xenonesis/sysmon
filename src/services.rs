@@ -1,6 +1,6 @@
 // src/services.rs
 use serde::Deserialize;
-use wmi::{COMLibrary, WMIConnection};
+use wmi::WMIConnection;
 
 #[derive(Debug, Clone)]
 pub struct ServiceInfo {
@@ -23,6 +23,7 @@ pub enum ServiceControlAction {
 }
 
 #[derive(Deserialize, Debug)]
+#[serde(rename_all = "PascalCase")]
 #[allow(non_camel_case_types)]
 struct Win32_Service {
     name: String,
@@ -102,7 +103,7 @@ pub fn get_services_with_com(com: Option<&std::rc::Rc<wmi::COMLibrary>>) -> Vec<
                 }
             }
         }
-    } else if let Ok(com_lib) = COMLibrary::new() {
+    } else if let Ok(com_lib) = crate::providers::init_com() {
         if let Ok(wmi_con) = WMIConnection::new(std::rc::Rc::new(com_lib)) {
             let results: Result<Vec<Win32_Service>, _> =
                 wmi_con.raw_query("SELECT Name, DisplayName, State FROM Win32_Service");

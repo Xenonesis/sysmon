@@ -2,11 +2,30 @@ use std::rc::Rc;
 use wmi::{COMLibrary, WMIConnection};
 
 fn main() {
-    let com = COMLibrary::new().expect("COM init failed");
-    let wmi = WMIConnection::with_namespace_path("ROOT\\WMI", Rc::new(com)).expect("WMI init failed");
-    let results: Vec<std::collections::HashMap<String, wmi::Variant>> = wmi
-        .raw_query("SELECT CurrentTemperature FROM MSAcpi_ThermalZoneTemperature")
-        .expect("query failed");
+    // Note: MSAcpi_ThermalZoneTemperature lives in ROOT\WMI and typically
+    // requires an elevated (administrator) prompt; access denied otherwise.
+    let com = match COMLibrary::new() {
+        Ok(lib) => lib,
+        Err(e) => {
+            eprintln!("Error: COM init failed: {:?}", e);
+            std::process::exit(1);
+        }
+    };
+    let wmi = match WMIConnection::with_namespace_path("ROOT\\WMI", Rc::new(com)) {
+        Ok(con) => con,
+        Err(e) => {
+            eprintln!("Error: WMI init failed: {:?}", e);
+            std::process::exit(1);
+        }
+    };
+    let results: Vec<std::collections::HashMap<String, wmi::Variant>> =
+        match wmi.raw_query("SELECT CurrentTemperature FROM MSAcpi_ThermalZoneTemperature") {
+            Ok(rows) => rows,
+            Err(e) => {
+                eprintln!("Error: query failed: {:?} (try running as administrator)", e);
+                std::process::exit(1);
+            }
+        };
     println!("ROWS: {}", results.len());
     for (i, row) in results.iter().enumerate() {
         if let Some(val) = row.get("CurrentTemperature") {

@@ -3,38 +3,33 @@ name: Build Windows Release
 on:
   workflow_dispatch:
   push:
-    branches:
-      - main
-    paths:
-      - "Cargo.toml"
+    tags:
+      - "v*"
 
 permissions:
   contents: write
+  id-token: write
+  attestations: write
 
 jobs:
   check-version:
     runs-on: ubuntu-latest
     outputs:
-      is_new: ${{ steps.check.outputs.is_new }}
       version: ${{ steps.check.outputs.version }}
     steps:
       - uses: actions/checkout@v4
-      - name: Check if version changed
+      - name: Verify tag matches Cargo version
         id: check
         run: |
           VERSION=$(grep -m1 -oP '^version\s*=\s*"\K[^"]+' Cargo.toml)
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          if git ls-remote --tags origin "refs/tags/v$VERSION" | grep -q "refs/tags/v$VERSION"; then
-            echo "Tag v$VERSION already exists."
-            echo "is_new=false" >> $GITHUB_OUTPUT
-          else
-            echo "New version v$VERSION detected!"
-            echo "is_new=true" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          if [ "${{ github.ref_name }}" != "v$VERSION" ]; then
+            echo "Tag ${{ github.ref_name }} does not match Cargo version v$VERSION"
+            exit 1
           fi
 
   build-windows:
     needs: check-version
-    if: needs.check-version.outputs.is_new == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: windows-latest
     env:
       APP_VERSION: ${{ needs.check-version.outputs.version }}
@@ -65,13 +60,51 @@ jobs:
       - name: Verify source quality
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
           cargo metadata --locked --format-version 1 --no-deps | Out-Null
           cargo fmt --all -- --check
           cargo clippy --locked --all-targets -- -D warnings
           cargo test --locked --all-targets
 
-      - name: Build release binary
-        run: cargo build --locked --release --target x86_64-pc-windows-msvc --bin system-monitor
+      - name: Fail closed when signing secrets are missing
+        shell: pwsh
+        run: |
+          if (-not $env:WINDOWS_SIGNING_PFX_BASE64) {
+            throw 'WINDOWS_SIGNING_PFX_BASE64 secret is not configured. Refusing to publish an unsigned release.'
+          }
+          if (-not $env:WINDOWS_SIGNING_PFX_PASSWORD) {
+            throw 'WINDOWS_SIGNING_PFX_PASSWORD secret is not configured. Refusing to publish an unsigned release.'
+          }
+        env:
+          WINDOWS_SIGNING_PFX_BASE64: ${{ secrets.WINDOWS_SIGNING_PFX_BASE64 }}
+          WINDOWS_SIGNING_PFX_PASSWORD: ${{ secrets.WINDOWS_SIGNING_PFX_PASSWORD }}
+
+      - name: Import signing certificate and derive thumbprint
+        id: cert
+        shell: pwsh
+        run: |
+          $bytes = [Convert]::FromBase64String($env:WINDOWS_SIGNING_PFX_BASE64)
+          $pfxPath = Join-Path $env:RUNNER_TEMP 'signing.pfx'
+          [System.IO.File]::WriteAllBytes($pfxPath, $bytes)
+          $password = ConvertTo-SecureString -String $env:WINDOWS_SIGNING_PFX_PASSWORD -AsPlainText -Force
+          $imported = Import-PfxCertificate -CertStoreLocation Cert:\CurrentUser\My -FilePath $pfxPath -Password $password
+          Remove-Item $pfxPath -Force
+          if (-not $imported.HasPrivateKey) { throw 'Imported certificate has no private key' }
+          "thumbprint=$($imported.Thumbprint)" | Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          Write-Host "Signing certificate imported; thumbprint $($imported.Thumbprint)"
+        env:
+          WINDOWS_SIGNING_PFX_BASE64: ${{ secrets.WINDOWS_SIGNING_PFX_BASE64 }}
+          WINDOWS_SIGNING_PFX_PASSWORD: ${{ secrets.WINDOWS_SIGNING_PFX_PASSWORD }}
+
+      - name: Build release binary (with pinned signer thumbprint)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          cargo build --locked --release --target x86_64-pc-windows-msvc --bin system-monitor
+        env:
+          SYSMON_SIGNER_THUMBPRINT: ${{ steps.cert.outputs.thumbprint }}
 
       - name: Prepare release artifacts directory
         shell: pwsh
@@ -83,6 +116,8 @@ jobs:
       - name: Build installer (Inno Setup)
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
           choco install innosetup -y --no-progress
           & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' installer.iss /DAppVersion=$env:APP_VERSION
           $installer = "downloads\SystemMonitor-$env:APP_VERSION-setup.exe"
@@ -90,6 +125,38 @@ jobs:
           $hash = (Get-FileHash $installer -Algorithm SHA256).Hash.ToLowerInvariant()
           "$hash *$(Split-Path $installer -Leaf)" | Set-Content "$installer.sha256" -Encoding ascii
           Write-Host "Installer ready: $installer"
+
+      - name: Sign application and installer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $signtool = (Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe' |
+            Sort-Object FullName | Select-Object -Last 1).FullName
+          if (-not $signtool) { throw 'signtool.exe not found on runner' }
+          $targets = @(
+            "target\release\system-monitor.exe",
+            "downloads\SystemMonitor-$env:APP_VERSION-setup.exe"
+          )
+          foreach ($target in $targets) {
+            & $signtool sign /fd sha256 /tr http://timestamp.digicert.com /td sha256 `
+              /sha1 '${{ steps.cert.outputs.thumbprint }}' $target
+            if ($LASTEXITCODE -ne 0) { throw "signtool failed for $target (exit $LASTEXITCODE)" }
+          }
+
+      - name: Verify installer signature matches pinned thumbprint
+        shell: pwsh
+        run: |
+          $installer = "downloads\SystemMonitor-$env:APP_VERSION-setup.exe"
+          $sig = Get-AuthenticodeSignature -LiteralPath $installer
+          if ($sig.Status -ne 'Valid') {
+            throw "Installer signature is not Valid: $($sig.Status) $($sig.StatusMessage)"
+          }
+          $actual = $sig.SignerCertificate.Thumbprint
+          $expected = '${{ steps.cert.outputs.thumbprint }}'
+          if ($actual -ne $expected) {
+            throw "Installer signer $actual does not match pinned thumbprint $expected"
+          }
+          Write-Host "Installer signature verified against pinned thumbprint $expected"
 
       - name: Generate SBOM
         uses: anchore/sbom-action@v0
@@ -105,6 +172,13 @@ jobs:
             downloads/SystemMonitor-${{ env.APP_VERSION }}-setup.exe
             downloads/SystemMonitor-${{ env.APP_VERSION }}-setup.exe.sha256
             downloads/SystemMonitor-${{ env.APP_VERSION }}.spdx.json
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-path: |
+            downloads/SystemMonitor-${{ env.APP_VERSION }}-setup.exe
+            target/x86_64-pc-windows-msvc/release/system-monitor.exe
 
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2

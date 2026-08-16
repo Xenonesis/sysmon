@@ -5,6 +5,39 @@ All notable changes to System Monitor will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.7.1] - 2026-08-16
+
+### Fixed
+- **WMI providers restored:** `wmi` and `windows_gpu` telemetry providers failed at
+  runtime with `RPC_E_TOO_LATE` (0x80010119) because `CoInitializeSecurity` may
+  succeed only once per process. All WMI call sites now share a single COM
+  security initialization (`providers::init_com`) and fall back to
+  `COMLibrary::without_security()` when the context already exists. Hardware
+  identity, thermal-zone and vendor-neutral GPU counter telemetry work again.
+- **Provider failure backoff:** a provider that fails five consecutive polls is
+  disabled and logged once, instead of retrying (and log-spamming) every second.
+  A successful poll re-enables it.
+- **RAM cleaner actually trims now:** `EmptyWorkingSet` requires
+  `PROCESS_QUERY_INFORMATION | PROCESS_SET_QUOTA`; the cleaner opened processes
+  with query rights only, so every trim failed with access denied and nothing was
+  ever freed. Cleanup logs now report `trimmed` / `access_denied` / `errored`
+  instead of a misleading `success`/`failed` pair.
+- **Services view deserialization:** `Win32_Service` rows were deserialized
+  without `rename_all = "PascalCase"`, which surfaced as `WBEM_E_NOT_FOUND` and
+  left the WMI service list empty.
+- **Quality gates restored:** removed 24 unused imports so
+  `cargo clippy --locked --all-targets -- -D warnings` passes, and re-applied
+  `cargo fmt` so the formatting gate passes.
+- **Release pipeline hardened:** the release workflow now fails closed when
+  signing secrets are missing, signs both the application and the installer,
+  verifies the installer signer against the thumbprint pinned into the updater,
+  attaches GitHub build provenance, and propagates native command exit codes so a
+  failing fmt/clippy/test step can no longer publish a release. The unsigned
+  release workflow was removed.
+- **Smoke binaries:** `test_wmi` deserializes with `PascalCase` field names and
+  reports errors gracefully; `test_cpu_temp` no longer panics and explains the
+  administrator requirement for `ROOT\WMI` thermal queries.
+
 ## [3.7.0] - 2026-08-13
 
 ### Added

@@ -64,6 +64,30 @@ impl fmt::Display for ProviderError {
 
 impl std::error::Error for ProviderError {}
 
+/// Initialize COM for WMI access, tolerating a process-wide security context
+/// that was already established by an earlier `CoInitializeSecurity` call.
+///
+/// `CoInitializeSecurity` may succeed only once per process. The first caller
+/// (typically the legacy monitoring engine) sets the security context; every
+/// later caller must reuse it via `COMLibrary::without_security()` instead of
+/// failing with `RPC_E_TOO_LATE` (0x80010119).
+#[cfg(target_os = "windows")]
+pub fn init_com() -> Result<wmi::COMLibrary, wmi::WMIError> {
+    /// `CoInitializeSecurity` was already called in this process.
+    const RPC_E_TOO_LATE: i32 = 0x8001_0119_u32 as i32;
+    match wmi::COMLibrary::new() {
+        Ok(com) => Ok(com),
+        Err(error) => {
+            let too_late = matches!(&error, wmi::WMIError::HResultError { hres } if *hres == RPC_E_TOO_LATE);
+            if too_late {
+                wmi::COMLibrary::without_security()
+            } else {
+                Err(error)
+            }
+        }
+    }
+}
+
 /// The core trait that every telemetry data source must implement.
 ///
 /// Providers are polled by the `TelemetryHub` scheduler at their

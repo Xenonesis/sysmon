@@ -13,6 +13,8 @@ pub struct PollingScheduler {
     background_mode: bool,
     /// Multiplier applied to all intervals in background/tray mode.
     background_multiplier: u32,
+    /// Providers disabled after repeated consecutive failures.
+    disabled: std::collections::HashSet<String>,
 }
 
 impl PollingScheduler {
@@ -22,6 +24,7 @@ impl PollingScheduler {
             last_poll: HashMap::new(),
             background_mode: false,
             background_multiplier: 5, // 5x slower in background
+            disabled: std::collections::HashSet::new(),
         }
     }
 
@@ -35,6 +38,9 @@ impl PollingScheduler {
 
     /// Check if a provider is due for polling.
     pub fn is_due(&self, name: &str) -> bool {
+        if self.disabled.contains(name) {
+            return false;
+        }
         let Some(interval) = self.intervals.get(name) else {
             return false;
         };
@@ -55,6 +61,22 @@ impl PollingScheduler {
         self.last_poll.insert(name.to_string(), Instant::now());
     }
 
+    /// Disable a provider so it is never scheduled again (e.g. after
+    /// repeated consecutive failures). Re-enable with `enable`.
+    pub fn disable(&mut self, name: &str) {
+        self.disabled.insert(name.to_string());
+    }
+
+    /// Re-enable a previously disabled provider.
+    pub fn enable(&mut self, name: &str) {
+        self.disabled.remove(name);
+    }
+
+    /// Whether a provider is currently disabled.
+    pub fn is_disabled(&self, name: &str) -> bool {
+        self.disabled.contains(name)
+    }
+
     /// Enable or disable background mode (reduces polling rates).
     pub fn set_background_mode(&mut self, enabled: bool) {
         self.background_mode = enabled;
@@ -70,6 +92,9 @@ impl PollingScheduler {
         let mut min_wait = Duration::from_secs(1);
 
         for (name, interval) in &self.intervals {
+            if self.disabled.contains(name) {
+                continue;
+            }
             let effective_interval = if self.background_mode {
                 *interval * self.background_multiplier
             } else {

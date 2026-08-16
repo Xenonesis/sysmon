@@ -1,25 +1,20 @@
+use crate::app::models::*;
+use crate::{monitoring, power, processes, services};
+use chrono::Local;
 use parking_lot::{Mutex, RwLock};
-use std::collections::VecDeque;
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
-use chrono::Local;
 use sysinfo::{Disks, Networks, Pid, System};
-use crate::app::models::*;
-use crate::{monitoring, processes, services, power, privilege, startup};
-use tracing::{info, warn, error};
-use wmi::Variant;
+use tracing::{info, warn};
 
 #[cfg(target_os = "windows")]
 use nvml_wrapper::Nvml;
 #[cfg(target_os = "windows")]
 use tray_icon::{
-    menu::{CheckMenuItem, Menu, MenuEvent, MenuItem, Submenu, MenuId},
+    menu::{CheckMenuItem, Menu, MenuItem, Submenu},
     TrayIconBuilder,
-    TrayIcon
 };
-#[cfg(target_os = "windows")]
-use wmi::COMLibrary;
 
 impl SystemMonitor {
     pub(crate) fn new() -> Self {
@@ -36,7 +31,7 @@ impl SystemMonitor {
         // Windows versions differ: some use "GPUPerformanceMonitors", others use "GPUPerformanceCounters".
         #[cfg(target_os = "windows")]
         let (wmi_com, wmi_gpu_engine_class, wmi_gpu_memory_class) = {
-            let com = COMLibrary::new().ok().map(std::rc::Rc::new);
+            let com = crate::providers::init_com().ok().map(std::rc::Rc::new);
             let mut engine_class = None;
             let mut memory_class = None;
             if let Some(com_lib) = com.as_ref() {
@@ -242,17 +237,18 @@ impl SystemMonitor {
 
     #[cfg(target_os = "windows")]
     pub(crate) fn clean_ram(&mut self, exclusions: &[String], smart_only: bool) -> u64 {
-        use windows::Win32::Foundation::CloseHandle;
+        use windows::Win32::Foundation::{CloseHandle, E_ACCESSDENIED};
         use windows::Win32::System::ProcessStatus::EmptyWorkingSet;
-        use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_INFORMATION};
+        use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_SET_QUOTA};
 
         info!(
             excluded = exclusions.len(),
             "RAM clean operation initiated (native API)"
         );
         let mem_before = self.sys.used_memory();
-        let mut success_count = 0;
-        let mut fail_count = 0;
+        let mut trimmed = 0u32;
+        let mut access_denied = 0u32;
+        let mut errored = 0u32;
 
         let mut foreground_pid = 0;
         if smart_only {
@@ -274,19 +270,17 @@ impl SystemMonitor {
                 if smart_only && pid_u32 == foreground_pid {
                     continue;
                 }
-                if let Ok(h) = OpenProcess(PROCESS_QUERY_INFORMATION, false, pid_u32) {
-                    if !h.is_invalid() {
-                        if EmptyWorkingSet(h).is_ok() {
-                            success_count += 1;
-                        } else {
-                            fail_count += 1;
+                match OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_SET_QUOTA, false, pid_u32) {
+                    Ok(h) if !h.is_invalid() => {
+                        match EmptyWorkingSet(h) {
+                            Ok(()) => trimmed += 1,
+                            Err(e) if e.code() == E_ACCESSDENIED => access_denied += 1,
+                            Err(_) => errored += 1,
                         }
                         let _ = CloseHandle(h);
-                    } else {
-                        fail_count += 1;
                     }
-                } else {
-                    fail_count += 1;
+                    Err(e) if e.code() == E_ACCESSDENIED => access_denied += 1,
+                    _ => errored += 1,
                 }
             }
         }
@@ -296,8 +290,9 @@ impl SystemMonitor {
         let freed = mem_before.saturating_sub(mem_after);
         info!(
             freed_mb = freed / 1024 / 1024,
-            success = success_count,
-            failed = fail_count,
+            trimmed = trimmed,
+            access_denied = access_denied,
+            errored = errored,
             "RAM clean complete"
         );
         freed
@@ -567,8 +562,8 @@ impl SystemMonitor {
     /// Any failure returns `None` for the failed fields; WMI init failure returns all `None`.
     fn get_wmi_system_details() -> (Option<String>, Option<String>, Option<String>, Option<String>) {
         use std::rc::Rc;
-        use wmi::{COMLibrary, Variant, WMIConnection};
-        let com = match COMLibrary::new() {
+        use wmi::{Variant, WMIConnection};
+        let com = match crate::providers::init_com() {
             Ok(c) => Rc::new(c),
             Err(_) => return (None, None, None, None),
         };
@@ -765,7 +760,6 @@ impl SystemMonitor {
         }
     }
 }
-
 
 pub(crate) struct SystemMonitorApp {
     pub(crate) data: Arc<RwLock<SystemData>>,
@@ -976,7 +970,8 @@ impl SystemMonitorApp {
             // Subtle borders & widgets
             visuals.widgets.noninteractive.bg_fill = crate::ui::theme::ThemePalette::BG_CARD;
             visuals.widgets.noninteractive.bg_stroke = egui::Stroke::new(1.0, crate::ui::theme::ThemePalette::BORDER);
-            visuals.widgets.noninteractive.fg_stroke = egui::Stroke::new(1.0, crate::ui::theme::ThemePalette::TEXT_PRIMARY);
+            visuals.widgets.noninteractive.fg_stroke =
+                egui::Stroke::new(1.0, crate::ui::theme::ThemePalette::TEXT_PRIMARY);
 
             // Inactive
             visuals.widgets.inactive.bg_fill = crate::ui::theme::ThemePalette::WIDGET_INACTIVE;
@@ -1063,7 +1058,9 @@ impl SystemMonitorApp {
         telemetry_hub.add_provider(Box::new(crate::providers::sysinfo_provider::SysinfoProvider::new()));
         telemetry_hub.add_provider(Box::new(crate::providers::nvml_provider::NvmlProvider::new()));
         telemetry_hub.add_provider(Box::new(crate::providers::wmi_provider::WmiProvider::new()));
-        telemetry_hub.add_provider(Box::new(crate::providers::windows_gpu_provider::WindowsGpuProvider::new()));
+        telemetry_hub.add_provider(Box::new(
+            crate::providers::windows_gpu_provider::WindowsGpuProvider::new(),
+        ));
         thread::Builder::new()
             .name("telemetry_hub".to_string())
             .spawn(move || telemetry_hub.run())
@@ -1105,7 +1102,8 @@ impl SystemMonitorApp {
                             }
                             crate::app::commands::MonitoringCommand::RefreshNow => {
                                 force_refresh = true;
-                                let _ = telemetry_commands_for_monitor.try_send(crate::telemetry::HubCommand::ForceRefresh);
+                                let _ =
+                                    telemetry_commands_for_monitor.try_send(crate::telemetry::HubCommand::ForceRefresh);
                             }
                             crate::app::commands::MonitoringCommand::Shutdown => {
                                 let _ = telemetry_commands_for_monitor.try_send(crate::telemetry::HubCommand::Shutdown);
@@ -1729,8 +1727,16 @@ impl SystemMonitorApp {
         // System info
         wtr.write_record(["System", "Timestamp", &data.last_update])?;
         wtr.write_record(["CPU", "Usage %", &format!("{:.2}", data.cpu_usage)])?;
-        wtr.write_record(["Memory", "Total GB", &format!("{:.2}", crate::ui::components::bytes_to_gb(data.memory_total))])?;
-        wtr.write_record(["Memory", "Used GB", &format!("{:.2}", crate::ui::components::bytes_to_gb(data.memory_used))])?;
+        wtr.write_record([
+            "Memory",
+            "Total GB",
+            &format!("{:.2}", crate::ui::components::bytes_to_gb(data.memory_total)),
+        ])?;
+        wtr.write_record([
+            "Memory",
+            "Used GB",
+            &format!("{:.2}", crate::ui::components::bytes_to_gb(data.memory_used)),
+        ])?;
         wtr.write_record(["Memory", "Usage %", &format!("{:.2}", data.memory_percentage)])?;
 
         // GPU

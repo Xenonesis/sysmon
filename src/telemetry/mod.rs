@@ -72,6 +72,8 @@ pub struct TelemetryHub {
     latest: TelemetrySnapshot,
     snapshot_slot: Arc<RwLock<SnapshotSlot>>,
     command_receiver: mpsc::Receiver<HubCommand>,
+    /// Consecutive poll failures per provider; used to disable broken providers.
+    consecutive_failures: HashMap<String, u32>,
 }
 
 impl TelemetryHub {
@@ -85,6 +87,7 @@ impl TelemetryHub {
             latest: TelemetrySnapshot::default(),
             snapshot_slot: Arc::clone(&snapshot_slot),
             command_receiver: command_rx,
+            consecutive_failures: HashMap::new(),
         };
         let reader = LatestSnapshotReader {
             slot: snapshot_slot,
@@ -149,6 +152,9 @@ impl TelemetryHub {
         self.publish_snapshot();
     }
 
+    /// Consecutive poll failures before a provider is disabled.
+    const MAX_CONSECUTIVE_FAILURES: u32 = 5;
+
     fn apply_provider_result(
         &mut self,
         provider_name: &str,
@@ -156,6 +162,11 @@ impl TelemetryHub {
     ) {
         match result {
             Ok(data) => {
+                self.consecutive_failures.remove(provider_name);
+                if self.scheduler.is_disabled(provider_name) {
+                    tracing::info!(provider = provider_name, "Provider recovered; re-enabling");
+                    self.scheduler.enable(provider_name);
+                }
                 self.latest.provider_status.insert(provider_name.to_string(), true);
                 for (key, value) in data {
                     match value {
@@ -168,7 +179,21 @@ impl TelemetryHub {
                 }
             }
             Err(error) => {
-                tracing::warn!(provider = provider_name, error = %error, "Provider poll failed");
+                let failures = self.consecutive_failures.entry(provider_name.to_string()).or_insert(0);
+                *failures += 1;
+                if *failures >= Self::MAX_CONSECUTIVE_FAILURES {
+                    if !self.scheduler.is_disabled(provider_name) {
+                        tracing::warn!(
+                            provider = provider_name,
+                            failures = *failures,
+                            error = %error,
+                            "Provider failed repeatedly; disabling until manual refresh"
+                        );
+                        self.scheduler.disable(provider_name);
+                    }
+                } else if *failures == 1 {
+                    tracing::warn!(provider = provider_name, error = %error, "Provider poll failed");
+                }
                 self.latest.provider_status.insert(provider_name.to_string(), false);
             }
         }
@@ -260,6 +285,63 @@ mod tests {
         handle.join().unwrap();
         assert!(snapshot.metrics.contains_key("mock.value"));
         assert_eq!(snapshot.history_stats["mock.value"].sixty_seconds.sample_count, 1);
+    }
+
+    struct FailingProvider;
+
+    impl TelemetryProvider for FailingProvider {
+        fn name(&self) -> &str {
+            "failing"
+        }
+
+        fn poll_interval(&self) -> Duration {
+            Duration::from_millis(1)
+        }
+
+        fn poll(&mut self) -> Result<ProviderData, ProviderError> {
+            Err(ProviderError::InitFailed("always fails".into()))
+        }
+
+        fn is_available(&self) -> bool {
+            false
+        }
+    }
+
+    #[test]
+    fn failing_provider_is_disabled_after_repeated_failures() {
+        let (mut hub, _reader, _sender) = TelemetryHub::new();
+        hub.add_provider(Box::new(FailingProvider));
+
+        // Drive enough consecutive failures to trip the backoff threshold.
+        for _ in 0..TelemetryHub::MAX_CONSECUTIVE_FAILURES {
+            let result = hub.providers[0].poll();
+            hub.apply_provider_result("failing", result);
+        }
+
+        assert!(
+            hub.scheduler.is_disabled("failing"),
+            "provider should be disabled after {} consecutive failures",
+            TelemetryHub::MAX_CONSECUTIVE_FAILURES
+        );
+        assert_eq!(hub.latest.provider_status.get("failing"), Some(&false));
+    }
+
+    #[test]
+    fn success_resets_failure_count_and_reenables() {
+        let (mut hub, _reader, _sender) = TelemetryHub::new();
+        hub.add_provider(Box::new(FailingProvider));
+
+        // Accumulate failures just below the disable threshold.
+        for _ in 0..TelemetryHub::MAX_CONSECUTIVE_FAILURES - 1 {
+            let result = hub.providers[0].poll();
+            hub.apply_provider_result("failing", result);
+        }
+        assert!(!hub.scheduler.is_disabled("failing"));
+
+        // A success clears the failure counter.
+        hub.apply_provider_result("failing", Ok(ProviderData::new()));
+        assert_eq!(hub.consecutive_failures.get("failing"), None);
+        assert_eq!(hub.latest.provider_status.get("failing"), Some(&true));
     }
 
     #[test]

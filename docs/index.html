@@ -65,7 +65,7 @@
                 </div>
                 <div class="hero-spec">
                     <div class="spec-item"><span class="spec-key">Platform</span><span class="spec-val">Windows 10/11 · x64</span></div>
-                    <div class="spec-item"><span class="spec-key">Latest</span><span class="spec-val mono" id="latestVersion" data-version-display>v3.7.0</span></div>
+                    <div class="spec-item"><span class="spec-key">Latest</span><span class="spec-val mono" id="latestVersion" data-version-display>v3.7.1</span></div>
                     <div class="spec-item"><span class="spec-key">Installer</span><span class="spec-val">~5 MB</span></div>
                     <div class="spec-item"><span class="spec-key">Refresh</span><span class="spec-val">1–10 s</span></div>
                 </div>
@@ -294,48 +294,40 @@
                 <div class="container">
                     <div class="section-head">
                         <p class="eyebrow">Release notes</p>
-                        <h2 class="section-title">What's new in v3.7.0</h2>
-                        <p class="section-lede" id="changelogLede">A full TelemetryHub architecture with provider abstraction, evidence-based diagnostics, guarded system actions and a signed supply chain.</p>
+                        <h2 class="section-title">What's new in v3.7.1</h2>
+                        <p class="section-lede" id="changelogLede">Restored WMI and vendor-neutral GPU telemetry, a RAM cleaner that actually frees memory, provider failure backoff, and a hardened signed-release pipeline.</p>
                     </div>
                     <div class="changelog-grid">
                         <div class="change-item change-major">
-                            <span class="change-type">TelemetryHub architecture</span>
-                            <p class="change-desc">Multi-tier telemetry hub on dedicated background threads decouples 60 FPS UI rendering from 1–5 Hz hardware sampling. Polling scheduler throttles 5x when minimised to conserve CPU and power.</p>
+                            <span class="change-type">WMI telemetry restored</span>
+                            <p class="change-desc">Hardware identity, thermal-zone and vendor-neutral GPU counter providers now share a single COM security init, fixing the RPC_E_TOO_LATE failure that silently disabled them.</p>
+                        </div>
+                        <div class="change-item change-major">
+                            <span class="change-type">RAM cleaner fixed</span>
+                            <p class="change-desc">Working-set trims now open processes with the required quota rights, so cleanup actually frees memory. Logs report trimmed / access-denied / errored counts.</p>
                         </div>
                         <div class="change-item">
-                            <span class="change-type">Provider abstraction</span>
-                            <p class="change-desc">Vendor-independent TelemetryProvider trait (Sysinfo, NVML, WMI). Bounded 60s / 5m / 30m / 1hr ring buffers with current, min, max and average statistics. Individual provider failures never take down main telemetry.</p>
+                            <span class="change-type">Provider failure backoff</span>
+                            <p class="change-desc">A provider that fails five consecutive polls is disabled and logged once instead of retrying every second. A successful poll re-enables it.</p>
                         </div>
                         <div class="change-item">
-                            <span class="change-type">Vendor-neutral GPU</span>
-                            <p class="change-desc">Windows GPU adapters and performance counters complement detailed NVIDIA NVML metrics — Intel, AMD and other Windows GPUs now covered.</p>
+                            <span class="change-type">Services view fixed</span>
+                            <p class="change-desc">WMI service rows deserialize with PascalCase field names, restoring the service list that previously came back empty.</p>
                         </div>
                         <div class="change-item">
-                            <span class="change-type">Diagnostics workspace</span>
-                            <p class="change-desc">Evidence-based findings with confidence ratings, plus opt-in local JSONL session recording to reproduce transient slowdowns. Nothing is uploaded.</p>
+                            <span class="change-type">Quality gates green</span>
+                            <p class="change-desc">Removed 24 unused imports and re-applied formatting so the strict Clippy and rustfmt CI gates pass again.</p>
                         </div>
                         <div class="change-item">
-                            <span class="change-type">Polling scheduler</span>
-                            <p class="change-desc">Throttles polling 5x when minimized to conserve CPU and power, ensuring minimal footprint.</p>
-                        </div>
-                        <div class="change-item">
-                            <span class="change-type">Graceful error isolation</span>
-                            <p class="change-desc">Independent provider failure handling — missing WMI or NVML no longer affects main telemetry.</p>
-                        </div>
-                        <div class="change-item">
-                            <span class="change-type">Safe action plans</span>
-                            <p class="change-desc">Risk previews, elevation disclosure, confirmation, and local audit history with Undo for known reversible operations.</p>
-                        </div>
-                        <div class="change-item">
-                            <span class="change-type">Signed supply chain</span>
-                            <p class="change-desc">Signed release workflow with cert pinning, checksums, SPDX SBOM, and Windows CI quality gates on locked dependencies.</p>
+                            <span class="change-type">Hardened release pipeline</span>
+                            <p class="change-desc">The release workflow fails closed without signing secrets, signs app and installer, verifies the signer against the pinned thumbprint, attaches build provenance, and propagates native exit codes.</p>
                         </div>
                     </div>
                     <div class="version-compare">
                         <h3 class="compare-title">Compared with previous releases</h3>
                         <table class="compare-table">
                             <thead>
-                                <tr><th>Capability</th><th>1.x</th><th>2.6.x</th><th>3.7.0</th></tr>
+                                <tr><th>Capability</th><th>1.x</th><th>2.6.x</th><th>3.7.1</th></tr>
                             </thead>
                             <tbody>
                                 <tr><td>Telemetry engine</td><td>Single polling thread</td><td>Legacy polling thread</td><td><strong>TelemetryHub</strong> (provider abstraction)</td></tr>
