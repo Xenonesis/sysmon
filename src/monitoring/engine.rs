@@ -822,6 +822,7 @@ pub(crate) struct SystemMonitorApp {
     pub(crate) priority_change: Option<(u32, String)>,
     pub(crate) process_tree_view: bool,
     pub(crate) affinity_change: Option<(u32, usize)>,
+    pub(crate) network_socket_search: String,
     #[allow(dead_code)]
     #[cfg(target_os = "windows")]
     pub(crate) tray_icon: Option<tray_icon::TrayIcon>,
@@ -1079,7 +1080,7 @@ impl SystemMonitorApp {
 
         thread::Builder::new()
             .name("actions".to_string())
-            .spawn(move || crate::run_action_worker(action_receiver, action_events))
+            .spawn(move || crate::app::run_action_worker(action_receiver, action_events))
             .expect("failed to spawn action worker");
 
         let (mut telemetry_hub, mut telemetry_reader, telemetry_commands) = crate::telemetry::TelemetryHub::new();
@@ -1704,6 +1705,7 @@ impl SystemMonitorApp {
             priority_change: None,
             process_tree_view: false,
             affinity_change: None,
+            network_socket_search: String::new(),
             service_search: String::new(),
             service_state_filter: None,
             pending_service_action: None,

@@ -6,6 +6,7 @@ use crate::ui::theme::ThemePalette;
 use chrono::Local;
 mod diagnostics;
 mod monitoring;
+mod network;
 mod persistence;
 mod power;
 mod privilege;
@@ -13,6 +14,7 @@ mod processes;
 pub mod providers;
 mod services;
 mod startup;
+mod storage;
 pub mod telemetry;
 mod updater;
 use eframe::egui;
@@ -1089,32 +1091,7 @@ impl eframe::App for SystemMonitorApp {
         }
 
         // Keyboard Shortcuts dialog
-        let mut show_shortcuts = self.show_shortcuts;
-        if show_shortcuts {
-            egui::Window::new("Keyboard Shortcuts")
-                .open(&mut show_shortcuts)
-                .resizable(false)
-                .default_width(400.0)
-                .show(ctx, |ui| {
-                    ui.heading("Available Shortcuts");
-                    ui.separator();
-                    egui::Grid::new("shortcuts_grid").spacing([20.0, 6.0]).show(ui, |ui| {
-                        let shortcuts = [
-                            ("F5", "Refresh / Reset statistics"),
-                            ("Ctrl + B", "Toggle Sidebar (Collapse/Expand)"),
-                            ("Ctrl + E", "Export data to JSON"),
-                            ("Ctrl + ,", "Open Settings"),
-                            ("Ctrl + U", "Check for updates"),
-                        ];
-                        for (key, desc) in &shortcuts {
-                            ui.label(egui::RichText::new(*key).strong().color(ThemePalette::ACCENT_PRIMARY));
-                            ui.label(*desc);
-                            ui.end_row();
-                        }
-                    });
-                });
-        }
-        self.show_shortcuts = show_shortcuts;
+        crate::ui::dialogs::render_shortcuts_dialog(self, ctx, is_dark);
 
         // Settings window
         if self.show_settings {
@@ -1138,7 +1115,7 @@ impl eframe::App for SystemMonitorApp {
                 .title_bar(true)
                 .collapsible(false)
                 .show(ctx, |ui| {
-                    self.render_widget(ui, &data);
+                    crate::ui::hud::render_hud(self, ui, &data);
                 });
         }
 
@@ -1158,38 +1135,53 @@ impl eframe::App for SystemMonitorApp {
                             egui::Button::new(egui::RichText::new("☰").size(13.0).color(ThemePalette::ACCENT_PRIMARY))
                                 .fill(ThemePalette::bg_surface(is_dark))
                                 .stroke(egui::Stroke::new(1.0, ThemePalette::border(is_dark)))
-                                .rounding(egui::Rounding::same(3.0));
+                                .rounding(egui::Rounding::same(4.0));
 
                         if ui.add(expand_btn).on_hover_text("Expand Sidebar (Ctrl+B)").clicked() {
                             self.settings.sidebar_collapsed = false;
                             let _ = self.settings.save();
                         }
-                        ui.add_space(6.0);
+                        ui.add_space(4.0);
                     }
-                    ui.add_space(4.0);
-                    // CPU status pill
+
+                    // Telemetry Ribbon: CPU, RAM, GPU, NET with live micro progress tracks
                     let cpu_c = get_usage_color(data.cpu_usage);
-                    status_pill(ui, &format!("CPU: {:.1}%", data.cpu_usage), cpu_c, is_dark);
+                    paint_telemetry_chip(
+                        ui,
+                        "CPU",
+                        &format!("{:.1}%", data.cpu_usage),
+                        Some(data.cpu_usage / 100.0),
+                        cpu_c,
+                        is_dark,
+                    );
+                    ui.add_space(3.0);
 
-                    ui.add_space(6.0);
-
-                    // RAM status pill
                     let mem_c = get_usage_color(data.memory_percentage);
-                    status_pill(ui, &format!("RAM: {:.1}%", data.memory_percentage), mem_c, is_dark);
+                    paint_telemetry_chip(
+                        ui,
+                        "RAM",
+                        &format!("{:.1}%", data.memory_percentage),
+                        Some(data.memory_percentage / 100.0),
+                        mem_c,
+                        is_dark,
+                    );
+                    ui.add_space(3.0);
 
-                    ui.add_space(6.0);
-
-                    // GPU status pill
                     if let Some(gpu) = data.gpu_info.first() {
                         let gpu_c = get_usage_color(gpu.utilization);
-                        status_pill(ui, &format!("GPU: {:.1}%", gpu.utilization), gpu_c, is_dark);
+                        paint_telemetry_chip(
+                            ui,
+                            "GPU",
+                            &format!("{:.1}%", gpu.utilization),
+                            Some(gpu.utilization / 100.0),
+                            gpu_c,
+                            is_dark,
+                        );
                     } else {
-                        status_pill(ui, "GPU: N/A", ThemePalette::text_dimmed(is_dark), is_dark);
+                        paint_telemetry_chip(ui, "GPU", "N/A", None, ThemePalette::text_dimmed(is_dark), is_dark);
                     }
+                    ui.add_space(3.0);
 
-                    ui.add_space(6.0);
-
-                    // NET status pill
                     let net_total_rate: f64 = data
                         .network_info
                         .iter()
@@ -1202,7 +1194,7 @@ impl eframe::App for SystemMonitorApp {
                     } else {
                         ThemePalette::STATUS_HEALTHY
                     };
-                    status_pill(ui, &format!("NET: {:.1} MB/s", net_total_rate), net_c, is_dark);
+                    paint_telemetry_chip(ui, "NET", &format!("{:.1} MB/s", net_total_rate), None, net_c, is_dark);
 
                     // Right side Quick Action Hub
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -1212,35 +1204,39 @@ impl eframe::App for SystemMonitorApp {
                         if !data.alerts.is_empty() {
                             let alert_count = data.alerts.len();
                             let alert_btn = egui::Button::new(
-                                egui::RichText::new(format!("⚠ {alert_count} Alerts"))
-                                    .size(11.5)
+                                egui::RichText::new(format!("⚠ {alert_count} ALERTS"))
+                                    .size(11.0)
                                     .strong()
                                     .color(ThemePalette::STATUS_WARNING),
                             )
-                            .fill(ThemePalette::STATUS_WARNING.gamma_multiply(if is_dark { 0.15 } else { 0.12 }))
-                            .stroke(egui::Stroke::new(1.0, ThemePalette::STATUS_WARNING.gamma_multiply(0.4)))
+                            .fill(ThemePalette::STATUS_WARNING.gamma_multiply(if is_dark { 0.18 } else { 0.12 }))
+                            .stroke(egui::Stroke::new(1.0, ThemePalette::STATUS_WARNING.gamma_multiply(0.5)))
                             .rounding(egui::Rounding::same(4.0));
 
                             if ui.add(alert_btn).on_hover_text("View active system alerts").clicked() {
                                 self.selected_tab = Tab::Alerts;
                             }
                         } else {
-                            let healthy_frame = egui::Frame::none()
-                                .fill(ThemePalette::STATUS_HEALTHY.gamma_multiply(if is_dark { 0.15 } else { 0.12 }))
-                                .stroke(egui::Stroke::new(1.0, ThemePalette::STATUS_HEALTHY.gamma_multiply(0.4)))
-                                .rounding(egui::Rounding::same(4.0))
-                                .inner_margin(egui::Margin::symmetric(8.0, 3.0));
-                            healthy_frame.show(ui, |ui| {
-                                ui.label(
-                                    egui::RichText::new("All Good")
-                                        .size(11.0)
-                                        .strong()
-                                        .color(ThemePalette::STATUS_HEALTHY),
-                                );
-                            });
+                            let nominal_btn = egui::Button::new(
+                                egui::RichText::new("✓ NORMAL")
+                                    .size(10.5)
+                                    .strong()
+                                    .color(ThemePalette::STATUS_HEALTHY),
+                            )
+                            .fill(ThemePalette::bg_surface(is_dark))
+                            .stroke(egui::Stroke::new(1.0, ThemePalette::border(is_dark)))
+                            .rounding(egui::Rounding::same(4.0));
+
+                            if ui
+                                .add(nominal_btn)
+                                .on_hover_text("All metric thresholds nominal")
+                                .clicked()
+                            {
+                                self.selected_tab = Tab::Alerts;
+                            }
                         }
 
-                        ui.add_space(6.0);
+                        ui.add_space(5.0);
 
                         // Diagnostic Session Record toggle button
                         let is_recording = self.session_recorder.is_recording();
@@ -1254,11 +1250,11 @@ impl eframe::App for SystemMonitorApp {
                         };
 
                         let rec_btn =
-                            egui::Button::new(egui::RichText::new(&rec_text).size(11.5).strong().color(rec_color))
+                            egui::Button::new(egui::RichText::new(&rec_text).size(11.0).strong().color(rec_color))
                                 .fill(if is_recording {
-                                    ThemePalette::STATUS_CRITICAL.gamma_multiply(if is_dark { 0.18 } else { 0.12 })
+                                    ThemePalette::STATUS_CRITICAL.gamma_multiply(if is_dark { 0.20 } else { 0.12 })
                                 } else {
-                                    ThemePalette::bg_track(is_dark)
+                                    ThemePalette::bg_surface(is_dark)
                                 })
                                 .stroke(egui::Stroke::new(
                                     1.0,
@@ -1293,20 +1289,35 @@ impl eframe::App for SystemMonitorApp {
                             });
                         }
 
-                        ui.add_space(6.0);
+                        ui.add_space(5.0);
 
                         // Clean RAM button
                         let is_cleaning = self.ram_cleaner_state.is_cleaning;
-                        let clean_text = if is_cleaning { "Cleaning..." } else { "🧹 Clean RAM" };
-                        let clean_btn = egui::Button::new(egui::RichText::new(clean_text).size(11.5).strong().color(
+                        let clean_text = if is_cleaning {
+                            "🧹 Cleaning..."
+                        } else {
+                            "🧹 Free RAM"
+                        };
+                        let clean_btn = egui::Button::new(egui::RichText::new(clean_text).size(11.0).strong().color(
                             if is_cleaning {
                                 ThemePalette::text_dimmed(is_dark)
                             } else {
                                 ThemePalette::ACCENT_PRIMARY
                             },
                         ))
-                        .fill(ThemePalette::ACCENT_PRIMARY.gamma_multiply(if is_dark { 0.15 } else { 0.12 }))
-                        .stroke(egui::Stroke::new(1.0, ThemePalette::ACCENT_PRIMARY.gamma_multiply(0.4)))
+                        .fill(if is_cleaning {
+                            ThemePalette::bg_track(is_dark)
+                        } else {
+                            ThemePalette::bg_surface(is_dark)
+                        })
+                        .stroke(egui::Stroke::new(
+                            1.0,
+                            if is_cleaning {
+                                ThemePalette::border(is_dark)
+                            } else {
+                                ThemePalette::ACCENT_PRIMARY.gamma_multiply(0.45)
+                            },
+                        ))
                         .rounding(egui::Rounding::same(4.0));
 
                         ui.add_enabled_ui(!is_cleaning, |ui| {
@@ -1319,13 +1330,13 @@ impl eframe::App for SystemMonitorApp {
                             }
                         });
 
-                        ui.add_space(6.0);
+                        ui.add_space(5.0);
 
                         // Mini-Widget / HUD Toggle button
                         let hud_open = self.widget_open;
                         let hud_btn = egui::Button::new(
                             egui::RichText::new(if hud_open { "◰ HUD ON" } else { "◰ HUD" })
-                                .size(11.5)
+                                .size(11.0)
                                 .strong()
                                 .color(if hud_open {
                                     ThemePalette::ACCENT_PRIMARY
@@ -1336,7 +1347,7 @@ impl eframe::App for SystemMonitorApp {
                         .fill(if hud_open {
                             ThemePalette::ACCENT_PRIMARY.gamma_multiply(if is_dark { 0.18 } else { 0.12 })
                         } else {
-                            ThemePalette::bg_track(is_dark)
+                            ThemePalette::bg_surface(is_dark)
                         })
                         .stroke(egui::Stroke::new(
                             1.0,
@@ -1380,8 +1391,8 @@ impl eframe::App for SystemMonitorApp {
             Tab::Diagnostics => crate::ui::pages::diagnostics::show(self, ui, &data),
             Tab::About => crate::ui::pages::about::show(self, ui, &data),
         });
-        self.render_action_confirmation(ctx);
-        self.render_action_history(ctx);
+        crate::ui::dialogs::render_action_confirmation(self, ctx);
+        crate::ui::dialogs::render_action_history(self, ctx);
     }
 }
 
@@ -1406,378 +1417,8 @@ impl SystemMonitorApp {
         self.pending_action_plan = Some(app::actions::ActionPlan::from_command(command));
     }
 
-    fn render_action_confirmation(&mut self, ctx: &egui::Context) {
-        let Some(plan) = self.pending_action_plan.clone() else {
-            return;
-        };
-        let mut confirm = false;
-        let mut cancel = false;
-        egui::Window::new("Confirm system action")
-            .collapsible(false)
-            .resizable(false)
-            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
-            .show(ctx, |ui| {
-                ui.heading(&plan.title);
-                ui.label(&plan.summary);
-                ui.add_space(8.0);
-                ui.horizontal(|ui| {
-                    ui.strong("Risk:");
-                    let color = match plan.risk {
-                        app::actions::RiskLevel::Low => ThemePalette::STATUS_HEALTHY,
-                        app::actions::RiskLevel::Medium => ThemePalette::STATUS_WARNING,
-                        app::actions::RiskLevel::High | app::actions::RiskLevel::Critical => {
-                            ThemePalette::STATUS_CRITICAL
-                        }
-                    };
-                    ui.colored_label(color, plan.risk.label());
-                });
-                ui.label(format!(
-                    "Administrator privileges: {}",
-                    if plan.requires_admin {
-                        "usually required"
-                    } else {
-                        "not required"
-                    }
-                ));
-                ui.label(format!(
-                    "Undo available: {}",
-                    if plan.reversible { "yes" } else { "no" }
-                ));
-                ui.add_space(12.0);
-                ui.horizontal(|ui| {
-                    if ui.button("Cancel").clicked() {
-                        cancel = true;
-                    }
-                    if ui.button(egui::RichText::new("Confirm and run").strong()).clicked() {
-                        confirm = true;
-                    }
-                });
-            });
-
-        if cancel {
-            self.pending_action_plan = None;
-        } else if confirm {
-            self.pending_action_plan = None;
-            if matches!(plan.command, app::commands::ActionCommand::CleanRam) {
-                self.ram_cleaner_state.is_cleaning = true;
-            }
-            match self.app_channels.action_sender.send(plan.command) {
-                Ok(()) => self.action_pending = true,
-                Err(error) => self.action_status = Some(format!("Could not queue action: {error}")),
-            }
-        }
-    }
-
-    fn render_action_history(&mut self, ctx: &egui::Context) {
-        if !self.show_action_history {
-            return;
-        }
-        let mut open = self.show_action_history;
-        let mut undo = None;
-        egui::Window::new("System Action History")
-            .open(&mut open)
-            .default_width(620.0)
-            .show(ctx, |ui| {
-                ui.label("Persistent audit records are stored locally. Undo is offered only when the original state is known.");
-                ui.separator();
-                egui::ScrollArea::vertical().max_height(420.0).show(ui, |ui| {
-                    for entry in self.action_history.iter().rev().take(100) {
-                        ui.group(|ui| {
-                            ui.horizontal(|ui| {
-                                ui.strong(&entry.record.action);
-                                ui.label(entry.record.risk.label());
-                                if entry.record.succeeded {
-                                    ui.colored_label(ThemePalette::STATUS_HEALTHY, "Succeeded");
-                                } else {
-                                    ui.colored_label(ThemePalette::STATUS_CRITICAL, "Failed");
-                                }
-                            });
-                            ui.small(&entry.record.timestamp);
-                            ui.small(format!("Initiated by {}", entry.record.initiator));
-                            ui.label(&entry.record.message);
-                            if let Some(command) = &entry.undo {
-                                if ui.button("Undo this action").clicked() {
-                                    undo = Some(command.clone());
-                                }
-                            }
-                        });
-                    }
-                });
-            });
-        self.show_action_history = open;
-        if let Some(command) = undo {
-            self.queue_action(command);
-        }
-    }
-
     fn start_ram_clean(&mut self, _ctx: &egui::Context) {
         self.queue_action(app::commands::ActionCommand::CleanRam);
-    }
-
-    /// Render the compact desktop mini-widget telemetry panel.
-    /// Render the precision desktop floating mini-widget telemetry HUD.
-    fn render_widget(&mut self, ui: &mut egui::Ui, data: &SystemData) {
-        let is_dark = ui.visuals().dark_mode;
-        ui.spacing_mut().item_spacing = egui::vec2(6.0, 5.0);
-        ui.set_width(240.0);
-
-        // Header
-        ui.horizontal(|ui| {
-            ui.label(
-                egui::RichText::new("◰ HUD TELEMETRY")
-                    .size(11.0)
-                    .monospace()
-                    .strong()
-                    .color(ThemePalette::ACCENT_PRIMARY),
-            );
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.small_button("✕").on_hover_text("Close HUD (Ctrl+M)").clicked() {
-                    self.widget_open = false;
-                    self.settings.show_widget = false;
-                    let _ = self.settings.save();
-                    {
-                        let mut shared = self.shared_settings.lock();
-                        *shared = self.settings.clone();
-                    }
-                }
-            });
-        });
-
-        ui.add_space(2.0);
-
-        // CPU Metric
-        let cpu_color = get_usage_color(data.cpu_usage);
-        ui.horizontal(|ui| {
-            ui.label(
-                egui::RichText::new("CPU")
-                    .size(11.0)
-                    .monospace()
-                    .strong()
-                    .color(ThemePalette::text_secondary(is_dark)),
-            );
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if let Some(temp) = data.cpu_temperature {
-                    ui.label(
-                        egui::RichText::new(format!("{temp:.0}°C"))
-                            .size(10.5)
-                            .monospace()
-                            .color(ThemePalette::text_dimmed(is_dark)),
-                    );
-                    ui.add_space(4.0);
-                }
-                ui.label(
-                    egui::RichText::new(format!("{:.1}%", data.cpu_usage))
-                        .size(11.5)
-                        .monospace()
-                        .strong()
-                        .color(cpu_color),
-                );
-            });
-        });
-        crate::ui::components::paint_progress_bar(ui, data.cpu_usage / 100.0, cpu_color, 4.0, is_dark);
-
-        // RAM Metric
-        let mem_color = get_usage_color(data.memory_percentage);
-        ui.horizontal(|ui| {
-            ui.label(
-                egui::RichText::new("RAM")
-                    .size(11.0)
-                    .monospace()
-                    .strong()
-                    .color(ThemePalette::text_secondary(is_dark)),
-            );
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let used_gb = data.memory_used as f64 / 1024.0 / 1024.0 / 1024.0;
-                let total_gb = data.memory_total as f64 / 1024.0 / 1024.0 / 1024.0;
-                ui.label(
-                    egui::RichText::new(format!("{used_gb:.1}/{total_gb:.1}G"))
-                        .size(10.5)
-                        .monospace()
-                        .color(ThemePalette::text_dimmed(is_dark)),
-                );
-                ui.add_space(4.0);
-                ui.label(
-                    egui::RichText::new(format!("{:.1}%", data.memory_percentage))
-                        .size(11.5)
-                        .monospace()
-                        .strong()
-                        .color(mem_color),
-                );
-            });
-        });
-        crate::ui::components::paint_progress_bar(ui, data.memory_percentage / 100.0, mem_color, 4.0, is_dark);
-
-        // GPU Metric (if available)
-        if let Some(gpu) = data.gpu_info.first() {
-            let gpu_color = get_usage_color(gpu.utilization);
-            ui.horizontal(|ui| {
-                ui.label(
-                    egui::RichText::new("GPU")
-                        .size(11.0)
-                        .monospace()
-                        .strong()
-                        .color(ThemePalette::text_secondary(is_dark)),
-                );
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if let Some(temp) = gpu.temperature {
-                        ui.label(
-                            egui::RichText::new(format!("{temp:.0}°C"))
-                                .size(10.5)
-                                .monospace()
-                                .color(ThemePalette::text_dimmed(is_dark)),
-                        );
-                        ui.add_space(4.0);
-                    }
-                    ui.label(
-                        egui::RichText::new(format!("{:.1}%", gpu.utilization))
-                            .size(11.5)
-                            .monospace()
-                            .strong()
-                            .color(gpu_color),
-                    );
-                });
-            });
-            crate::ui::components::paint_progress_bar(ui, gpu.utilization / 100.0, gpu_color, 4.0, is_dark);
-        }
-
-        // Network I/O
-        let dl: f64 = data.network_info.iter().map(|n| n.received_rate).sum();
-        let ul: f64 = data.network_info.iter().map(|n| n.transmitted_rate).sum();
-        ui.horizontal(|ui| {
-            ui.label(
-                egui::RichText::new(format!("↓ {:.0} KB/s", dl))
-                    .size(10.5)
-                    .monospace()
-                    .color(ThemePalette::ACCENT_PRIMARY),
-            );
-            ui.add_space(8.0);
-            ui.label(
-                egui::RichText::new(format!("↑ {:.0} KB/s", ul))
-                    .size(10.5)
-                    .monospace()
-                    .color(ThemePalette::ACCENT_ACTIVE),
-            );
-        });
-
-        ui.separator();
-
-        // Footer Actions
-        ui.horizontal(|ui| {
-            let is_cleaning = self.ram_cleaner_state.is_cleaning;
-            let clean_label = if is_cleaning { "..." } else { "⚡ Clean RAM" };
-            if ui
-                .add_enabled(
-                    !is_cleaning,
-                    egui::Button::new(egui::RichText::new(clean_label).size(10.5)),
-                )
-                .clicked()
-            {
-                self.start_ram_clean(ui.ctx());
-            }
-
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.label(
-                    egui::RichText::new(&data.last_update)
-                        .size(10.0)
-                        .monospace()
-                        .color(ThemePalette::text_dimmed(is_dark)),
-                );
-            });
-        });
-    }
-}
-
-use std::sync::mpsc::{Receiver, Sender};
-
-#[derive(Debug, Clone)]
-pub(crate) enum ActionError {
-    AccessDenied,
-    // typed error contract; constructed once kill/service paths distinguish failures
-    #[allow(dead_code)]
-    NotFound,
-    #[allow(dead_code)]
-    Unavailable,
-    Failed(String),
-}
-
-impl std::fmt::Display for ActionError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::AccessDenied => write!(f, "Access denied; administrator privileges may be required"),
-            Self::NotFound => write!(f, "Process or service not found"),
-            Self::Unavailable => write!(f, "Operation unavailable on this system"),
-            Self::Failed(message) => f.write_str(message),
-        }
-    }
-}
-
-pub(crate) fn run_action_worker(
-    commands: Receiver<app::commands::ActionCommand>,
-    events: Sender<app::events::AppEvent>,
-) {
-    let mut monitor = SystemMonitor::new();
-    while let Ok(command) = commands.recv() {
-        let plan = app::actions::ActionPlan::from_command(command.clone());
-        let result: Result<String, ActionError> = match command {
-            app::commands::ActionCommand::KillProcess(pid) => monitor
-                .kill_process(pid)
-                .then_some(format!("Process {pid} killed"))
-                .ok_or(ActionError::AccessDenied),
-            app::commands::ActionCommand::SuspendProcess(pid) => monitor
-                .suspend_process(pid)
-                .then_some(format!("Process {pid} suspended"))
-                .ok_or(ActionError::AccessDenied),
-            app::commands::ActionCommand::ResumeProcess(pid) => monitor
-                .resume_process(pid)
-                .then_some(format!("Process {pid} resumed"))
-                .ok_or(ActionError::AccessDenied),
-            app::commands::ActionCommand::SetPriority { pid, priority } => {
-                SystemMonitor::set_process_priority(pid, &priority)
-                    .then_some(format!("Process {pid} priority set to {priority}"))
-                    .ok_or(ActionError::AccessDenied)
-            }
-            app::commands::ActionCommand::CleanRam => Ok(format!("Freed {} bytes", monitor.clean_ram(&[], false))),
-            app::commands::ActionCommand::ControlService { name, action } => {
-                services::send_service_control(&name, action)
-                    .then_some(format!("Service {name} action completed"))
-                    .ok_or(ActionError::Failed("Service action failed".into()))
-            }
-            app::commands::ActionCommand::SetPowerPlan(guid) => power::set_active_power_plan(&guid)
-                .map(|_| "Power plan changed".into())
-                .map_err(ActionError::Failed),
-            app::commands::ActionCommand::SetAffinity { pid, mask } => processes::set_process_affinity(pid, mask)
-                .map(|_| format!("Process {pid} affinity set to {mask:#x}"))
-                .map_err(ActionError::Failed),
-            app::commands::ActionCommand::KillProcessTree(root) => {
-                monitor.sys.refresh_processes();
-                let tree = processes::build_process_tree(&monitor.sys);
-                let order = processes::kill_order(&tree, root);
-                let total = order.len();
-                let killed = order.into_iter().filter(|pid| monitor.kill_process(*pid)).count();
-                if killed == total {
-                    Ok(format!("Killed {killed} processes"))
-                } else {
-                    Err(ActionError::Failed(format!("Killed {killed} of {total} processes")))
-                }
-            }
-        };
-        let audit_result = result.map_err(|error| error.to_string());
-        let record = app::actions::ActionAuditRecord::from_result(&plan, &audit_result);
-        if let Err(error) = persistence::action_log::append(&record) {
-            warn!(%error, "Failed to persist action audit record");
-        }
-        let event = match audit_result {
-            Ok(_) => app::events::AppEvent::ActionCompleted {
-                command: plan.command,
-                record,
-                undo: plan.undo,
-            },
-            Err(_) => app::events::AppEvent::ActionFailed {
-                command: plan.command,
-                record,
-            },
-        };
-        let _ = events.send(event);
     }
 }
 

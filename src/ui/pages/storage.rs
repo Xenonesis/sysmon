@@ -191,6 +191,84 @@ pub(crate) fn show(_app: &crate::SystemMonitorApp, ui: &mut egui::Ui, data: &Sys
             ui.add_space(8.0);
         }
 
+        // ── 3. Physical Drive Hardware & S.M.A.R.T. Health ──
+        let physical_drives = crate::storage::get_physical_disks();
+        if !physical_drives.is_empty() {
+            ui.add_space(6.0);
+            card_frame(is_dark).show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new("PHYSICAL HARDWARE DRIVES & S.M.A.R.T. HEALTH")
+                            .size(11.0)
+                            .strong()
+                            .color(ThemePalette::text_secondary(is_dark)),
+                    );
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        status_pill(
+                            ui,
+                            &format!("{} DRIVES", physical_drives.len()),
+                            ThemePalette::ACCENT_PRIMARY,
+                            is_dark,
+                        );
+                    });
+                });
+
+                ui.add_space(8.0);
+
+                for drive in &physical_drives {
+                    ui.group(|ui| {
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                egui::RichText::new(&drive.model)
+                                    .size(13.0)
+                                    .strong()
+                                    .color(ThemePalette::text_primary(is_dark)),
+                            );
+                            status_pill(ui, &drive.media_type, ThemePalette::ACCENT_PRIMARY, is_dark);
+
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                let smart_color = if drive.status == "HEALTHY" {
+                                    ThemePalette::STATUS_HEALTHY
+                                } else {
+                                    ThemePalette::STATUS_CRITICAL
+                                };
+                                status_pill(ui, &drive.smart_status, smart_color, is_dark);
+                            });
+                        });
+
+                        ui.add_space(4.0);
+                        ui.horizontal(|ui| {
+                            let size_gb = (drive.size_bytes as f64) / (1024.0 * 1024.0 * 1024.0);
+                            ui.label(
+                                egui::RichText::new(format!("Capacity: {:.1} GB", size_gb))
+                                    .monospace()
+                                    .size(11.0)
+                                    .color(ThemePalette::text_secondary(is_dark)),
+                            );
+                            ui.add_space(12.0);
+                            ui.label(
+                                egui::RichText::new(format!("Device ID: {}", drive.device_id))
+                                    .monospace()
+                                    .size(10.5)
+                                    .color(ThemePalette::text_dimmed(is_dark)),
+                            );
+                            if let Some(wear) = drive.wear_percentage {
+                                ui.add_space(12.0);
+                                ui.label(
+                                    egui::RichText::new(format!("Estimated Life: {}%", wear))
+                                        .monospace()
+                                        .size(11.0)
+                                        .strong()
+                                        .color(ThemePalette::STATUS_HEALTHY),
+                                );
+                            }
+                        });
+                    });
+                    ui.add_space(4.0);
+                }
+            });
+        }
+
         if data.disk_info.is_empty() {
             card_frame(is_dark).show(ui, |ui| {
                 ui.label(

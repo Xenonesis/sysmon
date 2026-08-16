@@ -162,6 +162,20 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ctx: &egui::Context, data:
                                     app.process_sort_ascending = false;
                                 }
                             }
+                            if ui
+                                .button(format!(
+                                    "Disk I/O{}",
+                                    sort_arrow(ProcessSortColumn::Disk, sort_col, sort_asc)
+                                ))
+                                .clicked()
+                            {
+                                if app.process_sort_column == ProcessSortColumn::Disk {
+                                    app.process_sort_ascending = !app.process_sort_ascending;
+                                } else {
+                                    app.process_sort_column = ProcessSortColumn::Disk;
+                                    app.process_sort_ascending = false;
+                                }
+                            }
                             ui.strong("Actions");
                             ui.end_row();
 
@@ -190,7 +204,17 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ctx: &egui::Context, data:
                                 ui.colored_label(memory_color, format!("{:.2} MB", memory_mb));
                                 ui.label(format!("{:.1}%", process.cpu_usage));
                                 ui.label(&process.status);
-
+                                let disk_total = process.disk_read_bytes.saturating_add(process.disk_written_bytes);
+                                let disk_str = if disk_total > 0 {
+                                    format!(
+                                        "R:{} W:{}",
+                                        bytes_to_human(process.disk_read_bytes),
+                                        bytes_to_human(process.disk_written_bytes)
+                                    )
+                                } else {
+                                    "—".to_string()
+                                };
+                                ui.label(egui::RichText::new(disk_str).monospace().size(11.0));
                                 ui.horizontal(|ui| {
                                     if ui.small_button("Kill").on_hover_text("Kill Process").clicked() {
                                         app.selected_process_pid = Some(process.pid);

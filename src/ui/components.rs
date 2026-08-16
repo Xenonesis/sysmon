@@ -79,6 +79,45 @@ pub(crate) fn card_frame(is_dark: bool) -> egui::Frame {
         .inner_margin(egui::Margin::symmetric(14.0, 12.0))
 }
 
+/// Precision telemetry flight-deck chip with micro progress indicator bar.
+pub(crate) fn paint_telemetry_chip(
+    ui: &mut egui::Ui,
+    label: &str,
+    value: &str,
+    fraction: Option<f32>,
+    color: egui::Color32,
+    is_dark: bool,
+) {
+    let frame = egui::Frame::none()
+        .fill(ThemePalette::bg_surface(is_dark))
+        .stroke(egui::Stroke::new(1.0, ThemePalette::border(is_dark)))
+        .rounding(egui::Rounding::same(4.0))
+        .inner_margin(egui::Margin::symmetric(9.0, 5.0));
+
+    frame.show(ui, |ui| {
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 6.0;
+            ui.label(
+                egui::RichText::new(label)
+                    .size(10.5)
+                    .strong()
+                    .color(ThemePalette::text_dimmed(is_dark)),
+            );
+            ui.label(egui::RichText::new(value).size(11.5).monospace().strong().color(color));
+            if let Some(frac) = fraction {
+                let bar_w = 24.0;
+                let bar_h = 4.0;
+                let (rect, _) = ui.allocate_exact_size(egui::vec2(bar_w, bar_h), egui::Sense::hover());
+                ui.painter()
+                    .rect_filled(rect, egui::Rounding::same(2.0), ThemePalette::bg_track(is_dark));
+                let filled_w = (bar_w * frac.clamp(0.0, 1.0)).max(1.0);
+                let fill_rect = egui::Rect::from_min_size(rect.min, egui::vec2(filled_w, bar_h));
+                ui.painter().rect_filled(fill_rect, egui::Rounding::same(2.0), color);
+            }
+        });
+    });
+}
+
 /// Flat status indicator pill with tinted background, 1px border, and bold uppercase text.
 #[allow(dead_code)]
 pub(crate) fn status_pill(ui: &mut egui::Ui, label: &str, color: egui::Color32, is_dark: bool) {
@@ -125,25 +164,7 @@ pub(crate) fn details_row(ui: &mut egui::Ui, label: &str, value: &str, is_dark: 
     ui.end_row();
 }
 
-/// Semantic threshold color mapping (<70% Emerald, 70-90% Amber, >90% Red).
-pub(crate) fn get_usage_color(percentage: f32) -> egui::Color32 {
-    if percentage < 70.0 {
-        ThemePalette::STATUS_HEALTHY
-    } else if percentage < 90.0 {
-        ThemePalette::STATUS_WARNING
-    } else {
-        ThemePalette::STATUS_CRITICAL
-    }
-}
-
-pub(crate) fn bytes_to_mb(bytes: u64) -> f64 {
-    bytes as f64 / 1024.0 / 1024.0
-}
-
-pub(crate) fn bytes_to_gb(bytes: u64) -> f64 {
-    bytes as f64 / 1024.0 / 1024.0 / 1024.0
-}
-
+pub(crate) use crate::ui::format::*;
 pub(crate) fn format_rate(mb_per_sec: f64) -> String {
     let bytes_per_sec = mb_per_sec * 1024.0 * 1024.0;
     if bytes_per_sec >= 1_073_741_824.0 {

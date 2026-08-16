@@ -23,6 +23,7 @@ pub enum ProcessSortColumn {
     Name,
     Memory,
     Cpu,
+    Disk,
 }
 
 #[derive(Clone)]
@@ -73,6 +74,11 @@ pub fn sort_processes(items: &mut [ProcessInfo], column: ProcessSortColumn, asce
                     .unwrap_or(std::cmp::Ordering::Equal),
                 ascending,
             )
+        }),
+        ProcessSortColumn::Disk => items.sort_by(|a, b| {
+            let a_disk = a.disk_read_bytes.saturating_add(a.disk_written_bytes);
+            let b_disk = b.disk_read_bytes.saturating_add(b.disk_written_bytes);
+            ord(a_disk.cmp(&b_disk), ascending)
         }),
     }
 }
@@ -351,6 +357,19 @@ mod tests {
         sort_processes(&mut items, ProcessSortColumn::Name, true);
         let names: Vec<&str> = items.iter().map(|x| x.name.as_str()).collect();
         assert_eq!(names, vec!["alpha", "Beta", "zeta"]);
+    }
+
+    #[test]
+    fn sort_disk_descending() {
+        let mut p1 = p(1, "a", 0.0, 0, "Running");
+        p1.disk_read_bytes = 1000;
+        let mut p2 = p(2, "b", 0.0, 0, "Running");
+        p2.disk_written_bytes = 5000;
+        let p3 = p(3, "c", 0.0, 0, "Running");
+        let mut items = vec![p1, p2, p3];
+        sort_processes(&mut items, ProcessSortColumn::Disk, false);
+        let pids: Vec<u32> = items.iter().map(|x| x.pid).collect();
+        assert_eq!(pids, vec![2, 1, 3]);
     }
 
     #[test]

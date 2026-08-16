@@ -139,16 +139,22 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
                         app.process_sort_ascending = false; // default descending for CPU
                     }
                 }
-                ui.label(
-                    egui::RichText::new("Disk Read")
-                        .strong()
-                        .color(ThemePalette::text_secondary(is_dark)),
-                );
-                ui.label(
-                    egui::RichText::new("Disk Write")
-                        .strong()
-                        .color(ThemePalette::text_secondary(is_dark)),
-                );
+                if header_button(ui, "Disk Read", ProcessSortColumn::Disk, sort_col, sort_asc).clicked() {
+                    if app.process_sort_column == ProcessSortColumn::Disk {
+                        app.process_sort_ascending = !app.process_sort_ascending;
+                    } else {
+                        app.process_sort_column = ProcessSortColumn::Disk;
+                        app.process_sort_ascending = false;
+                    }
+                }
+                if header_button(ui, "Disk Write", ProcessSortColumn::Disk, sort_col, sort_asc).clicked() {
+                    if app.process_sort_column == ProcessSortColumn::Disk {
+                        app.process_sort_ascending = !app.process_sort_ascending;
+                    } else {
+                        app.process_sort_column = ProcessSortColumn::Disk;
+                        app.process_sort_ascending = false;
+                    }
+                }
                 ui.label(
                     egui::RichText::new("Actions")
                         .strong()
