@@ -1141,8 +1141,8 @@ impl eframe::App for SystemMonitorApp {
                     }
 
                     let avail_w = ui.available_width();
-                    let show_gpu = avail_w >= 720.0;
-                    let show_net = avail_w >= 840.0;
+                    let show_gpu = avail_w >= 760.0;
+                    let show_net = avail_w >= 960.0;
 
                     // Telemetry Ribbon: CPU & RAM always visible; GPU & NET responsive
                     let cpu_c = get_usage_color(data.cpu_usage);
@@ -1166,7 +1166,7 @@ impl eframe::App for SystemMonitorApp {
                         is_dark,
                     );
 
-                    if show_gpu {
+                    if show_gpu && ui.available_width() >= 380.0 {
                         ui.add_space(3.0);
                         if let Some(gpu) = data.gpu_info.first() {
                             let gpu_c = get_usage_color(gpu.utilization);
@@ -1183,7 +1183,7 @@ impl eframe::App for SystemMonitorApp {
                         }
                     }
 
-                    if show_net {
+                    if show_net && ui.available_width() >= 380.0 {
                         ui.add_space(3.0);
                         let net_total_rate: f64 = data
                             .network_info
