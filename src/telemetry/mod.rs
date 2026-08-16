@@ -56,6 +56,10 @@ impl LatestSnapshotReader {
         self.observed_generation = slot.generation;
         Some(slot.snapshot.clone())
     }
+    pub fn latest(&self) -> Option<TelemetrySnapshot> {
+        let slot = self.slot.read().ok()?;
+        Some(slot.snapshot.clone())
+    }
 }
 
 /// Commands sent from the application to the telemetry worker.
@@ -142,7 +146,7 @@ impl TelemetryHub {
         }
     }
 
-    fn poll_all(&mut self) {
+    pub fn poll_all(&mut self) {
         for index in 0..self.providers.len() {
             let name = self.providers[index].name().to_string();
             let result = self.providers[index].poll();

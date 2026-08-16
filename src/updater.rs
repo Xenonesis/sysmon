@@ -80,6 +80,11 @@ impl Clone for Updater {
         }
     }
 }
+impl Default for Updater {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl Updater {
     pub fn new() -> Self {

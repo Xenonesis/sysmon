@@ -4,7 +4,7 @@ use crate::monitoring::SystemSnapshot;
 use crate::telemetry::HistoryStats;
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
-pub(crate) enum Severity {
+pub enum Severity {
     Healthy,
     Info,
     Warning,
@@ -23,7 +23,7 @@ impl Severity {
 }
 
 #[derive(Clone, Debug, Serialize)]
-pub(crate) struct Finding {
+pub struct Finding {
     pub severity: Severity,
     pub title: String,
     pub evidence: String,
@@ -32,11 +32,11 @@ pub(crate) struct Finding {
 }
 
 #[derive(Clone, Debug, Default, Serialize)]
-pub(crate) struct DiagnosticReport {
+pub struct DiagnosticReport {
     pub findings: Vec<Finding>,
 }
 
-pub(crate) fn analyze(
+pub fn analyze(
     snapshot: &SystemSnapshot,
     histories: &std::collections::HashMap<String, HistoryStats>,
 ) -> DiagnosticReport {

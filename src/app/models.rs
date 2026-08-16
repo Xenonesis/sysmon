@@ -431,7 +431,7 @@ pub(crate) fn should_stop_cleaning(usage_pct: f64, target: f64, freed: u64, budg
     usage_pct <= target || freed == 0 || freed >= budget_left
 }
 
-pub(crate) struct SystemMonitor {
+pub struct SystemMonitor {
     pub(crate) sys: System,
     pub(crate) disks: Disks,
     pub(crate) networks: Networks,

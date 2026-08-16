@@ -6,6 +6,8 @@ use crate::ui::components::*;
 use crate::ui::theme::ThemePalette;
 use crate::*;
 use eframe::egui;
+use std::sync::Arc;
+use std::thread;
 
 /// Resolves badge text and high-contrast semantic color for startup impact tiers.
 pub(crate) fn impact_tier_badge_color(tier: &ImpactTier) -> (&'static str, egui::Color32) {
