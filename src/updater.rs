@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::fs;
 use std::io::Read;
 
@@ -6,10 +7,7 @@ const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 const UPDATE_CHECK_URL: &str = "https://api.github.com/repos/Xenonesis/sysmon/releases/latest";
 const MAX_INSTALLER_BYTES: u64 = 100 * 1024 * 1024;
 const MAX_RELEASE_METADATA_BYTES: u64 = 1024 * 1024;
-const SIGNER_THUMBPRINT: &str = match option_env!("SYSMON_SIGNER_THUMBPRINT") {
-    Some(value) => value,
-    None => "",
-};
+const MAX_CHECKSUM_BYTES: u64 = 4 * 1024;
 
 fn http_agent() -> ureq::Agent {
     ureq::AgentBuilder::new()
@@ -27,6 +25,14 @@ pub(crate) fn validate_asset_url(url: &str) -> Result<(), String> {
     Ok(())
 }
 
+fn validate_checksum_url(url: &str) -> Result<(), String> {
+    let lower = url.to_ascii_lowercase();
+    if !lower.starts_with("https://github.com/xenonesis/sysmon/releases/download/") || !lower.ends_with(".exe.sha256") {
+        return Err("Unexpected checksum asset URL".into());
+    }
+    Ok(())
+}
+
 // Must match the AppId in installer.iss.
 const INSTALLER_APP_ID: &str = "{3F2A9C41-8E7D-4B6A-9C21-5D8E4F1A7B62}";
 
@@ -36,6 +42,7 @@ pub struct UpdateInfo {
     pub latest_version: String,
     pub update_available: bool,
     pub download_url: String,
+    pub checksum_url: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -57,6 +64,7 @@ impl Default for UpdateInfo {
             latest_version: CURRENT_VERSION.to_string(),
             update_available: false,
             download_url: String::new(),
+            checksum_url: String::new(),
         }
     }
 }
@@ -95,20 +103,25 @@ impl Updater {
                 self.update_info.latest_version = latest_version.to_string();
                 self.update_info.update_available = self.is_newer_version(current_version, latest_version);
 
-                // Clear any URL from a previous check in this session.
+                // Clear any URLs from a previous check in this session.
                 self.update_info.download_url.clear();
+                self.update_info.checksum_url.clear();
 
                 // Only the installer asset (SystemMonitor-<ver>-setup.exe) is
-                // offered; portable builds are no longer published.
+                // offered, and only together with the SHA-256 checksum file
+                // published next to it. Without a published checksum the
+                // download cannot be verified, so no update is offered.
                 for asset in release.assets {
                     let name = asset.name.to_lowercase();
-                    if name.contains("setup") && name.ends_with(".exe") {
+                    if name.contains("setup") && name.ends_with(".exe.sha256") {
+                        self.update_info.checksum_url = asset.browser_download_url;
+                    } else if name.contains("setup") && name.ends_with(".exe") {
                         self.update_info.download_url = asset.browser_download_url;
-                        break;
                     }
                 }
-                self.update_info.update_available =
-                    self.update_info.update_available && !self.update_info.download_url.is_empty();
+                self.update_info.update_available = self.update_info.update_available
+                    && !self.update_info.download_url.is_empty()
+                    && !self.update_info.checksum_url.is_empty();
 
                 Ok(self.update_info.clone())
             }
@@ -178,14 +191,30 @@ impl Updater {
         false
     }
 
-    pub fn download_and_install_update(&self, download_url: &str) -> Result<(), String> {
+    fn fetch_expected_checksum(&self, checksum_url: &str) -> Result<String, String> {
+        let response = http_agent()
+            .get(checksum_url)
+            .set("User-Agent", "SystemMonitor/1.0")
+            .call()
+            .map_err(|e| format!("Failed to download checksum: {}", e))?;
+
+        let mut body = String::new();
+        response
+            .into_reader()
+            .take(MAX_CHECKSUM_BYTES + 1)
+            .read_to_string(&mut body)
+            .map_err(|e| format!("Failed to read checksum file: {e}"))?;
+        if body.len() as u64 > MAX_CHECKSUM_BYTES {
+            return Err("Checksum file exceeds size limit".into());
+        }
+
+        parse_checksum_file(&body).ok_or_else(|| "Checksum file contains no SHA-256 hash".to_string())
+    }
+
+    pub fn download_and_install_update(&self, download_url: &str, checksum_url: &str) -> Result<(), String> {
         validate_asset_url(download_url)?;
-        let unique = format!(
-            "system-monitor-setup-{}-{}.exe",
-            std::process::id(),
-            chrono::Utc::now().timestamp_millis()
-        );
-        let installer_path = std::env::temp_dir().join(unique);
+        validate_checksum_url(checksum_url)?;
+        let expected_sha256 = self.fetch_expected_checksum(checksum_url)?;
 
         // Download the update using ureq
         let response = http_agent()
@@ -211,6 +240,16 @@ impl Updater {
             return Err("Update installer exceeds size limit".into());
         }
 
+        // Verify the downloaded installer against the SHA-256 checksum
+        // published with the release before writing or executing it.
+        verify_sha256(&bytes, &expected_sha256)?;
+
+        let unique = format!(
+            "system-monitor-setup-{}-{}.exe",
+            std::process::id(),
+            chrono::Utc::now().timestamp_millis()
+        );
+        let installer_path = std::env::temp_dir().join(unique);
         fs::write(&installer_path, &bytes).map_err(|e| format!("Failed to write update file: {}", e))?;
 
         // Silent install — replaces the exe, shortcuts, and uninstall entry in
@@ -220,10 +259,6 @@ impl Updater {
         {
             use std::os::windows::process::CommandExt;
             use std::process::Command;
-            if let Err(error) = verify_authenticode(&installer_path) {
-                let _ = fs::remove_file(&installer_path);
-                return Err(error);
-            }
             Command::new(&installer_path)
                 .creation_flags(0x08000000)
                 .args(["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"])
@@ -254,73 +289,34 @@ impl Clone for UpdateInfo {
             latest_version: self.latest_version.clone(),
             update_available: self.update_available,
             download_url: self.download_url.clone(),
+            checksum_url: self.checksum_url.clone(),
         }
     }
 }
 
-fn sig_acceptable_with_expected(status: &str, thumbprint: Option<&str>, expected: &str) -> bool {
-    if status != "Valid" {
-        return false;
-    }
-    if expected.trim().is_empty() {
-        // No thumbprint was baked in at compile time (unsigned / dev build).
-        // Fall back to chain-trust-only: any Valid Windows-trusted signature passes.
-        thumbprint.is_some()
-    } else {
-        thumbprint.is_some_and(|actual| actual.replace(' ', "").eq_ignore_ascii_case(&expected.replace(' ', "")))
-    }
-}
-
-fn sig_acceptable(status: &str, thumbprint: Option<&str>) -> bool {
-    sig_acceptable_with_expected(status, thumbprint, SIGNER_THUMBPRINT)
-}
-
-#[cfg(target_os = "windows")]
-fn verify_authenticode(path: &std::path::Path) -> Result<(), String> {
-    use std::os::windows::process::CommandExt;
-    let escaped = path.to_string_lossy().replace('\'', "''");
-    // PowerShell only reports status + signer thumbprint; the acceptance
-    // decision lives in Rust (sig_acceptable) so it is testable and is the
-    // single source of truth.
-    let script = format!(
-        "$sig = Get-AuthenticodeSignature -LiteralPath '{escaped}'; \
-         $tp = if ($sig.SignerCertificate) {{ $sig.SignerCertificate.Thumbprint }} else {{ '' }}; \
-         Write-Output ('STATUS=' + $sig.Status); Write-Output ('THUMB=' + $tp)"
-    );
-    let out = std::process::Command::new("powershell")
-        .creation_flags(0x08000000)
-        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
-        .output()
-        .map_err(|e| format!("Failed to verify installer signature: {e}"))?;
-    if !out.status.success() {
-        return Err(format!(
-            "PowerShell signature verification failed: {}",
-            String::from_utf8_lossy(&out.stderr).trim()
-        ));
-    }
-    let text = String::from_utf8_lossy(&out.stdout);
-    let mut status: Option<String> = None;
-    let mut thumb: Option<String> = None;
+/// Parses a `sha256sum`-style file (`<hash> *<name>` or `<hash>  <name>`) and
+/// returns the first 64-hex-digit hash, lowercased.
+fn parse_checksum_file(text: &str) -> Option<String> {
     for line in text.lines() {
-        if let Some(v) = line.strip_prefix("STATUS=") {
-            status = Some(v.trim().to_string());
-        }
-        if let Some(v) = line.strip_prefix("THUMB=") {
-            let t = v.trim();
-            thumb = if t.is_empty() { None } else { Some(t.to_string()) };
+        if let Some(hash) = line.split_whitespace().next() {
+            if hash.len() == 64 && hash.chars().all(|c| c.is_ascii_hexdigit()) {
+                return Some(hash.to_ascii_lowercase());
+            }
         }
     }
-    let status = status.ok_or("PowerShell signature check returned no status")?;
-    if sig_acceptable(status.as_str(), thumb.as_deref()) {
+    None
+}
+
+fn verify_sha256(bytes: &[u8], expected_hex: &str) -> Result<(), String> {
+    let digest = Sha256::digest(bytes);
+    let actual: String = digest.iter().map(|b| format!("{b:02x}")).collect();
+    if actual.eq_ignore_ascii_case(expected_hex.trim()) {
         Ok(())
     } else {
-        Err(format!("Installer Authenticode signature is invalid (status {status})"))
+        Err(format!(
+            "Installer SHA-256 mismatch: expected {expected_hex}, got {actual}"
+        ))
     }
-}
-
-#[cfg(not(target_os = "windows"))]
-fn verify_authenticode(_path: &std::path::Path) -> Result<(), String> {
-    Err("Installer verification is only supported on Windows".into())
 }
 
 #[cfg(test)]
@@ -348,32 +344,59 @@ mod tests {
     }
 
     #[test]
-    fn signature_accepts_only_expected_publisher() {
-        let expected = "AABBCC";
-        assert!(sig_acceptable_with_expected("Valid", Some("aa bb cc"), expected));
-        assert!(!sig_acceptable_with_expected("NotTrusted", Some("AABBCC"), expected));
-        assert!(!sig_acceptable_with_expected("Valid", Some("other"), expected));
-        assert!(!sig_acceptable_with_expected("Valid", None, expected));
-        // Empty expected thumbprint = chain-trust-only: any signer with Valid status passes.
-        assert!(sig_acceptable_with_expected("Valid", Some("ANYSIGNER"), ""));
-        // But unsigned (no thumbprint at all) still fails even in chain-trust mode.
-        assert!(!sig_acceptable_with_expected("Valid", None, ""));
+    fn accepts_expected_checksum_asset() {
+        assert!(validate_checksum_url(
+            "https://github.com/Xenonesis/sysmon/releases/download/v3.7.1/SystemMonitor-3.7.1-setup.exe.sha256"
+        )
+        .is_ok());
     }
 
     #[test]
-    fn signature_rejects_tamper_wrong_signer_and_unsigned() {
-        // tamper/unsigned -> wrong status, never pinned-check bypass
-        let expected = "AABBCC";
-        assert!(!sig_acceptable_with_expected("HashMismatch", Some(expected), expected));
-        assert!(!sig_acceptable_with_expected("NotSigned", Some(expected), expected));
-        assert!(!sig_acceptable_with_expected("NoSignature", Some(expected), expected));
-        // Trust failures are rejected even if a certificate is present.
-        assert!(!sig_acceptable_with_expected("UnknownError", Some(expected), expected));
-        assert!(!sig_acceptable_with_expected(
-            "UnknownError",
-            Some("DEADBEEF"),
-            expected
-        ));
-        assert!(!sig_acceptable_with_expected("UnknownError", None, expected));
+    fn rejects_untrusted_checksum_urls() {
+        for url in [
+            "http://github.com/Xenonesis/sysmon/releases/download/v3/a.exe.sha256",
+            "https://evil.example/a.exe.sha256",
+            "https://github.com/other/sysmon/releases/download/v3/a.exe.sha256",
+            // The installer itself is not a valid checksum asset.
+            "https://github.com/Xenonesis/sysmon/releases/download/v3/a.exe",
+        ] {
+            assert!(validate_checksum_url(url).is_err(), "accepted {url}");
+        }
+    }
+
+    #[test]
+    fn parses_sha256_checksum_file() {
+        let hash = "a1".repeat(32);
+        // sha256sum binary-mode format, as published by the release workflow.
+        assert_eq!(
+            parse_checksum_file(&format!("{hash} *SystemMonitor-3.7.1-setup.exe")),
+            Some(hash.clone())
+        );
+        // GNU coreutils text-mode (two-space) format.
+        assert_eq!(
+            parse_checksum_file(&format!("{hash}  SystemMonitor-3.7.1-setup.exe\n")),
+            Some(hash.clone())
+        );
+        // Uppercase hashes are normalized.
+        assert_eq!(
+            parse_checksum_file(&format!("{} *setup.exe", hash.to_uppercase())),
+            Some(hash)
+        );
+        // Empty, missing or malformed content yields no hash.
+        assert_eq!(parse_checksum_file(""), None);
+        assert_eq!(parse_checksum_file("nothash *setup.exe"), None);
+        assert_eq!(parse_checksum_file(&format!("{} *setup.exe", "z".repeat(64))), None);
+    }
+
+    #[test]
+    fn verifies_installer_checksum() {
+        let bytes = b"sysmon installer payload";
+        let digest = Sha256::digest(bytes);
+        let hex: String = digest.iter().map(|b| format!("{b:02x}")).collect();
+        assert!(verify_sha256(bytes, &hex).is_ok());
+        // Case-insensitive comparison against the published hash.
+        assert!(verify_sha256(bytes, &hex.to_uppercase()).is_ok());
+        // Any tampering changes the digest and must be rejected.
+        assert!(verify_sha256(b"tampered installer payload", &hex).is_err());
     }
 }

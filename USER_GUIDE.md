@@ -61,8 +61,8 @@ SysMon checks the official GitHub repository for releases. An installer is accep
 
 - the download is HTTPS and belongs to the expected release repository;
 - it is an `.exe` installer and remains within the configured size limit;
-- Windows reports a valid Authenticode signature;
-- the signer thumbprint matches the publisher pinned into the running application.
+- the release publishes a SHA-256 checksum file next to the installer;
+- the downloaded installer's SHA-256 hash matches that published checksum.
 
 If verification fails, SysMon deletes the temporary installer and does not run it.
 
@@ -72,4 +72,4 @@ If verification fails, SysMon deletes the temporary installer and does not run i
 - **No vendor-neutral GPU counters:** update Windows/display drivers and restart SysMon.
 - **Action denied:** relaunch as administrator only if you trust and intend the exact action shown.
 - **No diagnostic finding:** record a session while the issue occurs; an idle snapshot cannot explain a transient spike.
-- **Update rejected:** install only a correctly signed official release. Do not bypass signature or publisher checks.
+- **Update rejected:** install only an official release whose published checksum matches. Do not bypass checksum or repository checks.

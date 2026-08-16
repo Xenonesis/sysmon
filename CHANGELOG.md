@@ -28,15 +28,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Quality gates restored:** removed 24 unused imports so
   `cargo clippy --locked --all-targets -- -D warnings` passes, and re-applied
   `cargo fmt` so the formatting gate passes.
-- **Release pipeline hardened:** the release workflow now fails closed when
-  signing secrets are missing, signs both the application and the installer,
-  verifies the installer signer against the thumbprint pinned into the updater,
-  attaches GitHub build provenance, and propagates native command exit codes so a
-  failing fmt/clippy/test step can no longer publish a release. The unsigned
-  release workflow was removed.
+- **Release pipeline hardened:** the release workflow propagates native command
+  exit codes so a failing fmt/clippy/test step can no longer publish a release,
+  publishes the installer with its SHA-256 checksum and SPDX SBOM, and attaches
+  GitHub build provenance. The unsigned release workflow was removed.
 - **Smoke binaries:** `test_wmi` deserializes with `PascalCase` field names and
   reports errors gracefully; `test_cpu_temp` no longer panics and explains the
   administrator requirement for `ROOT\WMI` thermal queries.
+
+### Changed
+- **Update verification without a paid certificate:** Authenticode signature
+  checks are replaced by SHA-256 checksum verification. The release workflow
+  publishes the installer together with its `.sha256` file, and the updater
+  downloads both, verifies the installer hash, and refuses to install on
+  mismatch or when no checksum is published. Releases no longer require
+  signing secrets; GitHub build provenance remains attached to every release.
 
 ## [3.7.0] - 2026-08-13
 

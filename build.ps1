@@ -172,11 +172,6 @@ if ($LASTEXITCODE -eq 0) {
         $version = "1.0.0"
     }
 
-    # ── Code Signing (Main EXE) ──
-    if (Test-Path "sign-binary.ps1") {
-        Write-Host "Signing executable..." -ForegroundColor Cyan
-        & .\sign-binary.ps1 -FilePath "target\release\system-monitor.exe" -AllowDevelopmentCertificate
-    }
 
     # -- Compile Installer (Inno Setup) --
     $isccPath = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
@@ -188,10 +183,6 @@ if ($LASTEXITCODE -eq 0) {
         if ($LASTEXITCODE -eq 0 -and (Test-Path "$downloadsFolder\$installerName")) {
             $installerExists = $true
             Write-Host "[OK] Installed to $downloadsFolder\$installerName" -ForegroundColor Green
-            if (Test-Path "sign-binary.ps1") {
-                Write-Host "Signing installer..." -ForegroundColor Cyan
-                & .\sign-binary.ps1 -FilePath "$downloadsFolder\$installerName" -AllowDevelopmentCertificate
-            }
         } else {
             Write-Host "[FAIL] Failed to compile installer." -ForegroundColor Red
         }

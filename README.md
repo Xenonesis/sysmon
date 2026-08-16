@@ -15,7 +15,7 @@ SysMon is a native Windows observability and diagnostics application written in 
 - **Explainable diagnostics:** findings include evidence, a recommendation and confidence instead of applying broad tweak scripts.
 - **Local session recording:** opt-in JSONL capture for reproducing transient slowdowns; no automatic upload.
 - **Guarded actions:** process, service, RAM and power actions show risk and administrator requirements before execution, then write a local audit record. Reversible actions offer Undo when the prior state is known.
-- **Secure updates:** HTTPS/repository asset validation, bounded downloads, Authenticode validation and a build-time pinned publisher certificate.
+- **Secure updates:** HTTPS/repository asset validation, bounded downloads and SHA-256 checksum verification against the checksum published with each release.
 
 ## Main views
 
@@ -32,8 +32,8 @@ Overview, Performance, Diagnostics, CPU Cores, Processes, Services, Startup Mana
 | GPU support | NVIDIA only (NVML) | NVIDIA only (NVML) | **Vendor-neutral** — NVML + Windows/WMI adapters, Intel/AMD via counters |
 | Diagnostics | — | — | **Evidence-based findings + confidence**, opt-in JSONL session recording |
 | Action safety | — | — | **Risk preview, elevation disclosure, audit history, Undo** |
-| Update verification | Plain download | HTTPS + basic checks | **Authenticode + pinned publisher thumbprint**, checksum + SBOM |
-| Supply chain / CI | — | Basic scripts | **Signed release workflow**, provenance, Windows CI quality gates |
+| Update verification | Plain download | HTTPS + basic checks | **SHA-256 checksum verification**, SBOM, build provenance |
+| Supply chain / CI | — | Basic scripts | **Checksum + provenance release workflow**, Windows CI quality gates |
 | Views / modules | 4 tabs | 7 tabs | **14 modules** |
 | Themes | Single | Dark / Light | Dark / Light |
 
@@ -41,9 +41,9 @@ See the [changelog](CHANGELOG.md) for the complete per-version history.
 
 ## Install
 
-Use a signed installer from [GitHub Releases](https://github.com/Xenonesis/sysmon/releases/latest). SysMon intentionally refuses automatic installation when a release is unsigned or signed by a certificate other than the publisher pinned into that build.
+Use the installer from [GitHub Releases](https://github.com/Xenonesis/sysmon/releases/latest). SysMon verifies the downloaded installer's SHA-256 checksum against the checksum file published with the release and refuses to install when they do not match or when no checksum is published.
 
-> Version 3.7.1 must be published through the signed release workflow before installed clients can receive it. Do not distribute a locally self-signed build as a production update.
+> Version 3.7.1 must be published through the release workflow before installed clients can receive it. Do not distribute a locally built installer as a production update.
 
 ## Build from source
 
@@ -77,7 +77,7 @@ SysMon has no telemetry-upload feature. Settings, diagnostic sessions, logs and 
 
 ## Release security
 
-Tagged releases require production certificate secrets, sign both the application and installer, verify that both match the updater's pinned thumbprint, generate a SHA-256 checksum and SPDX SBOM, and attach GitHub build provenance. See [release-rule.md](docs/release-rule.md) and [SECURITY.md](SECURITY.md).
+Tagged releases build the application and installer in CI, generate a SHA-256 checksum and SPDX SBOM, and attach GitHub build provenance. The updater verifies the installer checksum before installing. See [release-rule.md](docs/release-rule.md) and [SECURITY.md](SECURITY.md).
 
 ## Documentation
 

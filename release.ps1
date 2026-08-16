@@ -1,10 +1,9 @@
 # Local release readiness helper. Publishing is intentionally delegated to the
-# signed GitHub Actions workflow triggered by a matching version tag.
+# GitHub Actions release workflow triggered by a matching version tag.
 
 param(
     [string]$Version = "",
     [string]$Changelog = "",
-    [switch]$Sign,
     [switch]$Publish
 )
 
@@ -12,7 +11,7 @@ $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
 
 if ($Publish) {
-    throw "Local publishing is disabled. Push a reviewed vX.Y.Z tag and use the signed Windows release workflow."
+    throw "Local publishing is disabled. Push a reviewed vX.Y.Z tag and use the Windows release workflow."
 }
 
 $cargo = Get-Content "Cargo.toml" -Raw
@@ -27,10 +26,6 @@ if ($Changelog) {
     Write-Warning "-Changelog no longer edits files automatically; update CHANGELOG.md in the reviewed source change."
 }
 
-if ($Sign -and [string]::IsNullOrWhiteSpace($env:SYSMON_SIGNER_THUMBPRINT)) {
-    throw "Signing requires SYSMON_SIGNER_THUMBPRINT so the same publisher is pinned into the build."
-}
-
 Write-Host "Checking release readiness for v$current" -ForegroundColor Cyan
 cargo metadata --locked --format-version 1 --no-deps | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "Locked dependency validation failed" }
@@ -42,11 +37,6 @@ cargo test --locked --all-targets
 if ($LASTEXITCODE -ne 0) { throw "Tests failed" }
 cargo build --locked --release --bin system-monitor
 if ($LASTEXITCODE -ne 0) { throw "Release build failed" }
-
-if ($Sign) {
-    & ".\sign-binary.ps1" -FilePath "target\release\system-monitor.exe"
-    if ($LASTEXITCODE -ne 0) { throw "Application signing failed" }
-}
 
 Write-Host "Local checks passed for v$current." -ForegroundColor Green
 Write-Host "Production publishing: review, commit, push, then push tag v$current." -ForegroundColor Cyan

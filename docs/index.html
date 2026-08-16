@@ -181,7 +181,7 @@
                         <article class="feature-card">
                             <div class="feature-icon"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg></div>
                             <h3 class="feature-title">Verified auto-updates</h3>
-                            <p class="feature-desc">Checks GitHub every 24 h. Updates download only on explicit approval, after URL, size and Authenticode signature checks.</p>
+                            <p class="feature-desc">Checks GitHub every 24 h. Updates download only on explicit approval, after URL, size and SHA-256 checksum checks.</p>
                         </article>
 
                         <article class="feature-card">
@@ -320,7 +320,7 @@
                         </div>
                         <div class="change-item">
                             <span class="change-type">Hardened release pipeline</span>
-                            <p class="change-desc">The release workflow fails closed without signing secrets, signs app and installer, verifies the signer against the pinned thumbprint, attaches build provenance, and propagates native exit codes.</p>
+                            <p class="change-desc">The release workflow publishes the installer with its SHA-256 checksum and SPDX SBOM, attaches build provenance, and propagates native exit codes so failing quality gates can never publish.</p>
                         </div>
                     </div>
                     <div class="version-compare">
@@ -335,7 +335,7 @@
                                 <tr><td>GPU coverage</td><td>NVIDIA only</td><td>NVIDIA only</td><td><strong>Vendor-neutral</strong> (NVML + WMI)</td></tr>
                                 <tr><td>Diagnostics</td><td>—</td><td>—</td><td><strong>Evidence + confidence + recording</strong></td></tr>
                                 <tr><td>Action safety</td><td>—</td><td>—</td><td><strong>Risk preview, audit, Undo</strong></td></tr>
-                                <tr><td>Update verification</td><td>Plain download</td><td>HTTPS + basic checks</td><td><strong>Authenticode + pinned thumbprint</strong></td></tr>
+                                <tr><td>Update verification</td><td>Plain download</td><td>HTTPS + basic checks</td><td><strong>SHA-256 checksum + provenance</strong></td></tr>
                                 <tr><td>Modules</td><td>4 tabs</td><td>7 tabs</td><td><strong>14 modules</strong></td></tr>
                             </tbody>
                         </table>

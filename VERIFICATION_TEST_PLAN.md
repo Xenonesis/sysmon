@@ -85,8 +85,8 @@ Derived from `README.md`, `USER_GUIDE.md`, `CHANGELOG.md` (3.7.0), `DESIGN.md`,
 | ID | Feature | Source |
 | --- | --- | --- |
 | P-01 | Updater: HTTPS + repo asset validation, bounded download | README, release-rule |
-| P-02 | Updater: Authenticode + pinned publisher thumbprint | README, release-rule |
-| P-03 | Signed release workflow (sign app+installer, checksum, SBOM, provenance) | README, SECURITY, release-rule |
+| P-02 | Updater: SHA-256 checksum verification against published `.sha256` asset | README, release-rule |
+| P-03 | Release workflow (checksum, SBOM, provenance; no signing secrets) | README, SECURITY, release-rule |
 | P-04 | Windows CI quality gates (lockfile, fmt, clippy -D warnings, test, build) | README, rust-ci.yml |
 | P-05 | Installer build via Inno Setup (`installer.iss`) | build.md rule |
 | P-06 | Docs site dynamic download resolver (GitHub Releases API) | release-rule |
@@ -227,25 +227,27 @@ Get-Content sm.sha
 ```
 - **Pass:** computed SHA-256 equals the `.sha256` value.
 
-### TC-4.3 Authenticode signature (P-02/P-03)
+### TC-4.3 Release integrity without Authenticode (P-02/P-03)
 ```powershell
-$s = Get-AuthenticodeSignature -LiteralPath sm.exe
-$s.Status; $s.SignerCertificate.Subject; $s.SignerCertificate.Thumbprint
+# The release contract no longer requires an Authenticode signature.
+# Integrity comes from the published SHA-256 checksum + GitHub build provenance.
+gh attestation verify sm.exe --repo Xenonesis/sysmon   # or check the release's Attestations tab
 ```
-- **Pass:** `Status=Valid` and thumbprint matches the publisher pinned into the
-  running build (`SIGNER_THUMBPRINT`).
-- **Fail:** `NotSigned` or untrusted/self-signed root.
+- **Pass:** build provenance attestation present for the installer, issued by the
+  `Xenonesis/sysmon` release workflow; computed SHA-256 equals the `.sha256` value
+  (TC-4.2).
+- **Fail:** no attestation, or checksum mismatch.
 
 ### TC-4.4 Updater acceptance logic
 ```powershell
 cargo test --locked updater:: -- --nocapture
 ```
-- **Pass:** `signature_accepts_only_expected_publisher`,
-  `signature_rejects_tamper_wrong_signer_and_unsigned`,
-  `accepts_expected_release_asset`, `rejects_untrusted_asset_urls` all green.
-- Cross-check: an **unsigned** published installer must be rejected by
-  `sig_acceptable` (empty pinned thumbprint → chain-trust mode → requires a
-  `Valid` signature; `NotSigned` ⇒ rejected).
+- **Pass:** `verifies_installer_checksum`, `parses_sha256_checksum_file`,
+  `accepts_expected_release_asset`, `rejects_untrusted_asset_urls`,
+  `accepts_expected_checksum_asset`, `rejects_untrusted_checksum_urls` all green.
+- Cross-check: a tampered installer (any byte changed) must be rejected by
+  `verify_sha256`; a release without a `.sha256` asset must not be offered as an
+  update (`check_for_updates` requires both URLs).
 
 ### TC-4.5 Local installer build (P-05)
 ```powershell

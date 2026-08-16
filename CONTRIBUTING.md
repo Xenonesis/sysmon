@@ -13,4 +13,4 @@ cargo build --locked --release --bin system-monitor
 
 Provider changes should use normalized metric keys, return structured errors, avoid blocking the UI thread and include a deterministic test. Hardware-only tests should be ignored by default with a clear reason.
 
-Security-sensitive changes to updates, process/service control, release workflows or persistence need failure-path tests. Never weaken signer pinning or add an unsigned-update bypass.
+Security-sensitive changes to updates, process/service control, release workflows or persistence need failure-path tests. Never weaken update checksum verification or add a bypass around it.

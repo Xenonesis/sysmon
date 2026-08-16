@@ -438,5 +438,43 @@ processes with query rights only, so it had **never actually freed memory**
 window `System Monitor v3.7.1`, stable, zero provider failures.
 
 **Remaining manual items:** the 14-view UI walkthrough (test plan TC-3.4/TC-3.5)
-and publishing a signed `v3.7.1` release (requires the production signing secrets
-configured in the repository).
+and publishing the `v3.7.1` release by pushing the tag (no signing secrets
+required after the §9 policy change).
+
+---
+
+## 9. Policy change addendum (2026-08-16): paid Authenticode signing removed
+
+After the §8 remediation, the project owner directed that the paid code-signing
+certificate (`WINDOWS_SIGNING_PFX_BASE64` / `WINDOWS_SIGNING_PFX_PASSWORD`) be
+removed. The release and update-integrity contract was cut over to a free model:
+
+| Layer | Before (paid) | After (free) |
+| --- | --- | --- |
+| Release signing | Authenticode via signtool + pinned thumbprint | **None** — signing removed entirely |
+| Installer integrity | Signature validity + thumbprint pin | **SHA-256 checksum** published as a `.sha256` release asset; updater verifies the downloaded installer against it before writing/executing |
+| Build authenticity | Publisher certificate | **GitHub build provenance attestation** (sigstore, attached by the release workflow) |
+| Transport | HTTPS + repo-pinned asset URLs | unchanged |
+| SBOM | SPDX JSON | unchanged |
+
+Changes made:
+
+- `src/updater.rs`: `verify_authenticode` / `sig_acceptable` / `SIGNER_THUMBPRINT`
+  removed. `download_and_install_update` now takes the checksum URL, downloads the
+  `.sha256` asset (HTTPS, repo-pinned, size-bounded), and verifies the installer
+  hash before writing it to disk. `check_for_updates` offers an update only when
+  both the installer and its checksum asset are published. New tests:
+  `verifies_installer_checksum`, `parses_sha256_checksum_file`,
+  `accepts_expected_checksum_asset`, `rejects_untrusted_checksum_urls`.
+- `.github/workflows/windows-release.yml`: PFX import, signtool signing,
+  thumbprint pinning and signature-verification steps removed; quality gates,
+  checksum, SBOM and provenance attestation retained. No secrets required.
+- `sign-binary.ps1` deleted; signing removed from `build.ps1` and `release.ps1`.
+- SECURITY.md, README.md, USER_GUIDE.md, docs/release-rule.md, docs/index.html,
+  CONTRIBUTING.md and CHANGELOG.md updated to the checksum + provenance contract.
+
+**Security tradeoff (accepted by owner):** a checksum published next to the file
+does not protect against a compromised release account rewriting both artifacts;
+the pinned Authenticode certificate did. Residual mitigations: GitHub build
+provenance (independently signed by GitHub, verifiable with `gh attestation
+verify`), HTTPS-only repo-pinned downloads, and size-bounded fetches.
