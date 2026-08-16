@@ -413,6 +413,7 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui) {
             });
         } else {
             let mut action: Option<(String, String, String, &str)> = None;
+            let is_elevated = privilege::is_app_elevated();
 
             for &idx in &filtered_indices {
                 if idx >= app.startup_items.len() {
@@ -420,7 +421,6 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui) {
                 }
                 let item = &app.startup_items[idx];
                 let is_confirming = app.startup_show_confirm.as_deref() == Some(&item.name);
-
                 card_frame(is_dark).show(ui, |ui| {
                     // ── Row 1: High-Contrast Impact Badge + Signed Badge + Name + Source ──
                     ui.horizontal(|ui| {
@@ -537,7 +537,6 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui) {
                         });
                     } else {
                         ui.horizontal(|ui| {
-                            let is_elevated = privilege::is_app_elevated();
                             let can_modify = item.source.contains("HKCU")
                                 || item.source.contains("Startup Folder")
                                 || (is_elevated
@@ -745,5 +744,76 @@ mod tests {
         let (label_low, color_low) = impact_tier_badge_color(&ImpactTier::Low, true);
         assert_eq!(label_low, "LOW");
         assert_eq!(color_low, ThemePalette::STATUS_HEALTHY);
+    }
+
+    #[test]
+    fn test_startup_manager_render_all_states() {
+        let mut app = SystemMonitorApp::test_app();
+        app.startup_items_loaded = true;
+        app.startup_items_loading = false;
+        app.startup_items = vec![
+            crate::startup::StartupItem {
+                name: "Test App Normal".into(),
+                command: r#""C:\Program Files\Test\app.exe" --silent"#.into(),
+                enabled: true,
+                source: "Registry (HKCU)".into(),
+                exe_path: Some(r#"C:\Program Files\Test\app.exe"#.into()),
+                exe_exists: true,
+                publisher: Some("Test Corp".into()),
+                is_signed: Some(true),
+                impact_tier: ImpactTier::High,
+                recommendation: Recommendation::Keep,
+                reason: "Test reason".into(),
+            },
+            crate::startup::StartupItem {
+                name: "Broken App <Unicode> 日本語".into(),
+                command: r#"C:\NonExistent\broken.exe"#.into(),
+                enabled: false,
+                source: "Task Scheduler".into(),
+                exe_path: Some(r#"C:\NonExistent\broken.exe"#.into()),
+                exe_exists: false,
+                publisher: None,
+                is_signed: Some(false),
+                impact_tier: ImpactTier::High,
+                recommendation: Recommendation::Cleanup,
+                reason: "File not found".into(),
+            },
+            crate::startup::StartupItem {
+                name: "Unsigned App with Null\0Byte".into(),
+                command: "C:\\App\\app.exe\0--arg".into(),
+                enabled: true,
+                source: "Startup Folder (User)".into(),
+                exe_path: None,
+                exe_exists: false,
+                publisher: Some("Unknown Pub".into()),
+                is_signed: None,
+                impact_tier: ImpactTier::Medium,
+                recommendation: Recommendation::Review,
+                reason: "Review for necessity".into(),
+            },
+        ];
+
+        let ctx = egui::Context::default();
+        let _ = ctx.run(Default::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                show(&mut app, ui);
+            });
+        });
+
+        // Test with confirmation dialog open
+        app.startup_show_confirm = Some("Test App Normal".into());
+        let _ = ctx.run(Default::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                show(&mut app, ui);
+            });
+        });
+
+        // Test with empty items and filters active
+        app.startup_search = "NonExistentFilter999".into();
+        let _ = ctx.run(Default::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                show(&mut app, ui);
+            });
+        });
     }
 }

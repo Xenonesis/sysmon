@@ -252,6 +252,22 @@ fn get_approved_map(root: winreg::HKEY, subpath: &str) -> std::collections::Hash
 }
 
 #[cfg(target_os = "windows")]
+fn string_from_reg_value(val: &winreg::RegValue) -> String {
+    match val.vtype {
+        winreg::enums::REG_SZ | winreg::enums::REG_EXPAND_SZ => {
+            let words: Vec<u16> = val
+                .bytes
+                .chunks_exact(2)
+                .map(|c| u16::from_le_bytes([c[0], c[1]]))
+                .take_while(|&w| w != 0)
+                .collect();
+            String::from_utf16_lossy(&words)
+        }
+        _ => val.to_string(),
+    }
+}
+
+#[cfg(target_os = "windows")]
 fn collect_registry_native(
     items: &mut Vec<StartupItem>,
     root: winreg::HKEY,
@@ -263,7 +279,7 @@ fn collect_registry_native(
     let key = winreg::RegKey::predef(root);
     if let Ok(run_key) = key.open_subkey_with_flags(run_subpath, winreg::enums::KEY_READ) {
         for (name, val) in run_key.enum_values().flatten() {
-            let cmd = val.to_string();
+            let cmd = string_from_reg_value(&val);
             if !name.is_empty() && !cmd.is_empty() {
                 let enabled = approved_map.get(&name.to_lowercase()).copied().unwrap_or(true);
                 items.push(new_item(name, cmd, enabled, source.to_string()));
@@ -277,7 +293,7 @@ fn collect_registry_disabled_stash(items: &mut Vec<StartupItem>, root: winreg::H
     let key = winreg::RegKey::predef(root);
     if let Ok(disabled_key) = key.open_subkey_with_flags(subpath, winreg::enums::KEY_READ) {
         for (name, val) in disabled_key.enum_values().flatten() {
-            let cmd = val.to_string();
+            let cmd = string_from_reg_value(&val);
             if !name.is_empty() && !cmd.is_empty() && !items.iter().any(|it| it.name.eq_ignore_ascii_case(&name)) {
                 items.push(new_item(name, cmd, false, source.to_string()));
             }

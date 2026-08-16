@@ -1742,6 +1742,119 @@ impl SystemMonitorApp {
             start_minimized_applied: false,
         }
     }
+    #[cfg(test)]
+    pub(crate) fn test_app() -> Self {
+        let settings = AppSettings::default();
+        let data = Arc::new(parking_lot::RwLock::new(SystemData::default()));
+        let shared_settings = Arc::new(Mutex::new(settings.clone()));
+        let app_channels = crate::app::AppChannels::new();
+        let (telemetry_commands, _) = std::sync::mpsc::sync_channel(16);
+
+        Self {
+            app_channels,
+            latest_snapshot: None,
+            action_pending: false,
+            action_status: None,
+            pending_action_plan: None,
+            action_history: Vec::new(),
+            show_action_history: false,
+            session_recorder: crate::persistence::session::SessionRecorder::default(),
+            session_status: None,
+            telemetry_commands,
+            data,
+            settings: settings.clone(),
+            shared_settings,
+            selected_tab: Tab::Overview,
+            show_settings: false,
+            show_export: false,
+            show_alerts: false,
+            show_process_manager: false,
+            selected_process_pid: None,
+            details_pid: None,
+            kill_tree_pid: None,
+            process_search: String::new(),
+            process_sort_column: crate::processes::ProcessSortColumn::Memory,
+            process_sort_ascending: false,
+            show_export_csv: false,
+            updater: crate::updater::Updater::new(),
+            update_info_share: Arc::new(Mutex::new(None)),
+            show_update_notification: false,
+            update_check_time: None,
+            update_downloading: false,
+            update_error: None,
+            update_result_share: Arc::new(Mutex::new(None)),
+            ram_cleaner_state: RamCleanerState {
+                last_cleaned: None,
+                last_cleaned_display: String::new(),
+                bytes_freed: 0,
+                auto_clean_enabled: false,
+                auto_clean_threshold: 80.0,
+                auto_clean_interval: 60,
+                auto_clean_target: 60.0,
+                auto_clean_exclusions: Vec::new(),
+                auto_clean_idle_only: false,
+                auto_clean_smart_only: true,
+                auto_clean_notify: false,
+                auto_clean_max_mb: 0,
+                is_cleaning: false,
+                clean_count: 0,
+            },
+            startup_items: Vec::new(),
+            startup_items_loaded: false,
+            startup_items_loading: false,
+            startup_items_share: Arc::new(Mutex::new(None)),
+            startup_search: String::new(),
+            startup_sort: crate::startup::StartupSortColumn::Impact,
+            startup_sort_ascending: true,
+            startup_filter_impact: None,
+            startup_filter_signed: None,
+            startup_filter_broken: false,
+            startup_show_confirm: None,
+            boot_diagnostics: None,
+            boot_diagnostics_loaded: false,
+            boot_diagnostics_share: Arc::new(Mutex::new(None)),
+            show_shortcuts: false,
+            suspend_process_pid: None,
+            resume_process_pid: None,
+            suspended_pids: std::collections::HashSet::new(),
+            priority_change: None,
+            process_tree_view: false,
+            affinity_change: None,
+            network_socket_search: String::new(),
+            service_search: String::new(),
+            service_state_filter: None,
+            pending_service_action: None,
+            #[cfg(target_os = "windows")]
+            tray_icon: None,
+            #[cfg(target_os = "windows")]
+            tray_menu_show_id: None,
+            #[cfg(target_os = "windows")]
+            tray_menu_quit_id: None,
+            #[cfg(target_os = "windows")]
+            tray_menu_clean_id: None,
+            #[cfg(target_os = "windows")]
+            tray_menu_procman_id: None,
+            #[cfg(target_os = "windows")]
+            tray_menu_pause_id: None,
+            #[cfg(target_os = "windows")]
+            tray_menu_pause_item: None,
+            #[cfg(target_os = "windows")]
+            tray_menu_handle: None,
+            #[cfg(target_os = "windows")]
+            tray_menu_power_item: None,
+            #[cfg(target_os = "windows")]
+            tray_menu_power_items: std::collections::HashMap::new(),
+            #[cfg(target_os = "windows")]
+            tray_menu_power_guids: std::collections::HashMap::new(),
+            #[cfg(target_os = "windows")]
+            _hotkey_manager: None,
+            #[cfg(target_os = "windows")]
+            clean_ram_hotkey: None,
+            is_hidden: false,
+            widget_open: false,
+            start_minimized_applied: true,
+        }
+    }
 
     pub(crate) fn export_diagnostics(
         &self,
