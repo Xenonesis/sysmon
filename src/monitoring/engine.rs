@@ -97,7 +97,11 @@ impl SystemMonitor {
     fn get_memory_info(&self) -> (u64, u64, f32) {
         let total = self.sys.total_memory();
         let used = self.sys.used_memory();
-        let percentage = (used as f64 / total as f64) * 100.0;
+        let percentage = if total > 0 {
+            (used as f64 / total as f64) * 100.0
+        } else {
+            0.0
+        };
         (total, used, percentage as f32)
     }
 
@@ -1405,7 +1409,7 @@ impl SystemMonitorApp {
                                 let now = Instant::now();
                                 let should_notify = last_alert_time
                                     .get(&alert.alert_type)
-                                    .is_none_or(|&last| now.duration_since(last).as_secs() > 300);
+                                    .is_none_or(|&last| now.saturating_duration_since(last).as_secs() > 300);
 
                                 if should_notify {
                                     let _ = notify_rust::Notification::new()

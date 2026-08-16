@@ -105,7 +105,7 @@ impl MetricHistory {
             .rev()
             .take(max_points)
             .map(|p| {
-                let age = now.duration_since(p.timestamp).as_secs_f64();
+                let age = now.saturating_duration_since(p.timestamp).as_secs_f64();
                 (-age, p.value)
             })
             .collect::<Vec<_>>()
@@ -212,7 +212,7 @@ impl MultiResolutionHistory {
     }
 
     fn due(previous: Option<Instant>, now: Instant, interval: Duration) -> bool {
-        previous.is_none_or(|sampled| now.duration_since(sampled) >= interval)
+        previous.is_none_or(|sampled| now.saturating_duration_since(sampled) >= interval)
     }
 }
 

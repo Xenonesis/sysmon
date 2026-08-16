@@ -109,7 +109,9 @@ pub fn expand_env_vars(path: &str) -> String {
                     found_end = true;
                     break;
                 }
-                var_name.push(chars.next().unwrap());
+                if let Some(ch) = chars.next() {
+                    var_name.push(ch);
+                }
             }
             if found_end {
                 if let Ok(val) = std::env::var(&var_name) {
@@ -146,14 +148,18 @@ pub fn parse_exe_from_command(cmd: &str) -> Option<String> {
         }
     }
 
-    // 2. rundll32 handling
-    if t.len() >= 8 && t[..8].eq_ignore_ascii_case("rundll32") {
-        let skip = if t.len() >= 12 && t[..12].eq_ignore_ascii_case("rundll32.exe") {
-            12
-        } else {
-            8
-        };
-        let after = t[skip..].trim().trim_start_matches('"');
+    // 2. rundll32 handling (case-insensitive, char-boundary safe)
+    let lower = t.to_ascii_lowercase();
+    if lower.starts_with("rundll32.exe") {
+        let after = t.get(12..).unwrap_or("").trim().trim_start_matches('"');
+        if let Some(comma) = after.find(',') {
+            let dll = after[..comma].trim().trim_end_matches('"');
+            if !dll.is_empty() {
+                return Some(dll.to_string());
+            }
+        }
+    } else if lower.starts_with("rundll32") {
+        let after = t.get(8..).unwrap_or("").trim().trim_start_matches('"');
         if let Some(comma) = after.find(',') {
             let dll = after[..comma].trim().trim_end_matches('"');
             if !dll.is_empty() {
@@ -165,9 +171,9 @@ pub fn parse_exe_from_command(cmd: &str) -> Option<String> {
     // 3. Search for known executable extensions safely
     for ext in &[".exe", ".cmd", ".bat", ".vbs", ".ps1"] {
         let mut start = 0;
-        while let Some(pos) = t[start..].to_ascii_lowercase().find(ext) {
+        while let Some(pos) = lower[start..].find(ext) {
             let abs_pos = start + pos + ext.len();
-            if abs_pos <= t.len() {
+            if abs_pos <= t.len() && t.is_char_boundary(abs_pos) {
                 let is_end = abs_pos == t.len()
                     || t[abs_pos..].starts_with(' ')
                     || t[abs_pos..].starts_with('"')
@@ -703,9 +709,10 @@ pub fn remove_startup_item(name: &str, source: &str) -> bool {
         }
         deleted
     } else if source.contains("Task Scheduler") {
+        let safe_name = name.replace('\'', "''");
         let script = format!(
             "Unregister-ScheduledTask -TaskName '{}' -Confirm:$false -EA SilentlyContinue; if ($?) {{ 'SUCCESS' }}",
-            name
+            safe_name
         );
         if let Some(out) = ps_run(&script) {
             out.contains("SUCCESS")
@@ -786,9 +793,10 @@ pub fn disable_startup_item(name: &str, source: &str, _command: &str) -> bool {
         }
         true
     } else if source.contains("Task Scheduler") {
+        let safe_name = name.replace('\'', "''");
         let script = format!(
             "Disable-ScheduledTask -TaskName '{}' -EA SilentlyContinue; if ($?) {{ 'SUCCESS' }}",
-            name
+            safe_name
         );
         if let Some(out) = ps_run(&script) {
             out.contains("SUCCESS")
@@ -882,9 +890,10 @@ pub fn reenable_startup_item(name: &str, source: &str) -> bool {
         }
         true
     } else if source.contains("Task Scheduler") {
+        let safe_name = name.replace('\'', "''");
         let script = format!(
             "Enable-ScheduledTask -TaskName '{}' -EA SilentlyContinue; if ($?) {{ 'SUCCESS' }}",
-            name
+            safe_name
         );
         if let Some(out) = ps_run(&script) {
             out.contains("SUCCESS")

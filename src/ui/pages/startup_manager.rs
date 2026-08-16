@@ -34,9 +34,18 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui) {
                 .name("startup_loader".to_string())
                 .stack_size(8 * 1024 * 1024)
                 .spawn(move || {
-                    let (items, diag) = startup::get_startup_data();
-                    *startup_items_share.lock() = Some(items);
-                    *boot_diagnostics_share.lock() = diag;
+                    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(startup::get_startup_data));
+                    match result {
+                        Ok((items, diag)) => {
+                            *startup_items_share.lock() = Some(items);
+                            *boot_diagnostics_share.lock() = diag;
+                        }
+                        Err(_) => {
+                            // Panic in startup data collection — provide empty
+                            // results so the UI doesn't get stuck on "loading…"
+                            *startup_items_share.lock() = Some(Vec::new());
+                        }
+                    }
                     ctx.request_repaint();
                 })
                 .ok();
