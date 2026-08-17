@@ -129,6 +129,7 @@ impl SystemMonitor {
                 crate::processes::ProcessInfo {
                     pid: pid.as_u32(),
                     name: name_str,
+                    parent_pid: process.parent().map(|p| p.as_u32()),
                     cpu_usage: process.cpu_usage() / cpu_count,
                     memory: process.memory(),
                     status: format!("{:?}", process.status()),

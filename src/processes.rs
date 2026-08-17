@@ -10,6 +10,7 @@ use sysinfo::{Pid, System};
 pub struct ProcessInfo {
     pub pid: u32,
     pub name: String,
+    pub parent_pid: Option<u32>,
     pub cpu_usage: f32,
     pub memory: u64,
     pub status: String,
@@ -279,6 +280,7 @@ mod tests {
         ProcessInfo {
             pid,
             name: name.to_string(),
+            parent_pid: None,
             cpu_usage: cpu,
             memory: mem,
             status: status.to_string(),
@@ -317,37 +319,34 @@ mod tests {
 
     #[test]
     fn sort_memory_descending_default() {
-        let mut items = vec![
-            p(1, "a", 0.0, 100, "Running"),
+        let items = [p(1, "a", 0.0, 100, "Running"),
             p(2, "b", 0.0, 900, "Running"),
-            p(3, "c", 0.0, 400, "Running"),
-        ];
-        sort_processes(&mut items, ProcessSortColumn::Memory, false);
-        let pids: Vec<u32> = items.iter().map(|x| x.pid).collect();
+            p(3, "c", 0.0, 400, "Running")];
+        let mut refs: Vec<_> = items.iter().collect();
+        sort_processes_refs(&mut refs, ProcessSortColumn::Memory, false);
+        let pids: Vec<u32> = refs.iter().map(|x| x.pid).collect();
         assert_eq!(pids, vec![2, 3, 1]);
     }
 
     #[test]
     fn sort_cpu_descending() {
-        let mut items = vec![
-            p(1, "a", 3.0, 0, "Running"),
+        let items = [p(1, "a", 3.0, 0, "Running"),
             p(2, "b", 1.0, 0, "Running"),
-            p(3, "c", 7.0, 0, "Running"),
-        ];
-        sort_processes(&mut items, ProcessSortColumn::Cpu, false);
-        let pids: Vec<u32> = items.iter().map(|x| x.pid).collect();
+            p(3, "c", 7.0, 0, "Running")];
+        let mut refs: Vec<_> = items.iter().collect();
+        sort_processes_refs(&mut refs, ProcessSortColumn::Cpu, false);
+        let pids: Vec<u32> = refs.iter().map(|x| x.pid).collect();
         assert_eq!(pids, vec![3, 1, 2]);
     }
 
     #[test]
     fn sort_name_ascending() {
-        let mut items = vec![
-            p(1, "zeta", 0.0, 0, "Running"),
+        let items = [p(1, "zeta", 0.0, 0, "Running"),
             p(2, "alpha", 0.0, 0, "Running"),
-            p(3, "Beta", 0.0, 0, "Running"),
-        ];
-        sort_processes(&mut items, ProcessSortColumn::Name, true);
-        let names: Vec<&str> = items.iter().map(|x| x.name.as_str()).collect();
+            p(3, "Beta", 0.0, 0, "Running")];
+        let mut refs: Vec<_> = items.iter().collect();
+        sort_processes_refs(&mut refs, ProcessSortColumn::Name, true);
+        let names: Vec<&str> = refs.iter().map(|x| x.name.as_str()).collect();
         assert_eq!(names, vec!["alpha", "Beta", "zeta"]);
     }
 
@@ -358,9 +357,10 @@ mod tests {
         let mut p2 = p(2, "b", 0.0, 0, "Running");
         p2.disk_written_bytes = 5000;
         let p3 = p(3, "c", 0.0, 0, "Running");
-        let mut items = vec![p1, p2, p3];
-        sort_processes(&mut items, ProcessSortColumn::Disk, false);
-        let pids: Vec<u32> = items.iter().map(|x| x.pid).collect();
+        let items = [p1, p2, p3];
+        let mut refs: Vec<_> = items.iter().collect();
+        sort_processes_refs(&mut refs, ProcessSortColumn::Disk, false);
+        let pids: Vec<u32> = refs.iter().map(|x| x.pid).collect();
         assert_eq!(pids, vec![2, 1, 3]);
     }
 
