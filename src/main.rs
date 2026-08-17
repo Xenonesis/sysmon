@@ -678,12 +678,12 @@ impl eframe::App for SystemMonitorApp {
             .exact_width(sidebar_width)
             .frame(sidebar_frame)
             .show(ctx, |ui| {
-                ui.add_space(14.0);
+                ui.add_space(12.0);
 
                 if !is_collapsed {
                     // Brand Header (Expanded)
                     ui.horizontal(|ui| {
-                        ui.add_space(8.0);
+                        ui.add_space(10.0);
                         ui.add(
                             egui::Image::new(egui::include_image!("../assets/icon.png"))
                                 .max_width(20.0)
@@ -692,33 +692,40 @@ impl eframe::App for SystemMonitorApp {
                         ui.add_space(2.0);
                         ui.label(
                             egui::RichText::new("Sys")
-                                .size(18.0)
+                                .size(17.5)
                                 .strong()
                                 .color(ThemePalette::ACCENT_PRIMARY),
                         );
                         ui.label(
                             egui::RichText::new("Mon")
-                                .size(18.0)
+                                .size(17.5)
                                 .strong()
                                 .color(ThemePalette::text_primary(is_dark)),
                         );
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             ui.add_space(8.0);
-                            let collapse_btn = egui::Button::new(
-                                egui::RichText::new("◀")
-                                    .size(11.0)
-                                    .monospace()
-                                    .color(ThemePalette::text_secondary(is_dark)),
-                            )
-                            .fill(ThemePalette::bg_track(is_dark))
-                            .stroke(egui::Stroke::new(1.0, ThemePalette::border(is_dark)))
-                            .rounding(egui::Rounding::same(3.0));
-
-                            if ui
-                                .add(collapse_btn)
-                                .on_hover_text("Collapse Sidebar (Ctrl+B)")
-                                .clicked()
-                            {
+                            let (btn_rect, btn_resp) = ui.allocate_exact_size(egui::vec2(22.0, 22.0), egui::Sense::click());
+                            let is_btn_hovered = btn_resp.hovered();
+                            if is_btn_hovered {
+                                let hover_fill = if is_dark {
+                                    egui::Color32::from_rgba_unmultiplied(255, 255, 255, 14)
+                                } else {
+                                    egui::Color32::from_rgba_unmultiplied(0, 0, 0, 10)
+                                };
+                                ui.painter().rect_filled(btn_rect, egui::Rounding::same(4.0), hover_fill);
+                            }
+                            ui.painter().text(
+                                btn_rect.center(),
+                                egui::Align2::CENTER_CENTER,
+                                "◀",
+                                egui::FontId::proportional(11.0),
+                                if is_btn_hovered {
+                                    ThemePalette::text_primary(is_dark)
+                                } else {
+                                    ThemePalette::text_secondary(is_dark)
+                                },
+                            );
+                            if btn_resp.on_hover_text("Collapse Sidebar (Ctrl+B)").clicked() {
                                 self.settings.sidebar_collapsed = true;
                                 let _ = self.settings.save();
                             }
@@ -735,21 +742,21 @@ impl eframe::App for SystemMonitorApp {
                     }
                     if is_hovered {
                         let hover_fill = if is_dark {
-                            egui::Color32::from_rgb(32, 32, 36)
+                            egui::Color32::from_rgba_unmultiplied(255, 255, 255, 14)
                         } else {
-                            egui::Color32::from_rgb(235, 235, 238)
+                            egui::Color32::from_rgba_unmultiplied(0, 0, 0, 10)
                         };
-                        ui.painter().rect_filled(rect, egui::Rounding::same(4.0), hover_fill);
+                        let pill_rect = rect.shrink2(egui::vec2(6.0, 2.0));
+                        ui.painter().rect_filled(pill_rect, egui::Rounding::same(4.0), hover_fill);
                     }
                     let logo_rect = egui::Rect::from_center_size(rect.center(), egui::vec2(22.0, 22.0));
                     egui::Image::new(egui::include_image!("../assets/icon.png")).paint_at(ui, logo_rect);
                 }
 
-                ui.add_space(10.0);
+                ui.add_space(8.0);
                 ui.separator();
-                ui.add_space(6.0);
+                ui.add_space(4.0);
 
-                // Navigation Categories
                 // Navigation Categories
                 struct NavItem {
                     tab: Tab,
@@ -847,29 +854,34 @@ impl eframe::App for SystemMonitorApp {
 
                 for (g_idx, group) in groups.iter().enumerate() {
                     if !is_collapsed {
-                        ui.add_space(6.0);
+                        if g_idx == 0 {
+                            ui.add_space(4.0);
+                        } else {
+                            ui.add_space(10.0);
+                        }
                         ui.horizontal(|ui| {
-                            ui.add_space(8.0);
+                            ui.add_space(12.0);
                             ui.label(
                                 egui::RichText::new(group.title)
                                     .size(9.5)
                                     .strong()
-                                    .color(ThemePalette::text_dimmed(is_dark)),
+                                    .color(ThemePalette::text_secondary(is_dark)),
                             );
                         });
-                        ui.add_space(2.0);
+                        ui.add_space(3.0);
                     } else if g_idx > 0 {
-                        ui.add_space(3.0);
+                        ui.add_space(4.0);
                         ui.separator();
-                        ui.add_space(3.0);
+                        ui.add_space(4.0);
                     }
 
                     ui.spacing_mut().item_spacing.y = 2.0;
                     for item in &group.items {
                         let is_selected = self.selected_tab == item.tab;
                         let item_h = if is_collapsed { 30.0 } else { 28.0 };
-                        let (rect, response) =
+                        let (raw_rect, response) =
                             ui.allocate_exact_size(egui::vec2(ui.available_width(), item_h), egui::Sense::click());
+                        let pill_rect = raw_rect.shrink2(egui::vec2(6.0, 1.0));
 
                         let tooltip_text = if item.tab == Tab::Alerts && !data.alerts.is_empty() {
                             format!("{} ({} active)", item.label, data.alerts.len())
@@ -884,32 +896,39 @@ impl eframe::App for SystemMonitorApp {
 
                         if is_selected {
                             let fill = if is_dark {
-                                egui::Color32::from_rgb(32, 32, 36)
+                                egui::Color32::from_rgba_unmultiplied(16, 185, 129, 28)
                             } else {
-                                egui::Color32::from_rgb(235, 235, 238)
+                                egui::Color32::from_rgba_unmultiplied(16, 185, 129, 35)
                             };
-                            ui.painter().rect_filled(rect, egui::Rounding::same(4.0), fill);
+                            let border_color = if is_dark {
+                                egui::Color32::from_rgba_unmultiplied(16, 185, 129, 65)
+                            } else {
+                                egui::Color32::from_rgba_unmultiplied(16, 185, 129, 85)
+                            };
+                            ui.painter().rect_filled(pill_rect, egui::Rounding::same(5.0), fill);
+                            ui.painter().rect_stroke(
+                                pill_rect,
+                                egui::Rounding::same(5.0),
+                                egui::Stroke::new(1.0, border_color),
+                            );
 
-                            // 3px solid #10B981 vertical left edge indicator
-                            let edge_rect =
-                                egui::Rect::from_min_max(rect.left_top(), egui::pos2(rect.left() + 3.0, rect.bottom()));
+                            // Inset rounded 3px vertical left accent indicator
+                            let edge_rect = egui::Rect::from_min_max(
+                                egui::pos2(pill_rect.left() + 2.0, pill_rect.top() + 4.0),
+                                egui::pos2(pill_rect.left() + 5.0, pill_rect.bottom() - 4.0),
+                            );
                             ui.painter().rect_filled(
                                 edge_rect,
-                                egui::Rounding {
-                                    nw: 4.0,
-                                    sw: 4.0,
-                                    ne: 0.0,
-                                    se: 0.0,
-                                },
+                                egui::Rounding::same(2.0),
                                 ThemePalette::ACCENT_PRIMARY,
                             );
                         } else if is_hovered {
                             let hover_fill = if is_dark {
-                                egui::Color32::from_rgb(28, 28, 31)
+                                egui::Color32::from_rgba_unmultiplied(255, 255, 255, 12)
                             } else {
-                                egui::Color32::from_rgb(240, 240, 243)
+                                egui::Color32::from_rgba_unmultiplied(0, 0, 0, 10)
                             };
-                            ui.painter().rect_filled(rect, egui::Rounding::same(4.0), hover_fill);
+                            ui.painter().rect_filled(pill_rect, egui::Rounding::same(5.0), hover_fill);
                         }
 
                         if !is_collapsed {
@@ -919,12 +938,12 @@ impl eframe::App for SystemMonitorApp {
                                 ThemePalette::text_secondary(is_dark)
                             };
 
-                            let icon_pos = egui::pos2(rect.left() + 10.0, rect.center().y);
+                            let icon_center = egui::pos2(pill_rect.left() + 16.0, pill_rect.center().y);
                             ui.painter().text(
-                                icon_pos,
-                                egui::Align2::LEFT_CENTER,
+                                icon_center,
+                                egui::Align2::CENTER_CENTER,
                                 item.icon,
-                                egui::FontId::proportional(13.0),
+                                egui::FontId::proportional(12.5),
                                 if is_selected {
                                     ThemePalette::ACCENT_PRIMARY
                                 } else {
@@ -932,7 +951,7 @@ impl eframe::App for SystemMonitorApp {
                                 },
                             );
 
-                            let text_pos = egui::pos2(rect.left() + 30.0, rect.center().y);
+                            let text_pos = egui::pos2(pill_rect.left() + 30.0, pill_rect.center().y);
                             ui.painter().text(
                                 text_pos,
                                 egui::Align2::LEFT_CENTER,
@@ -946,18 +965,17 @@ impl eframe::App for SystemMonitorApp {
                                 let alerts_count = data.alerts.len();
                                 let badge_text = format!("{alerts_count}");
                                 let badge_color = ThemePalette::STATUS_WARNING;
-                                let badge_bg = badge_color.gamma_multiply(if is_dark { 0.2 } else { 0.15 });
-                                let badge_pos = egui::pos2(rect.right() - 8.0, rect.center().y);
+                                let badge_bg = badge_color.gamma_multiply(if is_dark { 0.22 } else { 0.18 });
                                 let badge_rect = egui::Rect::from_center_size(
-                                    badge_pos + egui::vec2(-8.0, 0.0),
-                                    egui::vec2(20.0, 15.0),
+                                    egui::pos2(pill_rect.right() - 14.0, pill_rect.center().y),
+                                    egui::vec2(18.0, 15.0),
                                 );
                                 ui.painter()
                                     .rect_filled(badge_rect, egui::Rounding::same(4.0), badge_bg);
                                 ui.painter().rect_stroke(
                                     badge_rect,
                                     egui::Rounding::same(4.0),
-                                    egui::Stroke::new(1.0, badge_color.gamma_multiply(0.4)),
+                                    egui::Stroke::new(1.0, badge_color.gamma_multiply(0.45)),
                                 );
                                 ui.painter().text(
                                     badge_rect.center(),
@@ -978,7 +996,7 @@ impl eframe::App for SystemMonitorApp {
                             };
 
                             ui.painter().text(
-                                rect.center(),
+                                pill_rect.center(),
                                 egui::Align2::CENTER_CENTER,
                                 item.icon,
                                 egui::FontId::proportional(13.5),
@@ -987,7 +1005,7 @@ impl eframe::App for SystemMonitorApp {
 
                             // Alert indicator dot on collapsed token
                             if item.tab == Tab::Alerts && !data.alerts.is_empty() {
-                                let dot_pos = rect.right_top() + egui::vec2(-7.0, 6.0);
+                                let dot_pos = pill_rect.right_top() + egui::vec2(-4.0, 4.0);
                                 ui.painter().circle_filled(dot_pos, 3.0, ThemePalette::STATUS_WARNING);
                             }
                         }
@@ -996,57 +1014,86 @@ impl eframe::App for SystemMonitorApp {
 
                 // Pinned Bottom Utility Dock
                 ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
-                    ui.add_space(10.0);
+                    ui.add_space(8.0);
 
                     if !is_collapsed {
-                        // Live heartbeat label (Updated: HH:MM:SS)
+                        // Live heartbeat label (Live • HH:MM:SS)
                         ui.horizontal(|ui| {
-                            ui.add_space(8.0);
+                            ui.add_space(12.0);
                             let dot_color = ThemePalette::STATUS_HEALTHY;
-                            let (dot_rect, _) = ui.allocate_exact_size(egui::vec2(6.0, 6.0), egui::Sense::hover());
+                            let (dot_rect, _) = ui.allocate_exact_size(egui::vec2(8.0, 8.0), egui::Sense::hover());
                             ui.painter().circle_filled(dot_rect.center(), 2.5, dot_color);
-                            ui.add_space(5.0);
+                            ui.add_space(4.0);
                             let time_str = data.last_update.split_whitespace().nth(1).unwrap_or(&data.last_update);
                             ui.label(
-                                egui::RichText::new(format!("Updated: {time_str}"))
+                                egui::RichText::new(format!("Live • {time_str}"))
                                     .size(10.5)
                                     .monospace()
-                                    .color(ThemePalette::text_dimmed(is_dark)),
+                                    .color(ThemePalette::text_secondary(is_dark)),
                             )
-                            .on_hover_text(format!("Live Heartbeat · Full Timestamp: {}", data.last_update));
+                            .on_hover_text(format!("Live Telemetry Engine · Full Timestamp: {}", data.last_update));
                         });
-                        ui.add_space(8.0);
+                        ui.add_space(6.0);
                         ui.separator();
                         ui.add_space(4.0);
 
-                        // Utility buttons (Expanded)
-                        let util_btn = |ui: &mut egui::Ui, icon: &str, text: &str| {
-                            let btn = egui::Button::new(
-                                egui::RichText::new(format!("{icon}  {text}"))
-                                    .size(12.0)
-                                    .color(ThemePalette::text_secondary(is_dark)),
-                            )
-                            .fill(egui::Color32::TRANSPARENT)
-                            .stroke(egui::Stroke::NONE)
-                            .frame(false);
-                            ui.add_sized([ui.available_width(), 24.0], btn)
+                        // Utility buttons (Expanded, consistent left alignment)
+                        let draw_util_btn = |ui: &mut egui::Ui, icon: &str, text: &str, tooltip: &str| -> egui::Response {
+                            let (raw_rect, response) = ui.allocate_exact_size(
+                                egui::vec2(ui.available_width(), 26.0),
+                                egui::Sense::click(),
+                            );
+                            let pill_rect = raw_rect.shrink2(egui::vec2(6.0, 1.0));
+                            let is_hovered = response.hovered();
+                            if is_hovered {
+                                let hover_fill = if is_dark {
+                                    egui::Color32::from_rgba_unmultiplied(255, 255, 255, 12)
+                                } else {
+                                    egui::Color32::from_rgba_unmultiplied(0, 0, 0, 10)
+                                };
+                                ui.painter().rect_filled(pill_rect, egui::Rounding::same(5.0), hover_fill);
+                            }
+
+                            let text_color = if is_hovered {
+                                ThemePalette::text_primary(is_dark)
+                            } else {
+                                ThemePalette::text_secondary(is_dark)
+                            };
+
+                            let icon_center = egui::pos2(pill_rect.left() + 16.0, pill_rect.center().y);
+                            ui.painter().text(
+                                icon_center,
+                                egui::Align2::CENTER_CENTER,
+                                icon,
+                                egui::FontId::proportional(12.0),
+                                text_color,
+                            );
+
+                            let text_pos = egui::pos2(pill_rect.left() + 30.0, pill_rect.center().y);
+                            ui.painter().text(
+                                text_pos,
+                                egui::Align2::LEFT_CENTER,
+                                text,
+                                egui::FontId::proportional(12.0),
+                                text_color,
+                            );
+
+                            response.on_hover_text(tooltip)
                         };
 
-                        if util_btn(ui, "ℹ", "About").on_hover_text("About SysMon").clicked() {
+                        // Added in bottom_up order (Bottom to Top: About -> Shortcuts -> Settings)
+                        if draw_util_btn(ui, "ℹ", "About", "About SysMon").clicked() {
                             self.selected_tab = Tab::About;
                         }
-                        if util_btn(ui, "⌨", "Shortcuts")
-                            .on_hover_text("Keyboard shortcuts (Ctrl+B, F5...)")
-                            .clicked()
-                        {
+                        if draw_util_btn(ui, "⌨", "Shortcuts", "Keyboard shortcuts (Ctrl+B, F5...)").clicked() {
                             self.show_shortcuts = true;
                         }
-                        if util_btn(ui, "⚙", "Settings")
-                            .on_hover_text("Application settings (Ctrl+,)")
-                            .clicked()
-                        {
+                        if draw_util_btn(ui, "⚙", "Settings", "Application settings (Ctrl+,)").clicked() {
                             self.show_settings = true;
                         }
+
+                        ui.add_space(4.0);
+                        ui.separator();
                     } else {
                         // Collapsed utility dock
                         let (dot_rect, dot_resp) =
@@ -1059,27 +1106,51 @@ impl eframe::App for SystemMonitorApp {
                         ui.separator();
                         ui.add_space(4.0);
 
-                        let util_compact_btn = |ui: &mut egui::Ui, icon: &str, tip: &str| -> egui::Response {
-                            let btn = egui::Button::new(
-                                egui::RichText::new(icon)
-                                    .size(13.0)
-                                    .color(ThemePalette::text_secondary(is_dark)),
-                            )
-                            .fill(egui::Color32::TRANSPARENT)
-                            .stroke(egui::Stroke::NONE)
-                            .frame(false);
-                            ui.add_sized([ui.available_width(), 24.0], btn).on_hover_text(tip)
+                        let draw_util_compact_btn = |ui: &mut egui::Ui, icon: &str, tip: &str| -> egui::Response {
+                            let (raw_rect, response) = ui.allocate_exact_size(
+                                egui::vec2(ui.available_width(), 26.0),
+                                egui::Sense::click(),
+                            );
+                            let pill_rect = raw_rect.shrink2(egui::vec2(6.0, 1.0));
+                            let is_hovered = response.hovered();
+                            if is_hovered {
+                                let hover_fill = if is_dark {
+                                    egui::Color32::from_rgba_unmultiplied(255, 255, 255, 12)
+                                } else {
+                                    egui::Color32::from_rgba_unmultiplied(0, 0, 0, 10)
+                                };
+                                ui.painter().rect_filled(pill_rect, egui::Rounding::same(5.0), hover_fill);
+                            }
+
+                            let text_color = if is_hovered {
+                                ThemePalette::text_primary(is_dark)
+                            } else {
+                                ThemePalette::text_secondary(is_dark)
+                            };
+
+                            ui.painter().text(
+                                pill_rect.center(),
+                                egui::Align2::CENTER_CENTER,
+                                icon,
+                                egui::FontId::proportional(12.5),
+                                text_color,
+                            );
+
+                            response.on_hover_text(tip)
                         };
 
-                        if util_compact_btn(ui, "ℹ", "About SysMon").clicked() {
+                        if draw_util_compact_btn(ui, "ℹ", "About SysMon").clicked() {
                             self.selected_tab = Tab::About;
                         }
-                        if util_compact_btn(ui, "⌨", "Keyboard Shortcuts").clicked() {
+                        if draw_util_compact_btn(ui, "⌨", "Keyboard Shortcuts").clicked() {
                             self.show_shortcuts = true;
                         }
-                        if util_compact_btn(ui, "⚙", "Settings (Ctrl+,)").clicked() {
+                        if draw_util_compact_btn(ui, "⚙", "Settings (Ctrl+,)").clicked() {
                             self.show_settings = true;
                         }
+
+                        ui.add_space(4.0);
+                        ui.separator();
                     }
                 });
             });
