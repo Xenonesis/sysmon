@@ -10,10 +10,8 @@ pub(crate) fn paint_socket_connections(
     data: &SystemData,
     is_dark: bool,
 ) {
-    let process_map: std::collections::HashMap<u32, String> =
-        data.top_processes.iter().map(|p| (p.pid, p.name.clone())).collect();
-    let all_conns = crate::network::get_active_connections(&process_map);
-    let filtered_conns = crate::network::filter_connections(&all_conns, &app.network_socket_search);
+    let all_conns = &data.socket_connections;
+    let filtered_conns = crate::network::filter_connections(all_conns, &app.network_socket_search);
 
     card_frame(is_dark).show(ui, |ui| {
         ui.horizontal(|ui| {

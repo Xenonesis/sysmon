@@ -595,6 +595,10 @@ pub(crate) struct SystemData {
     pub(crate) last_activity: Instant,
     pub(crate) telemetry_history_stats: std::collections::HashMap<String, crate::telemetry::HistoryStats>,
     pub(crate) provider_status: std::collections::HashMap<String, bool>,
+    pub(crate) physical_disks: Vec<crate::storage::PhysicalDiskHealth>,
+    pub(crate) socket_connections: Vec<crate::network::SocketConnection>,
+    pub(crate) power_plans: Vec<crate::power::PowerPlan>,
+    pub(crate) battery_health: crate::power::BatteryHealth,
 }
 
 impl Default for SystemData {
@@ -655,6 +659,10 @@ impl Default for SystemData {
             services: Vec::new(),
             telemetry_history_stats: std::collections::HashMap::new(),
             provider_status: std::collections::HashMap::new(),
+            physical_disks: Vec::new(),
+            socket_connections: Vec::new(),
+            power_plans: Vec::new(),
+            battery_health: crate::power::BatteryHealth::empty(),
         }
     }
 }

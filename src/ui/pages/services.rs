@@ -116,106 +116,157 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
 
     ui.add_space(8.0);
 
-    // ── Responsive Services Table ──
-    egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
-        egui::Grid::new("services_grid")
-            .striped(false)
-            .spacing([16.0, 6.0])
-            .min_col_width(120.0)
-            .show(ui, |ui| {
-                ui.label(
-                    egui::RichText::new("Display Name")
-                        .strong()
-                        .color(ThemePalette::text_secondary(is_dark)),
-                );
-                ui.label(
-                    egui::RichText::new("Service Identifier")
-                        .strong()
-                        .color(ThemePalette::text_secondary(is_dark)),
-                );
-                ui.label(
-                    egui::RichText::new("State")
-                        .strong()
-                        .color(ThemePalette::text_secondary(is_dark)),
-                );
-                ui.label(
-                    egui::RichText::new("Actions")
-                        .strong()
-                        .color(ThemePalette::text_secondary(is_dark)),
-                );
-                ui.end_row();
-
-                for svc in &filtered {
-                    // Display Name
-                    let display = if svc.display_name.chars().count() > 45 {
-                        let trunc: String = svc.display_name.chars().take(42).collect();
-                        format!("{}...", trunc)
-                    } else {
-                        svc.display_name.clone()
-                    };
+    // ── Responsive Virtualized Services Table ──
+    card_frame(is_dark).show(ui, |ui| {
+        // Sticky Header
+        ui.horizontal(|ui| {
+            ui.allocate_ui_with_layout(
+                egui::vec2(220.0, 22.0),
+                egui::Layout::left_to_right(egui::Align::Center),
+                |ui| {
                     ui.label(
-                        egui::RichText::new(display)
+                        egui::RichText::new("Display Name")
                             .strong()
-                            .color(ThemePalette::text_primary(is_dark)),
-                    )
-                    .on_hover_text(&svc.display_name);
-
-                    // Service Identifier (Monospace)
-                    ui.label(
-                        egui::RichText::new(&svc.name)
-                            .monospace()
+                            .size(11.5)
                             .color(ThemePalette::text_secondary(is_dark)),
-                    )
-                    .on_hover_text(&svc.name);
+                    );
+                },
+            );
+            ui.allocate_ui_with_layout(
+                egui::vec2(160.0, 22.0),
+                egui::Layout::left_to_right(egui::Align::Center),
+                |ui| {
+                    ui.label(
+                        egui::RichText::new("Service Identifier")
+                            .strong()
+                            .size(11.5)
+                            .color(ThemePalette::text_secondary(is_dark)),
+                    );
+                },
+            );
+            ui.allocate_ui_with_layout(
+                egui::vec2(100.0, 22.0),
+                egui::Layout::left_to_right(egui::Align::Center),
+                |ui| {
+                    ui.label(
+                        egui::RichText::new("State")
+                            .strong()
+                            .size(11.5)
+                            .color(ThemePalette::text_secondary(is_dark)),
+                    );
+                },
+            );
+            ui.label(
+                egui::RichText::new("Actions")
+                    .strong()
+                    .size(11.5)
+                    .color(ThemePalette::text_secondary(is_dark)),
+            );
+        });
 
-                    // State Pill (RUNNING in Emerald, STOPPED in Dimmed Steel)
-                    let state_c = service_state_color(&svc.state, is_dark);
-                    status_pill(ui, &svc.state.to_uppercase(), state_c, is_dark);
+        ui.add_space(4.0);
+        ui.separator();
+        ui.add_space(4.0);
 
-                    // Action buttons with Elevation Protection
+        let row_height = 28.0;
+        let num_rows = filtered.len();
+
+        egui::ScrollArea::vertical()
+            .auto_shrink([false, false])
+            .max_height(540.0)
+            .show_rows(ui, row_height, num_rows, |ui, row_range| {
+                for idx in row_range {
+                    let svc = filtered[idx];
+
                     ui.horizontal(|ui| {
-                        ui.add_enabled_ui(is_elevated, |ui| {
-                            let is_running = svc.state.eq_ignore_ascii_case("running");
-                            let is_stopped = svc.state.eq_ignore_ascii_case("stopped");
+                        // Display Name
+                        ui.allocate_ui_with_layout(
+                            egui::vec2(220.0, row_height),
+                            egui::Layout::left_to_right(egui::Align::Center),
+                            |ui| {
+                                let display = if svc.display_name.chars().count() > 32 {
+                                    let trunc: String = svc.display_name.chars().take(29).collect();
+                                    format!("{}...", trunc)
+                                } else {
+                                    svc.display_name.clone()
+                                };
+                                ui.label(
+                                    egui::RichText::new(display)
+                                        .strong()
+                                        .color(ThemePalette::text_primary(is_dark)),
+                                )
+                                .on_hover_text(&svc.display_name);
+                            },
+                        );
 
-                            let start_btn =
-                                ui.add_enabled(!is_running, egui::Button::new(egui::RichText::new("Start").small()));
-                            let stop_btn = ui.add_enabled(
-                                !is_stopped,
-                                egui::Button::new(
-                                    egui::RichText::new("Stop").small().color(ThemePalette::STATUS_CRITICAL),
-                                ),
-                            );
-                            let restart_btn =
-                                ui.add_enabled(is_running, egui::Button::new(egui::RichText::new("Restart").small()));
+                        // Service Identifier (Monospace)
+                        ui.allocate_ui_with_layout(
+                            egui::vec2(160.0, row_height),
+                            egui::Layout::left_to_right(egui::Align::Center),
+                            |ui| {
+                                ui.label(
+                                    egui::RichText::new(&svc.name)
+                                        .monospace()
+                                        .color(ThemePalette::text_secondary(is_dark)),
+                                )
+                                .on_hover_text(&svc.name);
+                            },
+                        );
 
-                            let tooltip = if !is_elevated {
-                                "Requires Administrator privileges"
-                            } else {
-                                "Send service control command"
-                            };
+                        // State Pill
+                        ui.allocate_ui_with_layout(
+                            egui::vec2(100.0, row_height),
+                            egui::Layout::left_to_right(egui::Align::Center),
+                            |ui| {
+                                let state_c = service_state_color(&svc.state, is_dark);
+                                status_pill(ui, &svc.state.to_uppercase(), state_c, is_dark);
+                            },
+                        );
 
-                            if start_btn.on_hover_text(tooltip).clicked() {
-                                app.pending_service_action = Some(services::ServiceAction {
-                                    name: svc.name.clone(),
-                                    action: services::ServiceControlAction::Start,
-                                });
-                            }
-                            if stop_btn.on_hover_text(tooltip).clicked() {
-                                app.pending_service_action = Some(services::ServiceAction {
-                                    name: svc.name.clone(),
-                                    action: services::ServiceControlAction::Stop,
-                                });
-                            }
-                            if restart_btn.on_hover_text(tooltip).clicked() {
-                                app.pending_service_action = Some(services::ServiceAction {
-                                    name: svc.name.clone(),
-                                    action: services::ServiceControlAction::Restart,
-                                });
-                            }
+                        // Action buttons with Elevation Protection
+                        ui.horizontal(|ui| {
+                            ui.add_enabled_ui(is_elevated, |ui| {
+                                let is_running = svc.state.eq_ignore_ascii_case("running");
+                                let is_stopped = svc.state.eq_ignore_ascii_case("stopped");
+
+                                let start_btn = ui
+                                    .add_enabled(!is_running, egui::Button::new(egui::RichText::new("Start").small()));
+                                let stop_btn = ui.add_enabled(
+                                    !is_stopped,
+                                    egui::Button::new(
+                                        egui::RichText::new("Stop").small().color(ThemePalette::STATUS_CRITICAL),
+                                    ),
+                                );
+                                let restart_btn = ui
+                                    .add_enabled(is_running, egui::Button::new(egui::RichText::new("Restart").small()));
+
+                                let tooltip = if !is_elevated {
+                                    "Requires Administrator privileges"
+                                } else {
+                                    "Send service control command"
+                                };
+
+                                if start_btn.on_hover_text(tooltip).clicked() {
+                                    app.pending_service_action = Some(services::ServiceAction {
+                                        name: svc.name.clone(),
+                                        action: services::ServiceControlAction::Start,
+                                    });
+                                }
+                                if stop_btn.on_hover_text(tooltip).clicked() {
+                                    app.pending_service_action = Some(services::ServiceAction {
+                                        name: svc.name.clone(),
+                                        action: services::ServiceControlAction::Stop,
+                                    });
+                                }
+                                if restart_btn.on_hover_text(tooltip).clicked() {
+                                    app.pending_service_action = Some(services::ServiceAction {
+                                        name: svc.name.clone(),
+                                        action: services::ServiceControlAction::Restart,
+                                    });
+                                }
+                            });
                         });
                     });
-                    ui.end_row();
                 }
             });
     });

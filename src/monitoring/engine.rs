@@ -1112,6 +1112,9 @@ impl SystemMonitorApp {
                 let mut battery_check_counter: u32 = 0;
                 let mut temperature_check_counter: u32 = 0;
                 let mut service_check_counter: u32 = 0;
+                let mut disk_smart_check_counter: u32 = 0;
+                let mut sockets_check_counter: u32 = 0;
+                let mut power_plans_check_counter: u32 = 0;
                 let mut last_alert_time: std::collections::HashMap<AlertType, Instant> =
                     std::collections::HashMap::new();
                 let mut last_hidden_tick = Instant::now();
@@ -1346,8 +1349,51 @@ impl SystemMonitorApp {
                         }
                     }
                     service_check_counter = service_check_counter.wrapping_add(1);
-                    last_selected_tab = selected_tab;
 
+                    // Poll physical disk SMART health in background (~every 30s or when entering tab)
+                    if !is_hidden
+                        && (selected_tab == Tab::Storage || selected_tab == Tab::Overview)
+                        && (disk_smart_check_counter % 60 == 0 || data_clone.read().physical_disks.is_empty())
+                    {
+                        let drives = crate::storage::get_physical_disks();
+                        if !drives.is_empty() {
+                            let mut data = data_clone.write();
+                            data.physical_disks = drives;
+                        }
+                    }
+                    disk_smart_check_counter = disk_smart_check_counter.wrapping_add(1);
+
+                    // Poll active socket connections in background (~every 2s on Network tab)
+                    if !is_hidden
+                        && selected_tab == Tab::Network
+                        && (sockets_check_counter % 4 == 0 || data_clone.read().socket_connections.is_empty())
+                    {
+                        let process_map: std::collections::HashMap<u32, String> = monitor
+                            .sys
+                            .processes()
+                            .iter()
+                            .map(|(pid, p)| (pid.as_u32(), p.name().to_string()))
+                            .collect();
+                        let conns = crate::network::get_active_connections(&process_map);
+                        let mut data = data_clone.write();
+                        data.socket_connections = conns;
+                    }
+                    sockets_check_counter = sockets_check_counter.wrapping_add(1);
+
+                    // Poll power plans & battery health in background (~every 10s on SystemInfo tab or startup)
+                    if !is_hidden
+                        && (selected_tab == Tab::SystemInfo || selected_tab == Tab::Overview)
+                        && (power_plans_check_counter % 20 == 0 || data_clone.read().power_plans.is_empty())
+                    {
+                        let plans = crate::power::get_power_plans();
+                        let bat_health = crate::power::get_battery_health();
+                        let mut data = data_clone.write();
+                        data.power_plans = plans;
+                        data.battery_health = bat_health;
+                    }
+                    power_plans_check_counter = power_plans_check_counter.wrapping_add(1);
+
+                    last_selected_tab = selected_tab;
                     // Calculate total network rates
                     let total_download_rate: f64 = network_info.iter().map(|n| n.received_rate).sum();
                     let total_upload_rate: f64 = network_info.iter().map(|n| n.transmitted_rate).sum();

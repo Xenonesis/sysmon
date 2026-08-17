@@ -19,7 +19,7 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
         ui.add_space(10.0);
 
         // ── Power Management & Battery Diagnostics ──
-        battery_diag::paint_power_schemes_card(app, ui, is_dark);
+        battery_diag::paint_power_schemes_card(app, ui, data, is_dark);
         ui.add_space(10.0);
 
         // ── 2. Processor (CPU) ──
@@ -216,7 +216,7 @@ mod tests {
         let _ = ctx.run(Default::default(), |ctx| {
             egui::CentralPanel::default().show(ctx, |ui| {
                 os_platform::paint_os_platform_card(ui, &data, true);
-                battery_diag::paint_power_schemes_card(&mut app, ui, true);
+                battery_diag::paint_power_schemes_card(&mut app, ui, &data, true);
                 cpu_arch::paint_cpu_arch_card(ui, &data, true);
                 memory_specs::paint_memory_specs_card(ui, &data, true);
                 gpu_display::paint_gpu_display_card(ui, &data, true);

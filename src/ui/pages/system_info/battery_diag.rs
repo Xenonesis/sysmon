@@ -4,9 +4,14 @@ use crate::*;
 use eframe::egui;
 
 /// Renders the Power Schemes and active battery status overview card.
-pub(crate) fn paint_power_schemes_card(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, is_dark: bool) {
-    let battery = crate::power::get_battery_health();
-    let power_plans = crate::power::get_power_plans();
+pub(crate) fn paint_power_schemes_card(
+    app: &mut crate::SystemMonitorApp,
+    ui: &mut egui::Ui,
+    data: &SystemData,
+    is_dark: bool,
+) {
+    let battery = &data.battery_health;
+    let power_plans = &data.power_plans;
 
     card_frame(is_dark).show(ui, |ui| {
         ui.horizontal(|ui| {
@@ -53,7 +58,7 @@ pub(crate) fn paint_power_schemes_card(app: &mut crate::SystemMonitorApp, ui: &m
                     .size(11.5)
                     .color(ThemePalette::text_secondary(is_dark)),
             );
-            for plan in &power_plans {
+            for plan in power_plans {
                 let is_active = plan.is_active;
                 let btn = egui::Button::new(
                     egui::RichText::new(if is_active {

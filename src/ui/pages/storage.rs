@@ -191,8 +191,8 @@ pub(crate) fn show(_app: &crate::SystemMonitorApp, ui: &mut egui::Ui, data: &Sys
             ui.add_space(8.0);
         }
 
-        // ── 3. Physical Drive Hardware & S.M.A.R.T. Health ──
-        let physical_drives = crate::storage::get_physical_disks();
+        // ── 3. Physical Drive Hardware & S.M.A.R.T. Health (Cached from background thread) ──
+        let physical_drives = &data.physical_disks;
         if !physical_drives.is_empty() {
             ui.add_space(6.0);
             card_frame(is_dark).show(ui, |ui| {
@@ -215,7 +215,7 @@ pub(crate) fn show(_app: &crate::SystemMonitorApp, ui: &mut egui::Ui, data: &Sys
 
                 ui.add_space(8.0);
 
-                for drive in &physical_drives {
+                for drive in physical_drives {
                     ui.group(|ui| {
                         ui.horizontal(|ui| {
                             ui.label(
