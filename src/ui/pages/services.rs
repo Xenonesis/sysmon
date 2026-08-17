@@ -171,6 +171,8 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
         let row_height = 28.0;
         let num_rows = filtered.len();
 
+        ui.spacing_mut().item_spacing.y = 0.0;
+
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .max_height(540.0)
@@ -178,7 +180,10 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
                 for idx in row_range {
                     let svc = filtered[idx];
 
-                    ui.horizontal(|ui| {
+                    ui.allocate_ui_with_layout(
+                        egui::vec2(ui.available_width(), row_height),
+                        egui::Layout::left_to_right(egui::Align::Center),
+                        |ui| {
                         // Display Name
                         ui.allocate_ui_with_layout(
                             egui::vec2(220.0, row_height),

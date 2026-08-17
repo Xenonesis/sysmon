@@ -133,6 +133,8 @@ pub(super) fn paint_process_table(
         let row_height = 28.0;
         let num_rows = filtered_processes.len();
 
+        ui.spacing_mut().item_spacing.y = 0.0;
+
         egui::ScrollArea::vertical().auto_shrink([false, false]).show_rows(
             ui,
             row_height,
@@ -149,7 +151,10 @@ pub(super) fn paint_process_table(
                         text_color = ThemePalette::STATUS_WARNING;
                     }
 
-                    ui.horizontal(|ui| {
+                    ui.allocate_ui_with_layout(
+                        egui::vec2(ui.available_width(), row_height),
+                        egui::Layout::left_to_right(egui::Align::Center),
+                        |ui| {
                         // PID
                         ui.allocate_ui_with_layout(
                             egui::vec2(60.0, row_height),
