@@ -173,57 +173,66 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
 
         ui.spacing_mut().item_spacing.y = 0.0;
 
-        egui::ScrollArea::vertical()
+        egui::ScrollArea::both()
             .auto_shrink([false, false])
             .max_height(540.0)
             .show_rows(ui, row_height, num_rows, |ui, row_range| {
                 for idx in row_range {
                     let svc = filtered[idx];
+                    let is_even = idx % 2 == 0;
 
-                    ui.allocate_ui_with_layout(
-                        egui::vec2(ui.available_width(), row_height),
-                        egui::Layout::left_to_right(egui::Align::Center),
-                        |ui| {
+                    let (row_rect, _) = ui.allocate_exact_size(
+                        egui::vec2(ui.available_width().max(640.0), row_height),
+                        egui::Sense::hover(),
+                    );
+
+                    if is_even {
+                        let stripe_fill = if is_dark {
+                            egui::Color32::from_rgba_unmultiplied(255, 255, 255, 3)
+                        } else {
+                            egui::Color32::from_rgba_unmultiplied(0, 0, 0, 3)
+                        };
+                        ui.painter().rect_filled(row_rect, egui::Rounding::same(2.0), stripe_fill);
+                    }
+
+                    ui.allocate_ui_at_rect(row_rect, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = 8.0;
+
                             // Display Name
-                            ui.allocate_ui_with_layout(
-                                egui::vec2(220.0, row_height),
-                                egui::Layout::left_to_right(egui::Align::Center),
-                                |ui| {
-                                    let display = if svc.display_name.chars().count() > 32 {
-                                        let trunc: String = svc.display_name.chars().take(29).collect();
-                                        format!("{}...", trunc)
-                                    } else {
-                                        svc.display_name.clone()
-                                    };
-                                    ui.label(
-                                        egui::RichText::new(display)
-                                            .strong()
-                                            .color(ThemePalette::text_primary(is_dark)),
-                                    )
-                                    .on_hover_text(&svc.display_name);
-                                },
-                            );
+                            let display = if svc.display_name.chars().count() > 30 {
+                                let trunc: String = svc.display_name.chars().take(27).collect();
+                                format!("{}...", trunc)
+                            } else {
+                                svc.display_name.clone()
+                            };
+                            ui.add_sized(
+                                [220.0, row_height],
+                                egui::Label::new(
+                                    egui::RichText::new(display)
+                                        .strong()
+                                        .color(ThemePalette::text_primary(is_dark)),
+                                ),
+                            )
+                            .on_hover_text(&svc.display_name);
 
                             // Service Identifier (Monospace)
-                            ui.allocate_ui_with_layout(
-                                egui::vec2(160.0, row_height),
-                                egui::Layout::left_to_right(egui::Align::Center),
-                                |ui| {
-                                    ui.label(
-                                        egui::RichText::new(&svc.name)
-                                            .monospace()
-                                            .color(ThemePalette::text_secondary(is_dark)),
-                                    )
-                                    .on_hover_text(&svc.name);
-                                },
-                            );
+                            ui.add_sized(
+                                [160.0, row_height],
+                                egui::Label::new(
+                                    egui::RichText::new(&svc.name)
+                                        .monospace()
+                                        .color(ThemePalette::text_secondary(is_dark)),
+                                ),
+                            )
+                            .on_hover_text(&svc.name);
 
                             // State Pill
+                            let state_c = service_state_color(&svc.state, is_dark);
                             ui.allocate_ui_with_layout(
                                 egui::vec2(100.0, row_height),
                                 egui::Layout::left_to_right(egui::Align::Center),
                                 |ui| {
-                                    let state_c = service_state_color(&svc.state, is_dark);
                                     status_pill(ui, &svc.state.to_uppercase(), state_c, is_dark);
                                 },
                             );
@@ -275,8 +284,8 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
                                     }
                                 });
                             });
-                        },
-                    );
+                        });
+                    });
                 }
             });
     });

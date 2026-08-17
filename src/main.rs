@@ -382,8 +382,10 @@ impl eframe::App for SystemMonitorApp {
             }
         }
 
-        let data_arc_local = self.data.clone();
-        let mut data = data_arc_local.read();
+        // Clone a point-in-time snapshot of SystemData so the lock is released instantly.
+        // This completely eliminates reader-writer lock contention and deadlocks between the UI
+        // thread and background monitoring / worker threads.
+        let data = self.data.read().clone();
 
         // Handle process kill actions
         if let Some(pid) = self.selected_process_pid.take() {
@@ -495,10 +497,7 @@ impl eframe::App for SystemMonitorApp {
                         repaint_ctx.request_repaint();
                     })
                     .expect("failed to spawn auto ram cleaner thread");
-                // Mark cleaning in shared data too
-                drop(data);
                 self.data.write().ram_clean_is_cleaning = true;
-                data = data_arc_local.read();
             }
         }
         // Sync back from shared data
@@ -661,9 +660,7 @@ impl eframe::App for SystemMonitorApp {
         }
         self.show_alerts = show_alerts;
         if clear_alerts {
-            drop(data);
             self.data.write().alerts.clear();
-            data = data_arc_local.read();
         }
 
         let is_dark = ThemePalette::is_dark_mode(self.settings.theme);

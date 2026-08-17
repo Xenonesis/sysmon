@@ -73,6 +73,9 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ctx: &egui::Context, data:
 
             ui.add_space(5.0);
 
+            let is_dark = ui.visuals().dark_mode;
+            let row_height = 26.0;
+
             if !app.process_tree_view {
                 // Filter & Sort processes
                 let mut filtered_processes = processes::filter_processes(&data.top_processes, &app.process_search);
@@ -87,135 +90,192 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ctx: &egui::Context, data:
                     filtered_processes.len(),
                     data.top_processes.len()
                 ));
-                ui.add_space(5.0);
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    egui::Grid::new("process_manager_grid")
-                        .striped(true)
-                        .spacing([10.0, 4.0])
-                        .min_col_width(60.0)
-                        .show(ui, |ui| {
-                            let sort_arrow =
-                                |col: ProcessSortColumn, current: ProcessSortColumn, asc: bool| -> &'static str {
-                                    if col == current {
-                                        if asc {
-                                            " ^"
-                                        } else {
-                                            " v"
-                                        }
-                                    } else {
-                                        ""
-                                    }
+                ui.add_space(4.0);
+
+                // Sticky Header with sortable columns
+                let sort_col = app.process_sort_column;
+                let sort_asc = app.process_sort_ascending;
+
+                let header_btn = |ui: &mut egui::Ui, label: &str, width: f32, col: ProcessSortColumn| -> egui::Response {
+                    let arrow = if col == sort_col {
+                        if sort_asc { " ▲" } else { " ▼" }
+                    } else {
+                        ""
+                    };
+                    let text = format!("{}{}", label, arrow);
+                    let color = if col == sort_col {
+                        ThemePalette::ACCENT_PRIMARY
+                    } else {
+                        ThemePalette::text_primary(is_dark)
+                    };
+                    let btn = egui::Button::new(egui::RichText::new(text).strong().size(11.5).color(color))
+                        .fill(egui::Color32::TRANSPARENT)
+                        .stroke(egui::Stroke::NONE);
+                    ui.add_sized([width, 22.0], btn)
+                };
+
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 8.0;
+                    if header_btn(ui, "PID", 55.0, ProcessSortColumn::Pid).clicked() {
+                        if app.process_sort_column == ProcessSortColumn::Pid {
+                            app.process_sort_ascending = !app.process_sort_ascending;
+                        } else {
+                            app.process_sort_column = ProcessSortColumn::Pid;
+                            app.process_sort_ascending = true;
+                        }
+                    }
+                    if header_btn(ui, "Process Name", 180.0, ProcessSortColumn::Name).clicked() {
+                        if app.process_sort_column == ProcessSortColumn::Name {
+                            app.process_sort_ascending = !app.process_sort_ascending;
+                        } else {
+                            app.process_sort_column = ProcessSortColumn::Name;
+                            app.process_sort_ascending = true;
+                        }
+                    }
+                    if header_btn(ui, "Memory", 80.0, ProcessSortColumn::Memory).clicked() {
+                        if app.process_sort_column == ProcessSortColumn::Memory {
+                            app.process_sort_ascending = !app.process_sort_ascending;
+                        } else {
+                            app.process_sort_column = ProcessSortColumn::Memory;
+                            app.process_sort_ascending = false;
+                        }
+                    }
+                    if header_btn(ui, "CPU %", 65.0, ProcessSortColumn::Cpu).clicked() {
+                        if app.process_sort_column == ProcessSortColumn::Cpu {
+                            app.process_sort_ascending = !app.process_sort_ascending;
+                        } else {
+                            app.process_sort_column = ProcessSortColumn::Cpu;
+                            app.process_sort_ascending = false;
+                        }
+                    }
+                    if header_btn(ui, "Disk I/O", 90.0, ProcessSortColumn::Disk).clicked() {
+                        if app.process_sort_column == ProcessSortColumn::Disk {
+                            app.process_sort_ascending = !app.process_sort_ascending;
+                        } else {
+                            app.process_sort_column = ProcessSortColumn::Disk;
+                            app.process_sort_ascending = false;
+                        }
+                    }
+                    ui.label(
+                        egui::RichText::new("Actions")
+                            .strong()
+                            .size(11.5)
+                            .color(ThemePalette::text_secondary(is_dark)),
+                    );
+                });
+
+                ui.add_space(2.0);
+                ui.separator();
+                ui.add_space(2.0);
+
+                let num_rows = filtered_processes.len();
+                egui::ScrollArea::both()
+                    .auto_shrink([false, false])
+                    .show_rows(ui, row_height, num_rows, |ui, row_range| {
+                        ui.spacing_mut().item_spacing.y = 0.0;
+
+                        for idx in row_range {
+                            let process = filtered_processes[idx];
+                            let memory_mb = bytes_to_mb(process.memory);
+                            let is_even = idx % 2 == 0;
+
+                            let mut text_color = ThemePalette::text_primary(is_dark);
+                            if memory_mb > 500.0 || process.cpu_usage > 20.0 {
+                                text_color = ThemePalette::STATUS_CRITICAL;
+                            } else if memory_mb > 200.0 || process.cpu_usage > 10.0 {
+                                text_color = ThemePalette::STATUS_WARNING;
+                            }
+
+                            let (row_rect, _) = ui.allocate_exact_size(
+                                egui::vec2(ui.available_width().max(660.0), row_height),
+                                egui::Sense::hover(),
+                            );
+
+                            if is_even {
+                                let stripe_fill = if is_dark {
+                                    egui::Color32::from_rgba_unmultiplied(255, 255, 255, 3)
+                                } else {
+                                    egui::Color32::from_rgba_unmultiplied(0, 0, 0, 3)
                                 };
-                            let sort_col = app.process_sort_column;
-                            let sort_asc = app.process_sort_ascending;
-
-                            if ui
-                                .button(format!("PID{}", sort_arrow(ProcessSortColumn::Pid, sort_col, sort_asc)))
-                                .clicked()
-                            {
-                                if app.process_sort_column == ProcessSortColumn::Pid {
-                                    app.process_sort_ascending = !app.process_sort_ascending;
-                                } else {
-                                    app.process_sort_column = ProcessSortColumn::Pid;
-                                    app.process_sort_ascending = true;
-                                }
+                                ui.painter().rect_filled(row_rect, egui::Rounding::same(2.0), stripe_fill);
                             }
-                            if ui
-                                .button(format!(
-                                    "Process Name{}",
-                                    sort_arrow(ProcessSortColumn::Name, sort_col, sort_asc)
-                                ))
-                                .clicked()
-                            {
-                                if app.process_sort_column == ProcessSortColumn::Name {
-                                    app.process_sort_ascending = !app.process_sort_ascending;
-                                } else {
-                                    app.process_sort_column = ProcessSortColumn::Name;
-                                    app.process_sort_ascending = true;
-                                }
-                            }
-                            if ui
-                                .button(format!(
-                                    "Memory{}",
-                                    sort_arrow(ProcessSortColumn::Memory, sort_col, sort_asc)
-                                ))
-                                .clicked()
-                            {
-                                if app.process_sort_column == ProcessSortColumn::Memory {
-                                    app.process_sort_ascending = !app.process_sort_ascending;
-                                } else {
-                                    app.process_sort_column = ProcessSortColumn::Memory;
-                                    app.process_sort_ascending = false;
-                                }
-                            }
-                            if ui
-                                .button(format!(
-                                    "CPU %{}",
-                                    sort_arrow(ProcessSortColumn::Cpu, sort_col, sort_asc)
-                                ))
-                                .clicked()
-                            {
-                                if app.process_sort_column == ProcessSortColumn::Cpu {
-                                    app.process_sort_ascending = !app.process_sort_ascending;
-                                } else {
-                                    app.process_sort_column = ProcessSortColumn::Cpu;
-                                    app.process_sort_ascending = false;
-                                }
-                            }
-                            if ui
-                                .button(format!(
-                                    "Disk I/O{}",
-                                    sort_arrow(ProcessSortColumn::Disk, sort_col, sort_asc)
-                                ))
-                                .clicked()
-                            {
-                                if app.process_sort_column == ProcessSortColumn::Disk {
-                                    app.process_sort_ascending = !app.process_sort_ascending;
-                                } else {
-                                    app.process_sort_column = ProcessSortColumn::Disk;
-                                    app.process_sort_ascending = false;
-                                }
-                            }
-                            ui.strong("Actions");
-                            ui.end_row();
 
-                            // Processes
-                            for process in &filtered_processes {
-                                let memory_mb = bytes_to_mb(process.memory);
-                                let memory_color = if memory_mb > 500.0 {
-                                    ThemePalette::STATUS_CRITICAL
-                                } else if memory_mb > 200.0 {
-                                    ThemePalette::STATUS_WARNING
-                                } else {
-                                    ThemePalette::STATUS_HEALTHY
-                                };
-
-                                ui.label(process.pid.to_string());
-
-                                // Safe truncation using char boundaries
-                                let display_name = if process.name.chars().count() > 25 {
-                                    let truncated: String = process.name.chars().take(22).collect();
-                                    format!("{}...", truncated)
-                                } else {
-                                    process.name.clone()
-                                };
-                                ui.label(display_name);
-
-                                ui.colored_label(memory_color, format!("{:.2} MB", memory_mb));
-                                ui.label(format!("{:.1}%", process.cpu_usage));
-                                ui.label(&process.status);
-                                let disk_total = process.disk_read_bytes.saturating_add(process.disk_written_bytes);
-                                let disk_str = if disk_total > 0 {
-                                    format!(
-                                        "R:{} W:{}",
-                                        bytes_to_human(process.disk_read_bytes),
-                                        bytes_to_human(process.disk_written_bytes)
-                                    )
-                                } else {
-                                    "—".to_string()
-                                };
-                                ui.label(egui::RichText::new(disk_str).monospace().size(11.0));
+                            ui.allocate_ui_at_rect(row_rect, |ui| {
                                 ui.horizontal(|ui| {
+                                    ui.spacing_mut().item_spacing.x = 8.0;
+
+                                    // PID
+                                    ui.add_sized(
+                                        [55.0, row_height],
+                                        egui::Label::new(
+                                            egui::RichText::new(process.pid.to_string())
+                                                .monospace()
+                                                .size(11.5)
+                                                .color(text_color),
+                                        ),
+                                    );
+
+                                    // Process Name
+                                    let display_name = if process.name.chars().count() > 22 {
+                                        let truncated: String = process.name.chars().take(19).collect();
+                                        format!("{}...", truncated)
+                                    } else {
+                                        process.name.clone()
+                                    };
+                                    ui.add_sized(
+                                        [180.0, row_height],
+                                        egui::Label::new(
+                                            egui::RichText::new(&display_name)
+                                                .monospace()
+                                                .size(11.5)
+                                                .color(text_color),
+                                        ),
+                                    );
+
+                                    // Memory
+                                    ui.add_sized(
+                                        [80.0, row_height],
+                                        egui::Label::new(
+                                            egui::RichText::new(format!("{:.1} MB", memory_mb))
+                                                .monospace()
+                                                .size(11.5)
+                                                .color(text_color),
+                                        ),
+                                    );
+
+                                    // CPU %
+                                    ui.add_sized(
+                                        [65.0, row_height],
+                                        egui::Label::new(
+                                            egui::RichText::new(format!("{:.1}%", process.cpu_usage))
+                                                .monospace()
+                                                .size(11.5)
+                                                .color(text_color),
+                                        ),
+                                    );
+
+                                    // Disk I/O
+                                    let disk_total = process.disk_read_bytes.saturating_add(process.disk_written_bytes);
+                                    let disk_str = if disk_total > 0 {
+                                        format!(
+                                            "R:{} W:{}",
+                                            bytes_to_human(process.disk_read_bytes),
+                                            bytes_to_human(process.disk_written_bytes)
+                                        )
+                                    } else {
+                                        "—".to_string()
+                                    };
+                                    ui.add_sized(
+                                        [90.0, row_height],
+                                        egui::Label::new(
+                                            egui::RichText::new(disk_str)
+                                                .monospace()
+                                                .size(11.0)
+                                                .color(text_color),
+                                        ),
+                                    );
+
+                                    // Actions
                                     if ui
                                         .small_button(egui::RichText::new("Kill").color(ThemePalette::STATUS_CRITICAL))
                                         .on_hover_text("Kill Process")
@@ -223,6 +283,7 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ctx: &egui::Context, data:
                                     {
                                         app.selected_process_pid = Some(process.pid);
                                     }
+
                                     let is_suspended = app.suspended_pids.contains(&process.pid);
                                     if is_suspended {
                                         if ui
@@ -237,7 +298,8 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ctx: &egui::Context, data:
                                     } else if ui.small_button("Suspend").on_hover_text("Suspend Process").clicked() {
                                         app.suspend_process_pid = Some(process.pid);
                                     }
-                                    // Unified menu for Priority, Affinity, etc.
+
+                                    // Options menu
                                     ui.menu_button("⚙", |ui| {
                                         ui.set_min_width(160.0);
                                         ui.label(egui::RichText::new(format!("PID {} Options", process.pid)).strong());
@@ -276,11 +338,9 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ctx: &egui::Context, data:
                                     .response
                                     .on_hover_text("Set Priority or CPU Affinity");
                                 });
-
-                                ui.end_row();
-                            }
-                        });
-                });
+                            });
+                        }
+                    });
             } else {
                 // ── Tree View Mode ──
                 let parent_map: std::collections::HashMap<u32, u32> = std::collections::HashMap::new();
@@ -288,40 +348,106 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ctx: &egui::Context, data:
                 let tree_rows = processes::build_tree_rows(&data.top_processes, &tree, &app.process_search);
 
                 ui.label(format!("Showing {} hierarchical processes in tree", tree_rows.len()));
-                ui.add_space(5.0);
+                ui.add_space(4.0);
 
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    egui::Grid::new("process_manager_tree_grid")
-                        .striped(true)
-                        .spacing([10.0, 4.0])
-                        .min_col_width(60.0)
-                        .show(ui, |ui| {
-                            ui.strong("PID");
-                            ui.strong("Process Hierarchy");
-                            ui.strong("Memory");
-                            ui.strong("CPU %");
-                            ui.strong("Status");
-                            ui.strong("Actions");
-                            ui.end_row();
+                // Header
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 8.0;
+                    ui.add_sized([55.0, 22.0], egui::Label::new(egui::RichText::new("PID").strong().size(11.5)));
+                    ui.add_sized([220.0, 22.0], egui::Label::new(egui::RichText::new("Process Hierarchy").strong().size(11.5)));
+                    ui.add_sized([80.0, 22.0], egui::Label::new(egui::RichText::new("Memory").strong().size(11.5)));
+                    ui.add_sized([65.0, 22.0], egui::Label::new(egui::RichText::new("CPU %").strong().size(11.5)));
+                    ui.label(egui::RichText::new("Actions").strong().size(11.5).color(ThemePalette::text_secondary(is_dark)));
+                });
 
-                            for r in &tree_rows {
-                                let memory_mb = bytes_to_mb(r.process.memory);
-                                let memory_color = if memory_mb > 500.0 {
-                                    ThemePalette::STATUS_CRITICAL
-                                } else if memory_mb > 200.0 {
-                                    ThemePalette::STATUS_WARNING
+                ui.add_space(2.0);
+                ui.separator();
+                ui.add_space(2.0);
+
+                let num_tree_rows = tree_rows.len();
+                egui::ScrollArea::both()
+                    .auto_shrink([false, false])
+                    .show_rows(ui, row_height, num_tree_rows, |ui, row_range| {
+                        ui.spacing_mut().item_spacing.y = 0.0;
+
+                        for idx in row_range {
+                            let r = &tree_rows[idx];
+                            let memory_mb = bytes_to_mb(r.process.memory);
+                            let is_even = idx % 2 == 0;
+
+                            let mut text_color = ThemePalette::text_primary(is_dark);
+                            if memory_mb > 500.0 || r.process.cpu_usage > 20.0 {
+                                text_color = ThemePalette::STATUS_CRITICAL;
+                            } else if memory_mb > 200.0 || r.process.cpu_usage > 10.0 {
+                                text_color = ThemePalette::STATUS_WARNING;
+                            }
+
+                            let (row_rect, _) = ui.allocate_exact_size(
+                                egui::vec2(ui.available_width().max(660.0), row_height),
+                                egui::Sense::hover(),
+                            );
+
+                            if is_even {
+                                let stripe_fill = if is_dark {
+                                    egui::Color32::from_rgba_unmultiplied(255, 255, 255, 3)
                                 } else {
-                                    ThemePalette::STATUS_HEALTHY
+                                    egui::Color32::from_rgba_unmultiplied(0, 0, 0, 3)
                                 };
+                                ui.painter().rect_filled(row_rect, egui::Rounding::same(2.0), stripe_fill);
+                            }
 
-                                ui.label(r.process.pid.to_string());
-                                let tree_label = format!("{}{}", r.prefix, r.process.name);
-                                ui.label(egui::RichText::new(tree_label).monospace());
-                                ui.colored_label(memory_color, format!("{:.2} MB", memory_mb));
-                                ui.label(format!("{:.1}%", r.process.cpu_usage));
-                                ui.label(&r.process.status);
-
+                            ui.allocate_ui_at_rect(row_rect, |ui| {
                                 ui.horizontal(|ui| {
+                                    ui.spacing_mut().item_spacing.x = 8.0;
+
+                                    ui.add_sized(
+                                        [55.0, row_height],
+                                        egui::Label::new(
+                                            egui::RichText::new(r.process.pid.to_string())
+                                                .monospace()
+                                                .size(11.5)
+                                                .color(text_color),
+                                        ),
+                                    );
+
+                                    let tree_label = format!("{}{}", r.prefix, r.process.name);
+                                    let display_tree = if tree_label.chars().count() > 28 {
+                                        let trunc: String = tree_label.chars().take(25).collect();
+                                        format!("{}...", trunc)
+                                    } else {
+                                        tree_label
+                                    };
+
+                                    ui.add_sized(
+                                        [220.0, row_height],
+                                        egui::Label::new(
+                                            egui::RichText::new(display_tree)
+                                                .monospace()
+                                                .size(11.5)
+                                                .color(text_color),
+                                        ),
+                                    );
+
+                                    ui.add_sized(
+                                        [80.0, row_height],
+                                        egui::Label::new(
+                                            egui::RichText::new(format!("{:.1} MB", memory_mb))
+                                                .monospace()
+                                                .size(11.5)
+                                                .color(text_color),
+                                        ),
+                                    );
+
+                                    ui.add_sized(
+                                        [65.0, row_height],
+                                        egui::Label::new(
+                                            egui::RichText::new(format!("{:.1}%", r.process.cpu_usage))
+                                                .monospace()
+                                                .size(11.5)
+                                                .color(text_color),
+                                        ),
+                                    );
+
                                     if ui
                                         .small_button(egui::RichText::new("Kill").color(ThemePalette::STATUS_CRITICAL))
                                         .on_hover_text("Kill Process")
@@ -329,6 +455,7 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ctx: &egui::Context, data:
                                     {
                                         app.selected_process_pid = Some(r.process.pid);
                                     }
+
                                     let is_suspended = app.suspended_pids.contains(&r.process.pid);
                                     if is_suspended {
                                         if ui
@@ -343,7 +470,7 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ctx: &egui::Context, data:
                                     } else if ui.small_button("Suspend").on_hover_text("Suspend Process").clicked() {
                                         app.suspend_process_pid = Some(r.process.pid);
                                     }
-                                    // Unified menu for Priority, Affinity, etc.
+
                                     ui.menu_button("⚙", |ui| {
                                         ui.set_min_width(160.0);
                                         ui.label(
@@ -384,10 +511,9 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ctx: &egui::Context, data:
                                     .response
                                     .on_hover_text("Set Priority or CPU Affinity");
                                 });
-                                ui.end_row();
-                            }
-                        });
-                });
+                            });
+                        }
+                    });
             }
 
             if let Some(status) = &app.action_status {

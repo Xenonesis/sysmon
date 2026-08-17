@@ -53,27 +53,22 @@ pub(crate) fn get_battery_info(wmi_con: &wmi::WMIConnection) -> Option<BatteryIn
 }
 
 #[cfg(target_os = "windows")]
+extern "system" {
+    fn MessageBeep(u_type: u32) -> i32;
+}
+
+#[cfg(target_os = "windows")]
 pub(crate) fn play_alert_sound() {
-    use std::os::windows::process::CommandExt;
-    std::thread::spawn(|| {
-        let _ = std::process::Command::new("powershell")
-            .creation_flags(0x08000000) // CREATE_NO_WINDOW
-            .arg("-c")
-            .arg("[System.Media.SystemSounds]::Exclamation.Play()")
-            .output();
-    });
+    unsafe {
+        MessageBeep(0x00000030); // MB_ICONEXCLAMATION
+    }
 }
 
 #[cfg(target_os = "windows")]
 pub(crate) fn play_success_sound() {
-    use std::os::windows::process::CommandExt;
-    std::thread::spawn(|| {
-        let _ = std::process::Command::new("powershell")
-            .creation_flags(0x08000000) // CREATE_NO_WINDOW
-            .arg("-c")
-            .arg("[System.Media.SystemSounds]::Asterisk.Play()")
-            .output();
-    });
+    unsafe {
+        MessageBeep(0x00000040); // MB_ICONASTERISK
+    }
 }
 
 #[cfg(not(target_os = "windows"))]
