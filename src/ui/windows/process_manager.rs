@@ -216,62 +216,65 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ctx: &egui::Context, data:
                                 };
                                 ui.label(egui::RichText::new(disk_str).monospace().size(11.0));
                                 ui.horizontal(|ui| {
-                                    if ui.small_button("Kill").on_hover_text("Kill Process").clicked() {
+                                    if ui
+                                        .small_button(egui::RichText::new("Kill").color(ThemePalette::STATUS_CRITICAL))
+                                        .on_hover_text("Kill Process")
+                                        .clicked()
+                                    {
                                         app.selected_process_pid = Some(process.pid);
                                     }
                                     let is_suspended = app.suspended_pids.contains(&process.pid);
                                     if is_suspended {
-                                        if ui.small_button("Resume").on_hover_text("Resume Process").clicked() {
+                                        if ui
+                                            .small_button(
+                                                egui::RichText::new("Resume").color(ThemePalette::STATUS_HEALTHY),
+                                            )
+                                            .on_hover_text("Resume Process")
+                                            .clicked()
+                                        {
                                             app.resume_process_pid = Some(process.pid);
                                         }
                                     } else if ui.small_button("Suspend").on_hover_text("Suspend Process").clicked() {
                                         app.suspend_process_pid = Some(process.pid);
                                     }
-                                    // Priority menu
-                                    ui.menu_button("Priority", |ui| {
-                                        ui.label("Set Priority:");
-                                        for priority in &["High", "AboveNormal", "Normal", "BelowNormal", "Idle"] {
-                                            if ui.button(*priority).clicked() {
-                                                app.priority_change = Some((process.pid, priority.to_string()));
-                                                ui.close_menu();
-                                            }
-                                        }
-                                    })
-                                    .response
-                                    .on_hover_text("Set Priority");
-                                    // Affinity menu
-                                    ui.menu_button("Affinity", |ui| {
-                                        ui.label("CPU Core Affinity:");
-                                        let num_cores = data.cpu_cores.len().max(1);
-                                        let all_mask = if num_cores >= 64 {
-                                            usize::MAX
-                                        } else {
-                                            (1usize << num_cores) - 1
-                                        };
-                                        if ui.button("All Cores (Default)").clicked() {
-                                            app.affinity_change = Some((process.pid, all_mask));
-                                            ui.close_menu();
-                                        }
-                                        if num_cores > 1 {
-                                            if ui.button("Core 0 Only (0x1)").clicked() {
-                                                app.affinity_change = Some((process.pid, 1));
-                                                ui.close_menu();
-                                            }
-                                            if ui.button("Core 1 Only (0x2)").clicked() {
-                                                app.affinity_change = Some((process.pid, 2));
-                                                ui.close_menu();
-                                            }
-                                            if num_cores >= 4 {
-                                                let half_mask = (1usize << (num_cores / 2)) - 1;
-                                                if ui.button(format!("First {} Cores", num_cores / 2)).clicked() {
-                                                    app.affinity_change = Some((process.pid, half_mask));
+                                    // Unified menu for Priority, Affinity, etc.
+                                    ui.menu_button("⚙", |ui| {
+                                        ui.set_min_width(160.0);
+                                        ui.label(egui::RichText::new(format!("PID {} Options", process.pid)).strong());
+                                        ui.separator();
+                                        ui.menu_button("Set Priority ▸", |ui| {
+                                            for priority in &["High", "AboveNormal", "Normal", "BelowNormal", "Idle"] {
+                                                if ui.button(*priority).clicked() {
+                                                    app.priority_change = Some((process.pid, priority.to_string()));
                                                     ui.close_menu();
                                                 }
                                             }
-                                        }
+                                        });
+                                        ui.menu_button("Set CPU Affinity ▸", |ui| {
+                                            let num_cores = data.cpu_cores.len().max(1);
+                                            let all_mask = if num_cores >= 64 {
+                                                usize::MAX
+                                            } else {
+                                                (1usize << num_cores) - 1
+                                            };
+                                            if ui.button("All Cores (Default)").clicked() {
+                                                app.affinity_change = Some((process.pid, all_mask));
+                                                ui.close_menu();
+                                            }
+                                            if num_cores > 1 {
+                                                if ui.button("Core 0 Only (0x1)").clicked() {
+                                                    app.affinity_change = Some((process.pid, 1));
+                                                    ui.close_menu();
+                                                }
+                                                if ui.button("Core 1 Only (0x2)").clicked() {
+                                                    app.affinity_change = Some((process.pid, 2));
+                                                    ui.close_menu();
+                                                }
+                                            }
+                                        });
                                     })
                                     .response
-                                    .on_hover_text("Set CPU Core Affinity");
+                                    .on_hover_text("Set Priority or CPU Affinity");
                                 });
 
                                 ui.end_row();
@@ -319,58 +322,67 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ctx: &egui::Context, data:
                                 ui.label(&r.process.status);
 
                                 ui.horizontal(|ui| {
-                                    if ui.small_button("Kill").on_hover_text("Kill Process").clicked() {
+                                    if ui
+                                        .small_button(egui::RichText::new("Kill").color(ThemePalette::STATUS_CRITICAL))
+                                        .on_hover_text("Kill Process")
+                                        .clicked()
+                                    {
                                         app.selected_process_pid = Some(r.process.pid);
                                     }
                                     let is_suspended = app.suspended_pids.contains(&r.process.pid);
                                     if is_suspended {
-                                        if ui.small_button("Resume").on_hover_text("Resume Process").clicked() {
+                                        if ui
+                                            .small_button(
+                                                egui::RichText::new("Resume").color(ThemePalette::STATUS_HEALTHY),
+                                            )
+                                            .on_hover_text("Resume Process")
+                                            .clicked()
+                                        {
                                             app.resume_process_pid = Some(r.process.pid);
                                         }
                                     } else if ui.small_button("Suspend").on_hover_text("Suspend Process").clicked() {
                                         app.suspend_process_pid = Some(r.process.pid);
                                     }
-                                    // Priority menu
-                                    ui.menu_button("Priority", |ui| {
-                                        ui.label("Set Priority:");
-                                        for priority in &["High", "AboveNormal", "Normal", "BelowNormal", "Idle"] {
-                                            if ui.button(*priority).clicked() {
-                                                app.priority_change = Some((r.process.pid, priority.to_string()));
-                                                ui.close_menu();
-                                            }
-                                        }
-                                    });
-                                    // Affinity menu
-                                    ui.menu_button("Affinity", |ui| {
-                                        ui.label("CPU Core Affinity:");
-                                        let num_cores = data.cpu_cores.len().max(1);
-                                        let all_mask = if num_cores >= 64 {
-                                            usize::MAX
-                                        } else {
-                                            (1usize << num_cores) - 1
-                                        };
-                                        if ui.button("All Cores (Default)").clicked() {
-                                            app.affinity_change = Some((r.process.pid, all_mask));
-                                            ui.close_menu();
-                                        }
-                                        if num_cores > 1 {
-                                            if ui.button("Core 0 Only (0x1)").clicked() {
-                                                app.affinity_change = Some((r.process.pid, 1));
-                                                ui.close_menu();
-                                            }
-                                            if ui.button("Core 1 Only (0x2)").clicked() {
-                                                app.affinity_change = Some((r.process.pid, 2));
-                                                ui.close_menu();
-                                            }
-                                            if num_cores >= 4 {
-                                                let half_mask = (1usize << (num_cores / 2)) - 1;
-                                                if ui.button(format!("First {} Cores", num_cores / 2)).clicked() {
-                                                    app.affinity_change = Some((r.process.pid, half_mask));
+                                    // Unified menu for Priority, Affinity, etc.
+                                    ui.menu_button("⚙", |ui| {
+                                        ui.set_min_width(160.0);
+                                        ui.label(
+                                            egui::RichText::new(format!("PID {} Options", r.process.pid)).strong(),
+                                        );
+                                        ui.separator();
+                                        ui.menu_button("Set Priority ▸", |ui| {
+                                            for priority in &["High", "AboveNormal", "Normal", "BelowNormal", "Idle"] {
+                                                if ui.button(*priority).clicked() {
+                                                    app.priority_change = Some((r.process.pid, priority.to_string()));
                                                     ui.close_menu();
                                                 }
                                             }
-                                        }
-                                    });
+                                        });
+                                        ui.menu_button("Set CPU Affinity ▸", |ui| {
+                                            let num_cores = data.cpu_cores.len().max(1);
+                                            let all_mask = if num_cores >= 64 {
+                                                usize::MAX
+                                            } else {
+                                                (1usize << num_cores) - 1
+                                            };
+                                            if ui.button("All Cores (Default)").clicked() {
+                                                app.affinity_change = Some((r.process.pid, all_mask));
+                                                ui.close_menu();
+                                            }
+                                            if num_cores > 1 {
+                                                if ui.button("Core 0 Only (0x1)").clicked() {
+                                                    app.affinity_change = Some((r.process.pid, 1));
+                                                    ui.close_menu();
+                                                }
+                                                if ui.button("Core 1 Only (0x2)").clicked() {
+                                                    app.affinity_change = Some((r.process.pid, 2));
+                                                    ui.close_menu();
+                                                }
+                                            }
+                                        });
+                                    })
+                                    .response
+                                    .on_hover_text("Set Priority or CPU Affinity");
                                 });
                                 ui.end_row();
                             }

@@ -66,7 +66,9 @@ pub fn sort_processes_refs(items: &mut [&ProcessInfo], column: ProcessSortColumn
         ProcessSortColumn::Pid => ord(a.pid.cmp(&b.pid), ascending),
         ProcessSortColumn::Name => ord(a.name.to_lowercase().cmp(&b.name.to_lowercase()), ascending),
         ProcessSortColumn::Cpu => ord(
-            a.cpu_usage.partial_cmp(&b.cpu_usage).unwrap_or(std::cmp::Ordering::Equal),
+            a.cpu_usage
+                .partial_cmp(&b.cpu_usage)
+                .unwrap_or(std::cmp::Ordering::Equal),
             ascending,
         ),
         ProcessSortColumn::Memory => ord(a.memory.cmp(&b.memory), ascending),
@@ -319,9 +321,11 @@ mod tests {
 
     #[test]
     fn sort_memory_descending_default() {
-        let items = [p(1, "a", 0.0, 100, "Running"),
+        let items = [
+            p(1, "a", 0.0, 100, "Running"),
             p(2, "b", 0.0, 900, "Running"),
-            p(3, "c", 0.0, 400, "Running")];
+            p(3, "c", 0.0, 400, "Running"),
+        ];
         let mut refs: Vec<_> = items.iter().collect();
         sort_processes_refs(&mut refs, ProcessSortColumn::Memory, false);
         let pids: Vec<u32> = refs.iter().map(|x| x.pid).collect();
@@ -330,9 +334,11 @@ mod tests {
 
     #[test]
     fn sort_cpu_descending() {
-        let items = [p(1, "a", 3.0, 0, "Running"),
+        let items = [
+            p(1, "a", 3.0, 0, "Running"),
             p(2, "b", 1.0, 0, "Running"),
-            p(3, "c", 7.0, 0, "Running")];
+            p(3, "c", 7.0, 0, "Running"),
+        ];
         let mut refs: Vec<_> = items.iter().collect();
         sort_processes_refs(&mut refs, ProcessSortColumn::Cpu, false);
         let pids: Vec<u32> = refs.iter().map(|x| x.pid).collect();
@@ -341,9 +347,11 @@ mod tests {
 
     #[test]
     fn sort_name_ascending() {
-        let items = [p(1, "zeta", 0.0, 0, "Running"),
+        let items = [
+            p(1, "zeta", 0.0, 0, "Running"),
             p(2, "alpha", 0.0, 0, "Running"),
-            p(3, "Beta", 0.0, 0, "Running")];
+            p(3, "Beta", 0.0, 0, "Running"),
+        ];
         let mut refs: Vec<_> = items.iter().collect();
         sort_processes_refs(&mut refs, ProcessSortColumn::Name, true);
         let names: Vec<&str> = refs.iter().map(|x| x.name.as_str()).collect();

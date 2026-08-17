@@ -17,7 +17,7 @@ pub(crate) fn paint_socket_connections(
         ui.horizontal(|ui| {
             ui.label(
                 egui::RichText::new("ACTIVE NETWORK CONNECTIONS & PROCESS SOCKETS")
-                    .size(11.0)
+                    .size(11.5)
                     .strong()
                     .color(ThemePalette::text_secondary(is_dark)),
             );
@@ -44,62 +44,115 @@ pub(crate) fn paint_socket_connections(
             ui.add(
                 egui::TextEdit::singleline(&mut app.network_socket_search)
                     .hint_text("Filter by PID, Port, Remote IP, Process...")
-                    .desired_width(260.0),
+                    .desired_width(280.0),
             );
             if !app.network_socket_search.is_empty() && ui.small_button("×").clicked() {
                 app.network_socket_search.clear();
             }
         });
 
-        ui.add_space(6.0);
+        ui.add_space(8.0);
 
-        // Responsive Socket Table
-        egui::Grid::new("network_sockets_grid")
-            .striped(true)
-            .spacing([14.0, 5.0])
-            .min_col_width(60.0)
-            .show(ui, |ui| {
-                ui.strong("Proto");
-                ui.strong("Local Address");
-                ui.strong("Remote Address");
-                ui.strong("State");
-                ui.strong("PID");
-                ui.strong("Process Name");
-                ui.end_row();
-
-                for conn in filtered_conns.iter().take(150) {
-                    let proto_color = if conn.protocol == "TCP" {
-                        ThemePalette::ACCENT_PRIMARY
-                    } else {
-                        ThemePalette::ACCENT_ACTIVE
-                    };
-                    ui.label(
-                        egui::RichText::new(conn.protocol)
-                            .monospace()
-                            .strong()
-                            .color(proto_color),
-                    );
-                    ui.label(egui::RichText::new(&conn.local_addr).monospace());
-                    ui.label(egui::RichText::new(&conn.remote_addr).monospace());
-
-                    let state_color = match conn.state {
-                        "ESTABLISHED" => ThemePalette::STATUS_HEALTHY,
-                        "LISTEN" => ThemePalette::ACCENT_PRIMARY,
-                        "TIME_WAIT" | "CLOSE_WAIT" => ThemePalette::STATUS_WARNING,
-                        _ => ThemePalette::text_dimmed(is_dark),
-                    };
-                    ui.label(egui::RichText::new(conn.state).monospace().color(state_color));
-                    ui.label(egui::RichText::new(conn.pid.to_string()).monospace());
-
-                    let proc_display = conn.process_name.as_deref().unwrap_or("—");
-                    ui.label(
-                        egui::RichText::new(proc_display)
-                            .monospace()
-                            .strong()
-                            .color(ThemePalette::text_primary(is_dark)),
-                    );
-                    ui.end_row();
-                }
+        if filtered_conns.is_empty() {
+            ui.add_space(12.0);
+            ui.vertical_centered(|ui| {
+                ui.label(
+                    egui::RichText::new("No active network sockets match current filter.")
+                        .size(11.5)
+                        .color(ThemePalette::text_dimmed(is_dark)),
+                );
             });
+            ui.add_space(12.0);
+        } else {
+            // Contained Responsive Socket Table
+            egui::ScrollArea::vertical()
+                .max_height(340.0)
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    egui::Grid::new("network_sockets_grid")
+                        .striped(true)
+                        .spacing([18.0, 6.0])
+                        .min_col_width(55.0)
+                        .show(ui, |ui| {
+                            ui.label(
+                                egui::RichText::new("Proto")
+                                    .strong()
+                                    .color(ThemePalette::text_secondary(is_dark)),
+                            );
+                            ui.label(
+                                egui::RichText::new("Local Address")
+                                    .strong()
+                                    .color(ThemePalette::text_secondary(is_dark)),
+                            );
+                            ui.label(
+                                egui::RichText::new("Remote Address")
+                                    .strong()
+                                    .color(ThemePalette::text_secondary(is_dark)),
+                            );
+                            ui.label(
+                                egui::RichText::new("State")
+                                    .strong()
+                                    .color(ThemePalette::text_secondary(is_dark)),
+                            );
+                            ui.label(
+                                egui::RichText::new("PID")
+                                    .strong()
+                                    .color(ThemePalette::text_secondary(is_dark)),
+                            );
+                            ui.label(
+                                egui::RichText::new("Process Name")
+                                    .strong()
+                                    .color(ThemePalette::text_secondary(is_dark)),
+                            );
+                            ui.end_row();
+
+                            for conn in filtered_conns.iter().take(200) {
+                                let proto_color = if conn.protocol == "TCP" {
+                                    ThemePalette::ACCENT_PRIMARY
+                                } else {
+                                    ThemePalette::STATUS_WARNING
+                                };
+                                ui.label(
+                                    egui::RichText::new(conn.protocol)
+                                        .monospace()
+                                        .strong()
+                                        .color(proto_color),
+                                );
+                                ui.label(
+                                    egui::RichText::new(&conn.local_addr)
+                                        .monospace()
+                                        .color(ThemePalette::text_primary(is_dark)),
+                                );
+                                ui.label(
+                                    egui::RichText::new(&conn.remote_addr)
+                                        .monospace()
+                                        .color(ThemePalette::text_primary(is_dark)),
+                                );
+
+                                let state_color = match conn.state {
+                                    "ESTABLISHED" => ThemePalette::STATUS_HEALTHY,
+                                    "LISTEN" => ThemePalette::ACCENT_PRIMARY,
+                                    "TIME_WAIT" | "CLOSE_WAIT" => ThemePalette::STATUS_WARNING,
+                                    _ => ThemePalette::text_dimmed(is_dark),
+                                };
+                                ui.label(egui::RichText::new(conn.state).monospace().strong().color(state_color));
+                                ui.label(
+                                    egui::RichText::new(conn.pid.to_string())
+                                        .monospace()
+                                        .color(ThemePalette::text_secondary(is_dark)),
+                                );
+
+                                let proc_display = conn.process_name.as_deref().unwrap_or("—");
+                                ui.label(
+                                    egui::RichText::new(proc_display)
+                                        .monospace()
+                                        .strong()
+                                        .color(ThemePalette::text_primary(is_dark)),
+                                );
+                                ui.end_row();
+                            }
+                        });
+                });
+        }
     });
 }

@@ -22,73 +22,157 @@ pub(crate) fn paint_network_throughput_history(ui: &mut egui::Ui, data: &SystemD
         ui.horizontal(|ui| {
             ui.label(
                 egui::RichText::new("NETWORK THROUGHPUT HISTORY")
-                    .size(11.0)
+                    .size(11.5)
                     .strong()
                     .color(ThemePalette::text_secondary(is_dark)),
             );
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.label(
-                    egui::RichText::new(format!(
-                        "↓ {}   ↑ {}",
-                        format_rate(total_rx_rate),
-                        format_rate(total_tx_rate)
-                    ))
-                    .monospace()
-                    .strong()
-                    .color(ThemePalette::text_primary(is_dark)),
-                );
+                ui.horizontal(|ui| {
+                    paint_telemetry_chip(
+                        ui,
+                        "TX",
+                        &format!("↑ {}", format_rate(total_tx_rate)),
+                        None,
+                        ThemePalette::STATUS_WARNING,
+                        is_dark,
+                    );
+                    ui.add_space(4.0);
+                    paint_telemetry_chip(
+                        ui,
+                        "RX",
+                        &format!("↓ {}", format_rate(total_rx_rate)),
+                        None,
+                        ThemePalette::STATUS_HEALTHY,
+                        is_dark,
+                    );
+                });
             });
         });
 
-        ui.add_space(8.0);
+        ui.add_space(10.0);
+
         ui.columns(2, |cols| {
             // Download Graph
-            cols[0].vertical(|ui| {
-                ui.label(
-                    egui::RichText::new("DOWNLOAD THROUGHPUT (MB/s)")
-                        .size(10.0)
-                        .strong()
-                        .color(ThemePalette::STATUS_HEALTHY),
-                );
+            card_frame(is_dark).show(&mut cols[0], |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new("DOWNLOAD THROUGHPUT")
+                            .size(10.5)
+                            .strong()
+                            .color(ThemePalette::STATUS_HEALTHY),
+                    );
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.label(
+                            egui::RichText::new(format!("↓ {}", format_rate(total_rx_rate)))
+                                .size(11.0)
+                                .monospace()
+                                .strong()
+                                .color(ThemePalette::STATUS_HEALTHY),
+                        );
+                    });
+                });
+
+                ui.add_space(6.0);
+
+                let latest_time = data.network_download_history.back().map(|p| p.time).unwrap_or(0.0);
+
                 let download_points: PlotPoints = data
                     .network_download_history
                     .iter()
-                    .map(|p| [p.time, p.value])
+                    .map(|p| [p.time - latest_time, p.value])
                     .collect();
 
                 let line = Line::new(download_points)
                     .color(ThemePalette::STATUS_HEALTHY)
-                    .width(1.5);
+                    .width(1.8)
+                    .fill(0.0);
 
                 Plot::new("network_download_plot_page")
-                    .height(140.0)
+                    .height(160.0)
                     .allow_zoom(false)
                     .allow_drag(false)
                     .allow_scroll(false)
-                    .y_axis_label("MB/s")
+                    .allow_boxed_zoom(false)
+                    .allow_double_click_reset(false)
+                    .include_y(0.0)
+                    .set_margin_fraction(egui::vec2(0.0, 0.12))
+                    .x_axis_formatter(|mark, _range| {
+                        if mark.value.abs() < 0.1 {
+                            "now".to_string()
+                        } else {
+                            format!("{:.0}s", mark.value)
+                        }
+                    })
+                    .y_axis_formatter(|mark, _range| {
+                        if mark.value <= 0.0 {
+                            "0".to_string()
+                        } else {
+                            format_rate(mark.value)
+                        }
+                    })
                     .show(ui, |plot_ui| {
                         plot_ui.line(line);
                     });
             });
 
             // Upload Graph
-            cols[1].vertical(|ui| {
-                ui.label(
-                    egui::RichText::new("UPLOAD THROUGHPUT (MB/s)")
-                        .size(10.0)
-                        .strong()
-                        .color(ThemePalette::STATUS_WARNING),
-                );
-                let upload_points: PlotPoints = data.network_upload_history.iter().map(|p| [p.time, p.value]).collect();
+            card_frame(is_dark).show(&mut cols[1], |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new("UPLOAD THROUGHPUT")
+                            .size(10.5)
+                            .strong()
+                            .color(ThemePalette::STATUS_WARNING),
+                    );
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.label(
+                            egui::RichText::new(format!("↑ {}", format_rate(total_tx_rate)))
+                                .size(11.0)
+                                .monospace()
+                                .strong()
+                                .color(ThemePalette::STATUS_WARNING),
+                        );
+                    });
+                });
 
-                let line = Line::new(upload_points).color(ThemePalette::STATUS_WARNING).width(1.5);
+                ui.add_space(6.0);
+
+                let latest_time = data.network_upload_history.back().map(|p| p.time).unwrap_or(0.0);
+
+                let upload_points: PlotPoints = data
+                    .network_upload_history
+                    .iter()
+                    .map(|p| [p.time - latest_time, p.value])
+                    .collect();
+
+                let line = Line::new(upload_points)
+                    .color(ThemePalette::STATUS_WARNING)
+                    .width(1.8)
+                    .fill(0.0);
 
                 Plot::new("network_upload_plot_page")
-                    .height(140.0)
+                    .height(160.0)
                     .allow_zoom(false)
                     .allow_drag(false)
                     .allow_scroll(false)
-                    .y_axis_label("MB/s")
+                    .allow_boxed_zoom(false)
+                    .allow_double_click_reset(false)
+                    .include_y(0.0)
+                    .set_margin_fraction(egui::vec2(0.0, 0.12))
+                    .x_axis_formatter(|mark, _range| {
+                        if mark.value.abs() < 0.1 {
+                            "now".to_string()
+                        } else {
+                            format!("{:.0}s", mark.value)
+                        }
+                    })
+                    .y_axis_formatter(|mark, _range| {
+                        if mark.value <= 0.0 {
+                            "0".to_string()
+                        } else {
+                            format_rate(mark.value)
+                        }
+                    })
                     .show(ui, |plot_ui| {
                         plot_ui.line(line);
                     });
@@ -124,12 +208,22 @@ pub(crate) fn paint_network_interfaces(ui: &mut egui::Ui, data: &SystemData, is_
         card_frame(is_dark).show(ui, |ui| {
             // Header row
             ui.horizontal(|ui| {
+                let icon = if network.interface.to_lowercase().contains("wi-fi")
+                    || network.interface.to_lowercase().contains("wireless")
+                {
+                    "📶"
+                } else {
+                    "🌐"
+                };
+
                 ui.label(
-                    egui::RichText::new(&network.interface)
+                    egui::RichText::new(format!("{icon} {}", network.interface))
                         .strong()
                         .size(13.5)
                         .color(ThemePalette::text_primary(is_dark)),
                 );
+
+                ui.add_space(4.0);
 
                 if is_active {
                     status_pill(ui, "ACTIVE", ThemePalette::STATUS_HEALTHY, is_dark);

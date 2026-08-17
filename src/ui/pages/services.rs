@@ -184,94 +184,99 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
                         egui::vec2(ui.available_width(), row_height),
                         egui::Layout::left_to_right(egui::Align::Center),
                         |ui| {
-                        // Display Name
-                        ui.allocate_ui_with_layout(
-                            egui::vec2(220.0, row_height),
-                            egui::Layout::left_to_right(egui::Align::Center),
-                            |ui| {
-                                let display = if svc.display_name.chars().count() > 32 {
-                                    let trunc: String = svc.display_name.chars().take(29).collect();
-                                    format!("{}...", trunc)
-                                } else {
-                                    svc.display_name.clone()
-                                };
-                                ui.label(
-                                    egui::RichText::new(display)
-                                        .strong()
-                                        .color(ThemePalette::text_primary(is_dark)),
-                                )
-                                .on_hover_text(&svc.display_name);
-                            },
-                        );
+                            // Display Name
+                            ui.allocate_ui_with_layout(
+                                egui::vec2(220.0, row_height),
+                                egui::Layout::left_to_right(egui::Align::Center),
+                                |ui| {
+                                    let display = if svc.display_name.chars().count() > 32 {
+                                        let trunc: String = svc.display_name.chars().take(29).collect();
+                                        format!("{}...", trunc)
+                                    } else {
+                                        svc.display_name.clone()
+                                    };
+                                    ui.label(
+                                        egui::RichText::new(display)
+                                            .strong()
+                                            .color(ThemePalette::text_primary(is_dark)),
+                                    )
+                                    .on_hover_text(&svc.display_name);
+                                },
+                            );
 
-                        // Service Identifier (Monospace)
-                        ui.allocate_ui_with_layout(
-                            egui::vec2(160.0, row_height),
-                            egui::Layout::left_to_right(egui::Align::Center),
-                            |ui| {
-                                ui.label(
-                                    egui::RichText::new(&svc.name)
-                                        .monospace()
-                                        .color(ThemePalette::text_secondary(is_dark)),
-                                )
-                                .on_hover_text(&svc.name);
-                            },
-                        );
+                            // Service Identifier (Monospace)
+                            ui.allocate_ui_with_layout(
+                                egui::vec2(160.0, row_height),
+                                egui::Layout::left_to_right(egui::Align::Center),
+                                |ui| {
+                                    ui.label(
+                                        egui::RichText::new(&svc.name)
+                                            .monospace()
+                                            .color(ThemePalette::text_secondary(is_dark)),
+                                    )
+                                    .on_hover_text(&svc.name);
+                                },
+                            );
 
-                        // State Pill
-                        ui.allocate_ui_with_layout(
-                            egui::vec2(100.0, row_height),
-                            egui::Layout::left_to_right(egui::Align::Center),
-                            |ui| {
-                                let state_c = service_state_color(&svc.state, is_dark);
-                                status_pill(ui, &svc.state.to_uppercase(), state_c, is_dark);
-                            },
-                        );
+                            // State Pill
+                            ui.allocate_ui_with_layout(
+                                egui::vec2(100.0, row_height),
+                                egui::Layout::left_to_right(egui::Align::Center),
+                                |ui| {
+                                    let state_c = service_state_color(&svc.state, is_dark);
+                                    status_pill(ui, &svc.state.to_uppercase(), state_c, is_dark);
+                                },
+                            );
 
-                        // Action buttons with Elevation Protection
-                        ui.horizontal(|ui| {
-                            ui.add_enabled_ui(is_elevated, |ui| {
-                                let is_running = svc.state.eq_ignore_ascii_case("running");
-                                let is_stopped = svc.state.eq_ignore_ascii_case("stopped");
+                            // Action buttons with Elevation Protection
+                            ui.horizontal(|ui| {
+                                ui.add_enabled_ui(is_elevated, |ui| {
+                                    let is_running = svc.state.eq_ignore_ascii_case("running");
+                                    let is_stopped = svc.state.eq_ignore_ascii_case("stopped");
 
-                                let start_btn = ui
-                                    .add_enabled(!is_running, egui::Button::new(egui::RichText::new("Start").small()));
-                                let stop_btn = ui.add_enabled(
-                                    !is_stopped,
-                                    egui::Button::new(
-                                        egui::RichText::new("Stop").small().color(ThemePalette::STATUS_CRITICAL),
-                                    ),
-                                );
-                                let restart_btn = ui
-                                    .add_enabled(is_running, egui::Button::new(egui::RichText::new("Restart").small()));
+                                    let start_btn = ui.add_enabled(
+                                        !is_running,
+                                        egui::Button::new(egui::RichText::new("Start").small()),
+                                    );
+                                    let stop_btn = ui.add_enabled(
+                                        !is_stopped,
+                                        egui::Button::new(
+                                            egui::RichText::new("Stop").small().color(ThemePalette::STATUS_CRITICAL),
+                                        ),
+                                    );
+                                    let restart_btn = ui.add_enabled(
+                                        is_running,
+                                        egui::Button::new(egui::RichText::new("Restart").small()),
+                                    );
 
-                                let tooltip = if !is_elevated {
-                                    "Requires Administrator privileges"
-                                } else {
-                                    "Send service control command"
-                                };
+                                    let tooltip = if !is_elevated {
+                                        "Requires Administrator privileges"
+                                    } else {
+                                        "Send service control command"
+                                    };
 
-                                if start_btn.on_hover_text(tooltip).clicked() {
-                                    app.pending_service_action = Some(services::ServiceAction {
-                                        name: svc.name.clone(),
-                                        action: services::ServiceControlAction::Start,
-                                    });
-                                }
-                                if stop_btn.on_hover_text(tooltip).clicked() {
-                                    app.pending_service_action = Some(services::ServiceAction {
-                                        name: svc.name.clone(),
-                                        action: services::ServiceControlAction::Stop,
-                                    });
-                                }
-                                if restart_btn.on_hover_text(tooltip).clicked() {
-                                    app.pending_service_action = Some(services::ServiceAction {
-                                        name: svc.name.clone(),
-                                        action: services::ServiceControlAction::Restart,
-                                    });
-                                }
+                                    if start_btn.on_hover_text(tooltip).clicked() {
+                                        app.pending_service_action = Some(services::ServiceAction {
+                                            name: svc.name.clone(),
+                                            action: services::ServiceControlAction::Start,
+                                        });
+                                    }
+                                    if stop_btn.on_hover_text(tooltip).clicked() {
+                                        app.pending_service_action = Some(services::ServiceAction {
+                                            name: svc.name.clone(),
+                                            action: services::ServiceControlAction::Stop,
+                                        });
+                                    }
+                                    if restart_btn.on_hover_text(tooltip).clicked() {
+                                        app.pending_service_action = Some(services::ServiceAction {
+                                            name: svc.name.clone(),
+                                            action: services::ServiceControlAction::Restart,
+                                        });
+                                    }
+                                });
                             });
-                        });
-                    });
+                        },
+                    );
                 }
             });
     });

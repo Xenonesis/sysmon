@@ -706,7 +706,8 @@ impl eframe::App for SystemMonitorApp {
                         );
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             ui.add_space(8.0);
-                            let (btn_rect, btn_resp) = ui.allocate_exact_size(egui::vec2(22.0, 22.0), egui::Sense::click());
+                            let (btn_rect, btn_resp) =
+                                ui.allocate_exact_size(egui::vec2(22.0, 22.0), egui::Sense::click());
                             let is_btn_hovered = btn_resp.hovered();
                             if is_btn_hovered {
                                 let hover_fill = if is_dark {
@@ -714,7 +715,8 @@ impl eframe::App for SystemMonitorApp {
                                 } else {
                                     egui::Color32::from_rgba_unmultiplied(0, 0, 0, 10)
                                 };
-                                ui.painter().rect_filled(btn_rect, egui::Rounding::same(4.0), hover_fill);
+                                ui.painter()
+                                    .rect_filled(btn_rect, egui::Rounding::same(4.0), hover_fill);
                             }
                             ui.painter().text(
                                 btn_rect.center(),
@@ -749,7 +751,8 @@ impl eframe::App for SystemMonitorApp {
                             egui::Color32::from_rgba_unmultiplied(0, 0, 0, 10)
                         };
                         let pill_rect = rect.shrink2(egui::vec2(6.0, 2.0));
-                        ui.painter().rect_filled(pill_rect, egui::Rounding::same(4.0), hover_fill);
+                        ui.painter()
+                            .rect_filled(pill_rect, egui::Rounding::same(4.0), hover_fill);
                     }
                     let logo_rect = egui::Rect::from_center_size(rect.center(), egui::vec2(22.0, 22.0));
                     egui::Image::new(egui::include_image!("../assets/icon.png")).paint_at(ui, logo_rect);
@@ -930,7 +933,8 @@ impl eframe::App for SystemMonitorApp {
                             } else {
                                 egui::Color32::from_rgba_unmultiplied(0, 0, 0, 10)
                             };
-                            ui.painter().rect_filled(pill_rect, egui::Rounding::same(5.0), hover_fill);
+                            ui.painter()
+                                .rect_filled(pill_rect, egui::Rounding::same(5.0), hover_fill);
                         }
 
                         if !is_collapsed {
@@ -1040,48 +1044,48 @@ impl eframe::App for SystemMonitorApp {
                         ui.add_space(4.0);
 
                         // Utility buttons (Expanded, consistent left alignment)
-                        let draw_util_btn = |ui: &mut egui::Ui, icon: &str, text: &str, tooltip: &str| -> egui::Response {
-                            let (raw_rect, response) = ui.allocate_exact_size(
-                                egui::vec2(ui.available_width(), 26.0),
-                                egui::Sense::click(),
-                            );
-                            let pill_rect = raw_rect.shrink2(egui::vec2(6.0, 1.0));
-                            let is_hovered = response.hovered();
-                            if is_hovered {
-                                let hover_fill = if is_dark {
-                                    egui::Color32::from_rgba_unmultiplied(255, 255, 255, 12)
+                        let draw_util_btn =
+                            |ui: &mut egui::Ui, icon: &str, text: &str, tooltip: &str| -> egui::Response {
+                                let (raw_rect, response) = ui
+                                    .allocate_exact_size(egui::vec2(ui.available_width(), 26.0), egui::Sense::click());
+                                let pill_rect = raw_rect.shrink2(egui::vec2(6.0, 1.0));
+                                let is_hovered = response.hovered();
+                                if is_hovered {
+                                    let hover_fill = if is_dark {
+                                        egui::Color32::from_rgba_unmultiplied(255, 255, 255, 12)
+                                    } else {
+                                        egui::Color32::from_rgba_unmultiplied(0, 0, 0, 10)
+                                    };
+                                    ui.painter()
+                                        .rect_filled(pill_rect, egui::Rounding::same(5.0), hover_fill);
+                                }
+
+                                let text_color = if is_hovered {
+                                    ThemePalette::text_primary(is_dark)
                                 } else {
-                                    egui::Color32::from_rgba_unmultiplied(0, 0, 0, 10)
+                                    ThemePalette::text_secondary(is_dark)
                                 };
-                                ui.painter().rect_filled(pill_rect, egui::Rounding::same(5.0), hover_fill);
-                            }
 
-                            let text_color = if is_hovered {
-                                ThemePalette::text_primary(is_dark)
-                            } else {
-                                ThemePalette::text_secondary(is_dark)
+                                let icon_center = egui::pos2(pill_rect.left() + 16.0, pill_rect.center().y);
+                                ui.painter().text(
+                                    icon_center,
+                                    egui::Align2::CENTER_CENTER,
+                                    icon,
+                                    egui::FontId::proportional(12.0),
+                                    text_color,
+                                );
+
+                                let text_pos = egui::pos2(pill_rect.left() + 30.0, pill_rect.center().y);
+                                ui.painter().text(
+                                    text_pos,
+                                    egui::Align2::LEFT_CENTER,
+                                    text,
+                                    egui::FontId::proportional(12.0),
+                                    text_color,
+                                );
+
+                                response.on_hover_text(tooltip)
                             };
-
-                            let icon_center = egui::pos2(pill_rect.left() + 16.0, pill_rect.center().y);
-                            ui.painter().text(
-                                icon_center,
-                                egui::Align2::CENTER_CENTER,
-                                icon,
-                                egui::FontId::proportional(12.0),
-                                text_color,
-                            );
-
-                            let text_pos = egui::pos2(pill_rect.left() + 30.0, pill_rect.center().y);
-                            ui.painter().text(
-                                text_pos,
-                                egui::Align2::LEFT_CENTER,
-                                text,
-                                egui::FontId::proportional(12.0),
-                                text_color,
-                            );
-
-                            response.on_hover_text(tooltip)
-                        };
 
                         // Added in bottom_up order (Bottom to Top: About -> Shortcuts -> Settings)
                         if draw_util_btn(ui, "ℹ", "About", "About SysMon").clicked() {
@@ -1109,10 +1113,8 @@ impl eframe::App for SystemMonitorApp {
                         ui.add_space(4.0);
 
                         let draw_util_compact_btn = |ui: &mut egui::Ui, icon: &str, tip: &str| -> egui::Response {
-                            let (raw_rect, response) = ui.allocate_exact_size(
-                                egui::vec2(ui.available_width(), 26.0),
-                                egui::Sense::click(),
-                            );
+                            let (raw_rect, response) =
+                                ui.allocate_exact_size(egui::vec2(ui.available_width(), 26.0), egui::Sense::click());
                             let pill_rect = raw_rect.shrink2(egui::vec2(6.0, 1.0));
                             let is_hovered = response.hovered();
                             if is_hovered {
@@ -1121,7 +1123,8 @@ impl eframe::App for SystemMonitorApp {
                                 } else {
                                     egui::Color32::from_rgba_unmultiplied(0, 0, 0, 10)
                                 };
-                                ui.painter().rect_filled(pill_rect, egui::Rounding::same(5.0), hover_fill);
+                                ui.painter()
+                                    .rect_filled(pill_rect, egui::Rounding::same(5.0), hover_fill);
                             }
 
                             let text_color = if is_hovered {

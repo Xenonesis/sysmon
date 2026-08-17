@@ -78,7 +78,8 @@ mod tests {
         // 2. Populated process list render
         data.top_processes = vec![
             crate::processes::ProcessInfo {
-                parent_pid: None, pid: 1001,
+                parent_pid: None,
+                pid: 1001,
                 name: "system_service.exe".to_string(),
                 cpu_usage: 25.0,
                 memory: 600 * 1024 * 1024,
@@ -87,7 +88,8 @@ mod tests {
                 status: "Running".to_string(),
             },
             crate::processes::ProcessInfo {
-                parent_pid: None, pid: 1002,
+                parent_pid: None,
+                pid: 1002,
                 name: "browser_worker.exe".to_string(),
                 cpu_usage: 12.0,
                 memory: 300 * 1024 * 1024,
@@ -96,7 +98,8 @@ mod tests {
                 status: "Running".to_string(),
             },
             crate::processes::ProcessInfo {
-                parent_pid: None, pid: 1003,
+                parent_pid: None,
+                pid: 1003,
                 name: "background_daemon.exe".to_string(),
                 cpu_usage: 1.5,
                 memory: 50 * 1024 * 1024,
@@ -170,7 +173,8 @@ mod tests {
                 },
             ],
             top_processes: vec![crate::processes::ProcessInfo {
-                parent_pid: None, pid: 2048,
+                parent_pid: None,
+                pid: 2048,
                 name: "test_very_long_process_name_exceeding_thirty_six_characters_limit.exe".to_string(),
                 cpu_usage: 5.0,
                 memory: 100 * 1024 * 1024,

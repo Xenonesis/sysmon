@@ -169,7 +169,8 @@ mod tests {
             file_system: "NTFS".to_string(),
         }];
         data.top_processes = vec![crate::processes::ProcessInfo {
-            parent_pid: None, pid: 1234,
+            parent_pid: None,
+            pid: 1234,
             name: "sysmon.exe".to_string(),
             cpu_usage: 1.2,
             memory: 128 * 1024 * 1024,
