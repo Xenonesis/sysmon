@@ -4677,7 +4677,7 @@ dependencies = [
 
 [[package]]
 name = "system-monitor"
-version = "3.7.5"
+version = "3.7.6"
 dependencies = [
  "chrono",
  "csv",

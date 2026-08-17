@@ -361,7 +361,7 @@ mod tests {
     #[test]
     fn accepts_expected_checksum_asset() {
         assert!(validate_checksum_url(
-            "https://github.com/Xenonesis/sysmon/releases/download/v3.7.5/SystemMonitor-3.7.5-setup.exe.sha256"
+            "https://github.com/Xenonesis/sysmon/releases/download/v3.7.6/SystemMonitor-3.7.6-setup.exe.sha256"
         )
         .is_ok());
     }
@@ -384,12 +384,12 @@ mod tests {
         let hash = "a1".repeat(32);
         // sha256sum binary-mode format, as published by the release workflow.
         assert_eq!(
-            parse_checksum_file(&format!("{hash} *SystemMonitor-3.7.5-setup.exe")),
+            parse_checksum_file(&format!("{hash} *SystemMonitor-3.7.6-setup.exe")),
             Some(hash.clone())
         );
         // GNU coreutils text-mode (two-space) format.
         assert_eq!(
-            parse_checksum_file(&format!("{hash}  SystemMonitor-3.7.5-setup.exe\n")),
+            parse_checksum_file(&format!("{hash}  SystemMonitor-3.7.6-setup.exe\n")),
             Some(hash.clone())
         );
         // Uppercase hashes are normalized.
