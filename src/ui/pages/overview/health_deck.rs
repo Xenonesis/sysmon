@@ -46,14 +46,23 @@ pub(super) fn paint_health_deck(
                     let used_gb = bytes_to_gb(disk.total_space.saturating_sub(disk.available_space));
                     let total_gb = bytes_to_gb(disk.total_space);
 
+                    let display_disk_name = if disk.name.chars().count() > 18 {
+                        let trunc: String = disk.name.chars().take(16).collect();
+                        format!("{}…", trunc)
+                    } else {
+                        disk.name.clone()
+                    };
+
                     ui.horizontal(|ui| {
                         ui.label(
-                            egui::RichText::new(&disk.name)
+                            egui::RichText::new(display_disk_name)
                                 .size(11.5)
                                 .monospace()
                                 .strong()
                                 .color(ThemePalette::text_primary(is_dark)),
-                        );
+                        )
+                        .on_hover_text(&disk.name);
+
                         if !disk.file_system.is_empty() {
                             ui.label(
                                 egui::RichText::new(&disk.file_system)

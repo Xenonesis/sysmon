@@ -6,71 +6,107 @@ use eframe::egui;
 pub(super) fn paint_hardware_banner(ui: &mut egui::Ui, data: &SystemData, is_dark: bool) {
     card_frame(is_dark).show(ui, |ui| {
         let width = ui.available_width();
-        if width >= 850.0 {
-            ui.horizontal(|ui| {
-                ui.label(
-                    egui::RichText::new("CPU")
-                        .size(10.5)
-                        .monospace()
-                        .strong()
-                        .color(ThemePalette::text_dimmed(is_dark)),
-                );
-                let cpu_brand = if data.system_info.cpu_brand.is_empty() {
-                    "Generic Processor".to_string()
-                } else {
-                    data.system_info.cpu_brand.trim().to_string()
-                };
-                ui.label(
-                    egui::RichText::new(cpu_brand)
-                        .size(11.0)
-                        .monospace()
-                        .color(ThemePalette::text_primary(is_dark)),
-                );
-                if let Some(temp) = data.cpu_temperature {
-                    let tc = get_usage_color(temp);
-                    ui.label(
-                        egui::RichText::new(format!("{:.0}°C", temp))
-                            .size(10.5)
-                            .monospace()
-                            .strong()
-                            .color(tc),
-                    );
-                }
-                ui.separator();
 
-                ui.label(
-                    egui::RichText::new("GPU")
-                        .size(10.5)
-                        .monospace()
-                        .strong()
-                        .color(ThemePalette::text_dimmed(is_dark)),
-                );
-                if let Some(gpu) = data.gpu_info.first() {
-                    ui.label(
-                        egui::RichText::new(&gpu.name)
-                            .size(11.0)
-                            .monospace()
-                            .color(ThemePalette::text_primary(is_dark)),
-                    );
-                    if let Some(temp) = gpu.temperature {
-                        let tc = get_usage_color(temp as f32);
+        let cpu_full = if data.system_info.cpu_brand.is_empty() {
+            "Generic Processor".to_string()
+        } else {
+            data.system_info.cpu_brand.trim().to_string()
+        };
+
+        let gpu_full = if let Some(gpu) = data.gpu_info.first() {
+            gpu.name.clone()
+        } else {
+            "Standard Graphics".to_string()
+        };
+
+        // If very wide, render single row with bounded left and right containers
+        if width >= 1040.0 {
+            ui.horizontal(|ui| {
+                // Left section: Hardware specs
+                let right_req_width = 360.0;
+                let left_max_width = (width - right_req_width).max(300.0);
+
+                ui.allocate_ui_with_layout(
+                    egui::vec2(left_max_width, ui.available_height()),
+                    egui::Layout::left_to_right(egui::Align::Center),
+                    |ui| {
+                        // CPU
                         ui.label(
-                            egui::RichText::new(format!("{}°C", temp))
+                            egui::RichText::new("CPU")
                                 .size(10.5)
                                 .monospace()
                                 .strong()
-                                .color(tc),
+                                .color(ThemePalette::text_dimmed(is_dark)),
                         );
-                    }
-                } else {
-                    ui.label(
-                        egui::RichText::new("Standard Graphics")
-                            .size(11.0)
-                            .monospace()
-                            .color(ThemePalette::text_dimmed(is_dark)),
-                    );
-                }
 
+                        let cpu_display = if cpu_full.chars().count() > 24 {
+                            let trunc: String = cpu_full.chars().take(22).collect();
+                            format!("{}…", trunc)
+                        } else {
+                            cpu_full.clone()
+                        };
+
+                        ui.label(
+                            egui::RichText::new(cpu_display)
+                                .size(11.0)
+                                .monospace()
+                                .color(ThemePalette::text_primary(is_dark)),
+                        )
+                        .on_hover_text(&cpu_full);
+
+                        if let Some(temp) = data.cpu_temperature {
+                            let tc = get_usage_color(temp);
+                            ui.label(
+                                egui::RichText::new(format!("{:.0}°C", temp))
+                                    .size(10.5)
+                                    .monospace()
+                                    .strong()
+                                    .color(tc),
+                            );
+                        }
+
+                        ui.separator();
+
+                        // GPU
+                        ui.label(
+                            egui::RichText::new("GPU")
+                                .size(10.5)
+                                .monospace()
+                                .strong()
+                                .color(ThemePalette::text_dimmed(is_dark)),
+                        );
+
+                        let gpu_display = if gpu_full.chars().count() > 22 {
+                            let trunc: String = gpu_full.chars().take(20).collect();
+                            format!("{}…", trunc)
+                        } else {
+                            gpu_full.clone()
+                        };
+
+                        ui.label(
+                            egui::RichText::new(gpu_display)
+                                .size(11.0)
+                                .monospace()
+                                .color(ThemePalette::text_primary(is_dark)),
+                        )
+                        .on_hover_text(&gpu_full);
+
+                        if let Some(gpu) = data.gpu_info.first() {
+                            if let Some(temp) = gpu.temperature {
+                                let tc = get_usage_color(temp as f32);
+                                ui.label(
+                                    egui::RichText::new(format!("{}°C", temp))
+                                        .size(10.5)
+                                        .monospace()
+                                        .strong()
+                                        .color(tc),
+                                );
+                            }
+                        }
+                    },
+                );
+
+                // Right section: Status & Timers
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.label(
                         egui::RichText::new(&data.last_update)
@@ -98,22 +134,20 @@ pub(super) fn paint_hardware_banner(ui: &mut egui::Ui, data: &SystemData, is_dar
                 });
             });
         } else {
+            // Adaptive 2-Row Stacked Layout: zero chance of overlapping!
             ui.vertical(|ui| {
+                // Row 1: Hardware Identifiers
                 ui.horizontal(|ui| {
                     ui.label(
-                        egui::RichText::new("CPU:")
+                        egui::RichText::new("CPU")
                             .size(10.5)
                             .monospace()
+                            .strong()
                             .color(ThemePalette::text_dimmed(is_dark)),
                     );
-                    let cpu_brand = if data.system_info.cpu_brand.is_empty() {
-                        "Generic Processor".to_string()
-                    } else {
-                        data.system_info.cpu_brand.trim().to_string()
-                    };
                     ui.label(
-                        egui::RichText::new(cpu_brand)
-                            .size(10.5)
+                        egui::RichText::new(&cpu_full)
+                            .size(11.0)
                             .monospace()
                             .color(ThemePalette::text_primary(is_dark)),
                     );
@@ -127,24 +161,23 @@ pub(super) fn paint_hardware_banner(ui: &mut egui::Ui, data: &SystemData, is_dar
                                 .color(tc),
                         );
                     }
-                });
 
-                ui.add_space(2.0);
+                    ui.separator();
 
-                ui.horizontal(|ui| {
                     ui.label(
-                        egui::RichText::new("GPU:")
+                        egui::RichText::new("GPU")
                             .size(10.5)
                             .monospace()
+                            .strong()
                             .color(ThemePalette::text_dimmed(is_dark)),
                     );
+                    ui.label(
+                        egui::RichText::new(&gpu_full)
+                            .size(11.0)
+                            .monospace()
+                            .color(ThemePalette::text_primary(is_dark)),
+                    );
                     if let Some(gpu) = data.gpu_info.first() {
-                        ui.label(
-                            egui::RichText::new(&gpu.name)
-                                .size(10.5)
-                                .monospace()
-                                .color(ThemePalette::text_primary(is_dark)),
-                        );
                         if let Some(temp) = gpu.temperature {
                             let tc = get_usage_color(temp as f32);
                             ui.label(
@@ -155,28 +188,15 @@ pub(super) fn paint_hardware_banner(ui: &mut egui::Ui, data: &SystemData, is_dar
                                     .color(tc),
                             );
                         }
-                    } else {
-                        ui.label(
-                            egui::RichText::new("Standard Graphics")
-                                .size(10.5)
-                                .monospace()
-                                .color(ThemePalette::text_dimmed(is_dark)),
-                        );
                     }
                 });
 
-                ui.add_space(4.0);
+                ui.add_space(3.0);
                 ui.separator();
-                ui.add_space(2.0);
+                ui.add_space(3.0);
 
+                // Row 2: Status Pill, Uptime & Timestamp
                 ui.horizontal(|ui| {
-                    ui.label(
-                        egui::RichText::new(format!("Uptime: {}", super::format_uptime(data.system_info.uptime)))
-                            .size(10.5)
-                            .monospace()
-                            .color(ThemePalette::text_secondary(is_dark)),
-                    );
-
                     if data.cpu_usage > 90.0 || data.memory_percentage > 90.0 {
                         status_pill(ui, "● High Load", ThemePalette::STATUS_CRITICAL, is_dark);
                     } else if data.cpu_usage > 75.0 || data.memory_percentage > 80.0 {
@@ -185,10 +205,19 @@ pub(super) fn paint_hardware_banner(ui: &mut egui::Ui, data: &SystemData, is_dar
                         status_pill(ui, "● System Healthy", ThemePalette::STATUS_HEALTHY, is_dark);
                     }
 
+                    ui.separator();
+
+                    ui.label(
+                        egui::RichText::new(format!("Uptime: {}", super::format_uptime(data.system_info.uptime)))
+                            .size(11.0)
+                            .monospace()
+                            .color(ThemePalette::text_secondary(is_dark)),
+                    );
+
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.label(
                             egui::RichText::new(&data.last_update)
-                                .size(10.0)
+                                .size(10.5)
                                 .monospace()
                                 .color(ThemePalette::text_dimmed(is_dark)),
                         );
