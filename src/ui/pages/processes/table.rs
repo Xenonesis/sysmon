@@ -7,7 +7,7 @@ use eframe::egui;
 pub(super) fn paint_process_table(
     app: &mut crate::SystemMonitorApp,
     ui: &mut egui::Ui,
-    filtered_processes: &[crate::processes::ProcessInfo],
+    filtered_processes: &[&crate::processes::ProcessInfo],
     data: &SystemData,
     is_dark: bool,
 ) {
@@ -139,7 +139,7 @@ pub(super) fn paint_process_table(
             num_rows,
             |ui, row_range| {
                 for idx in row_range {
-                    let process = &filtered_processes[idx];
+                    let process = filtered_processes[idx];
                     let memory_mb = bytes_to_mb(process.memory);
 
                     let mut text_color = ThemePalette::text_primary(is_dark);

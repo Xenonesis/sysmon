@@ -35,7 +35,9 @@ use tray_icon::menu::MenuEvent;
 impl eframe::App for SystemMonitorApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let ctx_clone = ctx.clone();
-        self.data.write().last_activity = Instant::now();
+        if self.data.read().last_activity.elapsed().as_secs() > 0 {
+            self.data.write().last_activity = Instant::now();
+        }
         while let Ok(event) = self.app_channels.event_receiver.try_recv() {
             match event {
                 app::events::AppEvent::Snapshot(snapshot) => {

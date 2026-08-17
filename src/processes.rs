@@ -40,20 +40,19 @@ pub struct ProcessDetails {
 // ─── Pure Logic ──────────────────────────────────────────────
 
 /// Case-insensitive substring filter on name or PID. Empty query returns all.
-pub fn filter_processes(items: &[ProcessInfo], query: &str) -> Vec<ProcessInfo> {
+pub fn filter_processes<'a>(items: &'a [ProcessInfo], query: &str) -> Vec<&'a ProcessInfo> {
     if query.is_empty() {
-        return items.to_vec();
+        return items.iter().collect();
     }
     let q = query.to_lowercase();
     items
         .iter()
         .filter(|p| p.name.to_lowercase().contains(&q) || p.pid.to_string().contains(&q))
-        .cloned()
         .collect()
 }
 
-/// In-place sort. `Status` falls back to memory (no status ordering defined).
-pub fn sort_processes(items: &mut [ProcessInfo], column: ProcessSortColumn, ascending: bool) {
+/// In-place sort of references. `Status` falls back to memory (no status ordering defined).
+pub fn sort_processes_refs(items: &mut [&ProcessInfo], column: ProcessSortColumn, ascending: bool) {
     fn ord(o: std::cmp::Ordering, ascending: bool) -> std::cmp::Ordering {
         if ascending {
             o
@@ -61,28 +60,21 @@ pub fn sort_processes(items: &mut [ProcessInfo], column: ProcessSortColumn, asce
             o.reverse()
         }
     }
-    match column {
-        ProcessSortColumn::Pid => items.sort_by(|a, b| ord(a.pid.cmp(&b.pid), ascending)),
-        ProcessSortColumn::Name => {
-            items.sort_by(|a, b| ord(a.name.to_lowercase().cmp(&b.name.to_lowercase()), ascending))
-        }
-        ProcessSortColumn::Memory => items.sort_by(|a, b| ord(a.memory.cmp(&b.memory), ascending)),
-        ProcessSortColumn::Cpu => items.sort_by(|a, b| {
-            ord(
-                a.cpu_usage
-                    .partial_cmp(&b.cpu_usage)
-                    .unwrap_or(std::cmp::Ordering::Equal),
-                ascending,
-            )
-        }),
-        ProcessSortColumn::Disk => items.sort_by(|a, b| {
-            let a_disk = a.disk_read_bytes.saturating_add(a.disk_written_bytes);
-            let b_disk = b.disk_read_bytes.saturating_add(b.disk_written_bytes);
-            ord(a_disk.cmp(&b_disk), ascending)
-        }),
-    }
-}
 
+    items.sort_by(|a, b| match column {
+        ProcessSortColumn::Pid => ord(a.pid.cmp(&b.pid), ascending),
+        ProcessSortColumn::Name => ord(a.name.to_lowercase().cmp(&b.name.to_lowercase()), ascending),
+        ProcessSortColumn::Cpu => ord(
+            a.cpu_usage.partial_cmp(&b.cpu_usage).unwrap_or(std::cmp::Ordering::Equal),
+            ascending,
+        ),
+        ProcessSortColumn::Memory => ord(a.memory.cmp(&b.memory), ascending),
+        ProcessSortColumn::Disk => ord(
+            (a.disk_read_bytes + a.disk_written_bytes).cmp(&(b.disk_read_bytes + b.disk_written_bytes)),
+            ascending,
+        ),
+    });
+}
 /// Build pid -> [child pids] adjacency from a pid -> parent_pid map.
 pub fn build_tree(parent_map: &HashMap<u32, u32>) -> HashMap<u32, Vec<u32>> {
     let mut tree: HashMap<u32, Vec<u32>> = HashMap::new();

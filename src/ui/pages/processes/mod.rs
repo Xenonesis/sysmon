@@ -27,7 +27,7 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
     // Filter and Sort processes upfront
     let mut filtered_processes = processes::filter_processes(&data.top_processes, &app.process_search);
     let ascending = app.process_sort_ascending;
-    processes::sort_processes(&mut filtered_processes, app.process_sort_column, ascending);
+    processes::sort_processes_refs(&mut filtered_processes, app.process_sort_column, ascending);
 
     // ── Integrated Toolbar Container ──
     toolbar::paint_process_toolbar(app, ui, filtered_processes.len(), data.top_processes.len(), is_dark);
@@ -187,7 +187,8 @@ mod tests {
         let _ = ctx.run(Default::default(), |ctx| {
             egui::CentralPanel::default().show(ctx, |ui| {
                 toolbar::paint_process_toolbar(&mut app, ui, 1, 1, true);
-                table::paint_process_table(&mut app, ui, &data.top_processes, &data, true);
+                let refs: Vec<_> = data.top_processes.iter().collect();
+                table::paint_process_table(&mut app, ui, &refs, &data, true);
             });
         });
     }
