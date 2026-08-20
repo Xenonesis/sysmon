@@ -649,52 +649,60 @@ impl SystemMonitor {
         )
     }
 
-    fn check_alerts(&self, settings: &AppSettings, data: &SystemData) -> Vec<AlertInfo> {
+    fn check_alerts(settings: &AppSettings, data: &SystemData) -> Vec<AlertInfo> {
         let mut alerts = Vec::new();
         let timestamp = Local::now().format("%H:%M:%S").to_string();
 
         // CPU alert
-        if settings.show_notifications && data.cpu_usage > settings.notification_cpu_threshold {
+        if data.cpu_usage > settings.notification_cpu_threshold {
             alerts.push(AlertInfo {
                 timestamp: timestamp.clone(),
                 alert_type: AlertType::CpuHigh,
+                source: AlertSource::Cpu,
                 message: format!("CPU usage is high: {:.1}%", data.cpu_usage),
                 value: data.cpu_usage,
             });
         }
 
         // Memory alert
-        if settings.show_notifications && data.memory_percentage > settings.notification_memory_threshold {
+        if data.memory_percentage > settings.notification_memory_threshold {
             alerts.push(AlertInfo {
                 timestamp: timestamp.clone(),
                 alert_type: AlertType::MemoryHigh,
+                source: AlertSource::Memory,
                 message: format!("Memory usage is high: {:.1}%", data.memory_percentage),
                 value: data.memory_percentage,
             });
         }
 
         // GPU temperature alert
-        if settings.show_notifications {
-            for gpu in &data.gpu_info {
-                if let Some(temp) = gpu.temperature {
-                    if temp > settings.notification_temp_threshold {
-                        alerts.push(AlertInfo {
-                            timestamp: timestamp.clone(),
-                            alert_type: AlertType::GpuTempHigh,
-                            message: format!("GPU temperature is high: {}°C ({})", temp, gpu.name),
-                            value: temp as f32,
-                        });
-                    }
+        for (index, gpu) in data.gpu_info.iter().enumerate() {
+            if let Some(temp) = gpu.temperature {
+                if temp > settings.notification_temp_threshold {
+                    alerts.push(AlertInfo {
+                        timestamp: timestamp.clone(),
+                        alert_type: AlertType::GpuTempHigh,
+                        source: AlertSource::Gpu {
+                            index,
+                            name: gpu.name.clone(),
+                        },
+                        message: format!("GPU temperature is high: {}°C ({})", temp, gpu.name),
+                        value: temp as f32,
+                    });
                 }
             }
         }
 
         // Disk space alerts
         for disk in &data.disk_info {
-            if disk.usage_percentage > 90.0 {
+            if disk.usage_percentage > settings.notification_disk_threshold {
                 alerts.push(AlertInfo {
                     timestamp: timestamp.clone(),
                     alert_type: AlertType::DiskSpaceLow,
+                    source: AlertSource::Disk {
+                        mount_point: disk.mount_point.clone(),
+                        name: disk.name.clone(),
+                    },
                     message: format!("Disk {} is almost full: {:.1}%", disk.name, disk.usage_percentage),
                     value: disk.usage_percentage,
                 });
@@ -706,6 +714,7 @@ impl SystemMonitor {
             alerts.push(AlertInfo {
                 timestamp: timestamp.clone(),
                 alert_type: AlertType::StartupHighImpact,
+                source: AlertSource::Startup,
                 message: format!(
                     "{} startup item(s) have High impact on boot time",
                     data.high_impact_startup_count
@@ -1438,7 +1447,7 @@ impl SystemMonitorApp {
                         data.provider_status = latest_telemetry.provider_status.clone();
 
                         // Check for alerts
-                        let mut new_alerts = monitor.check_alerts(&settings_snapshot, &data);
+                        let mut new_alerts = SystemMonitor::check_alerts(&settings_snapshot, &data);
                         let active_keys: std::collections::HashSet<String> =
                             data.alerts.iter().map(AlertInfo::key).collect();
                         new_alerts.retain(|alert| !active_keys.contains(&alert.key()));
@@ -1474,19 +1483,29 @@ impl SystemMonitorApp {
                         // Auto-clear resolved alerts
                         if settings_snapshot.auto_clear_alerts {
                             let temp_gpu_info = data.gpu_info.clone();
+                            let disk_info = data.disk_info.clone();
                             let high_impact_count = data.high_impact_startup_count;
-                            let disk_alert_active = data.disk_info.iter().any(|disk| disk.usage_percentage > 90.0);
                             data.alerts.retain(|alert| match alert.alert_type {
                                 AlertType::CpuHigh => cpu_usage > settings_snapshot.notification_cpu_threshold,
                                 AlertType::MemoryHigh => {
                                     mem_percentage > settings_snapshot.notification_memory_threshold
                                 }
-                                AlertType::GpuTempHigh => temp_gpu_info.iter().any(|gpu| {
-                                    gpu.temperature.is_some_and(|temperature| {
-                                        temperature > settings_snapshot.notification_temp_threshold
-                                    })
-                                }),
-                                AlertType::DiskSpaceLow => disk_alert_active,
+                                AlertType::GpuTempHigh => match &alert.source {
+                                    AlertSource::Gpu { index, name } => temp_gpu_info.get(*index).is_some_and(|gpu| {
+                                        gpu.name == *name
+                                            && gpu.temperature.is_some_and(|temperature| {
+                                                temperature > settings_snapshot.notification_temp_threshold
+                                            })
+                                    }),
+                                    _ => false,
+                                },
+                                AlertType::DiskSpaceLow => match &alert.source {
+                                    AlertSource::Disk { mount_point, .. } => disk_info.iter().any(|disk| {
+                                        disk.mount_point == *mount_point
+                                            && disk.usage_percentage > settings_snapshot.notification_disk_threshold
+                                    }),
+                                    _ => false,
+                                },
                                 AlertType::StartupHighImpact => high_impact_count > 0,
                             });
                         }
@@ -1697,7 +1716,17 @@ impl SystemMonitorApp {
             pending_action_plan: None,
             action_history: crate::persistence::action_log::load_recent(100)
                 .into_iter()
-                .map(|record| crate::app::actions::ActionHistoryEntry { record, undo: None })
+                .map(|record| {
+                    let undo = record
+                        .quarantine_id
+                        .as_ref()
+                        .filter(|quarantine_id| crate::startup::quarantine_exists(quarantine_id))
+                        .map(|quarantine_id| crate::app::commands::ActionCommand::RestoreStartup {
+                            item_name: record.action.clone(),
+                            quarantine_id: quarantine_id.clone(),
+                        });
+                    crate::app::actions::ActionHistoryEntry { record, undo }
+                })
                 .collect(),
             show_action_history: false,
             session_recorder: crate::persistence::session::SessionRecorder::default(),
@@ -2192,4 +2221,53 @@ pub fn load_tray_icon() -> Option<tray_icon::Icon> {
     let (width, height) = image.dimensions();
     let rgba = image.into_raw();
     tray_icon::Icon::from_rgba(rgba, width, height).ok()
+}
+
+#[cfg(test)]
+mod alert_tests {
+    use super::*;
+
+    #[test]
+    fn in_app_alerts_do_not_require_desktop_notifications() {
+        let settings = AppSettings {
+            show_notifications: false,
+            notification_cpu_threshold: 80.0,
+            ..Default::default()
+        };
+        let data = SystemData {
+            cpu_usage: 85.0,
+            ..Default::default()
+        };
+        let alerts = SystemMonitor::check_alerts(&settings, &data);
+        assert!(alerts.iter().any(|alert| alert.source == AlertSource::Cpu));
+    }
+
+    #[test]
+    fn disk_alert_uses_configured_threshold_and_typed_source() {
+        let settings = AppSettings {
+            notification_disk_threshold: 75.0,
+            ..Default::default()
+        };
+        let data = SystemData {
+            disk_info: vec![DiskInfo {
+                name: "Data".into(),
+                mount_point: "D:\\".into(),
+                total_space: 100,
+                available_space: 20,
+                usage_percentage: 80.0,
+                file_system: "NTFS".into(),
+            }],
+            ..Default::default()
+        };
+        let alerts = SystemMonitor::check_alerts(&settings, &data);
+        assert_eq!(alerts.len(), 1);
+        assert_eq!(
+            alerts[0].source,
+            AlertSource::Disk {
+                mount_point: "D:\\".into(),
+                name: "Data".into(),
+            }
+        );
+        assert_eq!(alerts[0].key(), "disk:D:\\");
+    }
 }

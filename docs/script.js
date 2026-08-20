@@ -34,9 +34,9 @@ function initTheme() {
     }
     
     // Apply theme
-    function applyTheme(theme) {
+    function applyTheme(theme, persist = true) {
         document.documentElement.setAttribute('data-theme', theme);
-        localStorage.setItem(THEME_KEY, theme);
+        if (persist) localStorage.setItem(THEME_KEY, theme);
         
         // Update toggle button aria-label
         if (themeToggle) {
@@ -54,7 +54,7 @@ function initTheme() {
     }
     
     // Initialize
-    applyTheme(getPreferredTheme());
+    applyTheme(getPreferredTheme(), false);
     
     // Listen for toggle clicks
     if (themeToggle) {
@@ -88,34 +88,43 @@ function initNavigation() {
     
     if (!toggle || !links) return;
     
-    toggle.addEventListener('click', () => {
-        const isOpen = links.classList.toggle('open');
+    const mobileQuery = window.matchMedia('(max-width: 640px)');
+
+    function setMenuState(isOpen, restoreFocus = false) {
+        links.classList.toggle('open', isOpen);
         toggle.classList.toggle('active', isOpen);
         toggle.setAttribute('aria-expanded', String(isOpen));
-        
-        // Prevent body scroll when menu is open
-        document.body.style.overflow = isOpen ? 'hidden' : '';
+        links.inert = mobileQuery.matches && !isOpen;
+        links.setAttribute('aria-hidden', String(mobileQuery.matches && !isOpen));
+        document.body.style.overflow = mobileQuery.matches && isOpen ? 'hidden' : '';
+        if (isOpen) {
+            links.querySelector('a, button')?.focus();
+        } else if (restoreFocus) {
+            toggle.focus();
+        }
+    }
+
+    setMenuState(false);
+
+    toggle.addEventListener('click', () => {
+        setMenuState(!links.classList.contains('open'));
     });
     
     // Close menu when clicking a link
     links.querySelectorAll('a').forEach(link => {
         link.addEventListener('click', () => {
-            links.classList.remove('open');
-            toggle.classList.remove('active');
-            toggle.setAttribute('aria-expanded', 'false');
-            document.body.style.overflow = '';
+            setMenuState(false);
         });
     });
     
     // Close menu on escape key
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape' && links.classList.contains('open')) {
-            links.classList.remove('open');
-            toggle.classList.remove('active');
-            toggle.setAttribute('aria-expanded', 'false');
-            document.body.style.overflow = '';
+            setMenuState(false, true);
         }
     });
+
+    mobileQuery.addEventListener('change', () => setMenuState(false));
 }
 
 /**

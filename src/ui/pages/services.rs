@@ -192,7 +192,8 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
                         } else {
                             egui::Color32::from_rgba_unmultiplied(0, 0, 0, 3)
                         };
-                        ui.painter().rect_filled(row_rect, egui::Rounding::same(2.0), stripe_fill);
+                        ui.painter()
+                            .rect_filled(row_rect, egui::Rounding::same(2.0), stripe_fill);
                     }
 
                     ui.allocate_ui_at_rect(row_rect, |ui| {

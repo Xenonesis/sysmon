@@ -19,10 +19,11 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;550;600&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 </head>
 <body>
+    <a href="#main-content" class="skip-link">Skip to main content</a>
     <div class="page-wrapper">
 
         <!-- Nav -->
-        <nav class="nav" id="nav" aria-label="Main navigation">
+        <nav class="nav" id="nav" aria-label="Primary">
             <div class="nav-container">
                 <a href="#" class="nav-brand" aria-label="SysMon home">
                     <span class="brand-icon">◈</span>
@@ -37,24 +38,24 @@
                         <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
                         <span>GitHub</span>
                     </a>
-                    <button class="theme-toggle" id="themeToggle" aria-label="Toggle color mode" title="Toggle theme">
+                    <button type="button" class="theme-toggle" id="themeToggle" aria-label="Toggle color mode" title="Toggle theme">
                         <svg class="theme-icon-sun" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
                         <svg class="theme-icon-moon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
                     </button>
                 </div>
-                <button class="nav-toggle" id="navToggle" aria-label="Toggle navigation" aria-expanded="false">
+                <button type="button" class="nav-toggle" id="navToggle" aria-label="Toggle navigation" aria-expanded="false" aria-controls="navLinks">
                     <span></span><span></span>
                 </button>
             </div>
         </nav>
 
         <!-- Hero -->
-        <header class="hero container" role="banner">
+        <header class="hero container">
             <div>
                 <p class="eyebrow">Crafted with Rust</p>
                 <h1 class="hero-title">System intelligence,<br><span class="hero-accent">without the noise.</span></h1>
                 <p class="hero-lede">
-                    Professional Windows monitoring with real-time telemetry across CPU, memory, GPU, disk, network and thermals. Built in Rust for absolute minimum overhead, with safe process control and verified updates.
+                    Professional Windows monitoring with real-time telemetry across CPU, memory, GPU, disk, network and thermals. Built in Rust with efficient native sampling, safe process control and verified updates.
                 </p>
                 <div class="hero-actions">
                     <a id="downloadNow" href="https://github.com/Xenonesis/sysmon/releases/latest" target="_blank" rel="noopener" class="btn btn-primary">
@@ -65,7 +66,7 @@
                 </div>
                 <div class="hero-spec">
                     <div class="spec-item"><span class="spec-key">Platform</span><span class="spec-val">Windows 10/11 · x64</span></div>
-                    <div class="spec-item"><span class="spec-key">Latest</span><span class="spec-val mono" id="latestVersion" data-version-display>v3.7.6</span></div>
+                    <div class="spec-item"><span class="spec-key">Latest</span><span class="spec-val mono" id="latestVersion" data-version-display>v3.7.7</span></div>
                     <div class="spec-item"><span class="spec-key">Installer</span><span class="spec-val">~5 MB</span></div>
                     <div class="spec-item"><span class="spec-key">Refresh</span><span class="spec-val">1–10 s</span></div>
                 </div>
@@ -76,21 +77,21 @@
             </figure>
         </header>
 
-        <main>
+        <main id="main-content" tabindex="-1">
             <!-- Telemetry strip -->
             <section class="container" aria-label="Key facts">
-                <div class="strip" style="margin-top: var(--space-8);">
+                <div class="strip facts-strip">
                     <div class="stat-item">
                         <span class="stat-value">100%</span>
                         <span class="stat-label">Rust — zero GC pauses</span>
                     </div>
                     <div class="stat-item">
-                        <span class="stat-value">&lt;1%</span>
-                        <span class="stat-label">CPU footprint in background</span>
+                        <span class="stat-value">Local</span>
+                        <span class="stat-label">No cloud account required</span>
                     </div>
                     <div class="stat-item">
-                        <span class="stat-value">60 FPS</span>
-                        <span class="stat-label">TelemetryHub UI rendering</span>
+                        <span class="stat-value">Decoupled</span>
+                        <span class="stat-label">UI and hardware sampling</span>
                     </div>
                     <div class="stat-item">
                         <span class="stat-value">~5 MB</span>
@@ -112,7 +113,7 @@
                             <div class="feature-icon"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></div>
                             <span class="feature-tag is-new">TelemetryHub</span>
                             <h3 class="feature-title">Multi-Tier Telemetry Architecture</h3>
-                            <p class="feature-desc">Dedicated background engine separating 60 FPS UI rendering from 1–5 Hz hardware sampling. Includes vendor-independent provider abstractions and bounded multi-resolution ring buffers.</p>
+                            <p class="feature-desc">Dedicated background engine separating responsive UI rendering from 1–5 Hz hardware sampling. Includes vendor-independent provider abstractions and bounded multi-resolution ring buffers.</p>
                         </article>
 
                         <article class="feature-card">
@@ -276,40 +277,40 @@
                 <div class="container">
                     <div class="section-head">
                         <p class="eyebrow">Release notes</p>
-                        <h2 class="section-title">What's new in v3.7.6</h2>
-                        <p class="section-lede" id="changelogLede">Zero-lag UI rendering architecture, background telemetry decoupling, table row virtualization with show_rows, fixed sticky headers, and startup crash resilience.</p>
+                        <h2 class="section-title">What's new in v3.7.7</h2>
+                        <p class="section-lede" id="changelogLede">Reversible startup quarantine, exact Windows target selection, correct process trees and more reliable alert and service actions.</p>
                     </div>
                     <div class="changelog-grid">
                         <div class="change-item change-major">
-                            <span class="change-type">Active Network Sockets</span>
-                            <p class="change-desc">Real-time TCP and UDP socket connection monitor with PID resolution, process name mapping, and state filtering (ESTABLISHED, LISTEN, TIME_WAIT, CLOSE_WAIT).</p>
+                            <span class="change-type">Reversible Startup Quarantine</span>
+                            <p class="change-desc">Startup entries are backed up locally before removal and can be restored from persistent system action history.</p>
                         </div>
                         <div class="change-item change-major">
-                            <span class="change-type">Physical Storage S.M.A.R.T.</span>
-                            <p class="change-desc">Automatic physical drive scanner querying Win32_DiskDrive, identifying NVMe SSD, SATA SSD, and USB media types with live S.M.A.R.T. health statuses.</p>
+                            <span class="change-type">Exact Windows Targeting</span>
+                            <p class="change-desc">Registry hives and keys, startup-file paths, and scheduled task paths are retained so duplicate names stay isolated.</p>
                         </div>
                         <div class="change-item change-major">
-                            <span class="change-type">Process Tree &amp; Disk I/O</span>
-                            <p class="change-desc">Process table and Process Manager display live per-process read/write throughput (Disk I/O sort) and hierarchical parent-child process tree mode.</p>
+                            <span class="change-type">Correct Process Trees</span>
+                            <p class="change-desc">Process Manager now uses actual parent PIDs and preserves ancestor context when filtering the hierarchical view.</p>
                         </div>
                         <div class="change-item">
-                            <span class="change-type">Floating Desktop HUD</span>
-                            <p class="change-desc">Precision always-on-top mini-widget (Ctrl+M) showing live CPU%, RAM%, GPU%, disk throughput, network rates, and instant quick-clean RAM button.</p>
+                            <span class="change-type">Consistent Alerts</span>
+                            <p class="change-desc">In-app alerts work independently of desktop notifications and disk alerts honor the configured threshold.</p>
                         </div>
                         <div class="change-item">
-                            <span class="change-type">CPU Affinity &amp; Power Plans</span>
-                            <p class="change-desc">Interactive process CPU affinity controls via SetProcessAffinityMask and 1-click Windows power plan switcher (Balanced, High Performance, Power Saver).</p>
+                            <span class="change-type">Safer Service Restarts</span>
+                            <p class="change-desc">Windows state, checkpoints and wait hints drive bounded restart waits with explicit partial-failure reporting.</p>
                         </div>
                         <div class="change-item">
-                            <span class="change-type">Telemetry CSV Exporter</span>
-                            <p class="change-desc">1-click export of recorded JSONL telemetry sessions into multi-column CSVs with automatic aggregate summary statistics.</p>
+                            <span class="change-type">Supply-Chain Hardening</span>
+                            <p class="change-desc">Immutable GitHub Action pins, scheduled RustSec scans and automated dependency update checks.</p>
                         </div>
                     </div>
                     <div class="version-compare">
                         <h3 class="compare-title">Compared with previous releases</h3>
                         <table class="compare-table">
                             <thead>
-                                <tr><th>Capability</th><th>1.x</th><th>2.6.x</th><th>3.7.6</th></tr>
+                                <tr><th>Capability</th><th>1.x</th><th>2.6.x</th><th>3.7.7</th></tr>
                             </thead>
                             <tbody>
                                 <tr><td>Telemetry engine</td><td>Single polling thread</td><td>Legacy polling thread</td><td><strong>TelemetryHub</strong> (provider abstraction)</td></tr>
@@ -323,22 +324,33 @@
                         </table>
                     </div>
                     <!-- Full Release History Timeline -->
-                    <div style="margin-top: var(--space-12);">
+                    <div class="release-history">
                         <h3 class="compare-title">Complete Release History</h3>
                         <div class="timeline">
                             <article class="timeline-card">
                                 <div class="timeline-head">
-                                    <span class="timeline-ver">v3.7.6 <span class="feature-tag is-new">Latest</span></span>
+                                    <span class="timeline-ver">v3.7.7 <span class="feature-tag is-new">Latest</span></span>
+                                    <span class="timeline-date">2026-08-21</span>
+                                </div>
+                                <div class="timeline-title">Safety, Correctness &amp; Supply-Chain Hardening</div>
+                                <ul class="timeline-list">
+                                    <li>Exact, reversible startup quarantine with persistent backup and Undo.</li>
+                                    <li>Correct parent-PID process hierarchy with ancestor-aware search.</li>
+                                    <li>Configured alert thresholds independent from desktop notification delivery.</li>
+                                    <li>Bounded Windows-aware service restart transitions and partial-failure reporting.</li>
+                                    <li>Immutable CI action pins, weekly RustSec scans and Dependabot updates.</li>
+                                </ul>
+                            </article>
+
+                            <article class="timeline-card">
+                                <div class="timeline-head">
+                                    <span class="timeline-ver">v3.7.6</span>
                                     <span class="timeline-date">2026-08-17</span>
                                 </div>
-                                <div class="timeline-title">Zero-Lag Decoupled Architecture, Table Virtualization &amp; Crash Resilience</div>
+                                <div class="timeline-title">Decoupled Telemetry, Table Virtualization &amp; Crash Resilience</div>
                                 <ul class="timeline-list">
-                                    <li>Real-time TCP/UDP active socket connection monitor with PID and process name resolution.</li>
-                                    <li>Physical storage hardware detection querying Win32_DiskDrive with live S.M.A.R.T. health statuses.</li>
-                                    <li>Process table live per-process read/write throughput and hierarchical parent-child process tree mode.</li>
-                                    <li>Precision always-on-top floating telemetry HUD mini-widget (Ctrl+M) with quick RAM cleaner.</li>
-                                    <li>CPU core processor affinity controls via SetProcessAffinityMask and 1-click Windows power plan switcher.</li>
-                                    <li>1-click telemetry session CSV exporter and aggregate summary analytics.</li>
+                                    <li>Moved slow WMI, socket and power collection out of the UI render loop.</li>
+                                    <li>Virtualized large process and service tables and hardened startup collection.</li>
                                 </ul>
                             </article>
 
@@ -375,7 +387,7 @@
                                 </div>
                                 <div class="timeline-title">TelemetryHub Architecture, Provider Abstraction &amp; Ring Buffers</div>
                                 <ul class="timeline-list">
-                                    <li>Decoupled 60 FPS UI rendering from 1–5 Hz background hardware polling via TelemetryHub.</li>
+                                    <li>Decoupled UI rendering from 1–5 Hz background hardware polling via TelemetryHub.</li>
                                     <li>Modular TelemetryProvider trait supporting sysinfo, NVML, WMI, and vendor-neutral Windows GPU counters.</li>
                                     <li>Multi-resolution ring buffers (60s, 5m, 30m, 1hr) with running min, max, avg, and peak time statistics.</li>
                                     <li>Evidence-based diagnostics workspace and guarded actions with local audit logging.</li>
@@ -446,10 +458,10 @@
                             </article>
                         </div>
                     </div>
-                    <div style="margin-top: var(--space-8); text-align: center;">
+                    <div class="changelog-link">
                         <a href="https://github.com/Xenonesis/sysmon/blob/main/CHANGELOG.md" target="_blank" rel="noopener" class="btn btn-ghost">
                             View full changelog
-                            <span class="doc-arrow" style="margin-left: 8px;">→</span>
+                            <span class="doc-arrow doc-arrow-spaced">→</span>
                         </a>
                     </div>
                 </div>

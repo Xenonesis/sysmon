@@ -7,9 +7,7 @@ on:
       - "v*"
 
 permissions:
-  contents: write
-  id-token: write
-  attestations: write
+  contents: read
 
 jobs:
   check-version:
@@ -17,7 +15,7 @@ jobs:
     outputs:
       version: ${{ steps.check.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Verify tag matches Cargo version
         id: check
         run: |
@@ -31,10 +29,14 @@ jobs:
   build-windows:
     needs: check-version
     runs-on: windows-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
     env:
       APP_VERSION: ${{ needs.check-version.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Extract Release Notes
         shell: pwsh
@@ -50,12 +52,12 @@ jobs:
           }
 
       - name: Install pinned Rust toolchain
-        uses: dtolnay/rust-toolchain@1.85.0
+        uses: dtolnay/rust-toolchain@bc540ba06a4ccee415bb241490e0b25ee8e7d315 # 1.85.0
         with:
           targets: x86_64-pc-windows-msvc
           components: rustfmt, clippy
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
 
       - name: Verify source quality
         shell: pwsh
@@ -95,13 +97,13 @@ jobs:
           Write-Host "Installer ready: $installer"
 
       - name: Generate SBOM
-        uses: anchore/sbom-action@v0
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
         with:
           path: downloads
           format: spdx-json
           output-file: downloads/SystemMonitor-${{ env.APP_VERSION }}.spdx.json
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: system-monitor-${{ env.APP_VERSION }}
           path: |
@@ -110,14 +112,14 @@ jobs:
             downloads/SystemMonitor-${{ env.APP_VERSION }}.spdx.json
 
       - name: Attest build provenance
-        uses: actions/attest-build-provenance@v1
+        uses: actions/attest-build-provenance@92c65d2898f1f53cfdc910b962cecff86e7f8fcc # v1
         with:
           subject-path: |
             downloads/SystemMonitor-${{ env.APP_VERSION }}-setup.exe
             target/x86_64-pc-windows-msvc/release/system-monitor.exe
 
       - name: Publish GitHub release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           tag_name: v${{ env.APP_VERSION }}
           name: v${{ env.APP_VERSION }}

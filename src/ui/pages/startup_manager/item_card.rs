@@ -5,21 +5,17 @@ use crate::ui::theme::ThemePalette;
 use eframe::egui;
 
 pub(crate) struct StartupActionRequest {
-    pub name: String,
-    pub source: String,
-    pub command: String,
-    pub action: &'static str,
+    pub command: crate::app::commands::ActionCommand,
 }
 
 pub(crate) fn paint_startup_item_card(
-    show_confirm: &mut Option<String>,
+    _show_confirm: &mut Option<String>,
     ui: &mut egui::Ui,
     item: &StartupItem,
     is_dark: bool,
     is_elevated: bool,
 ) -> Option<StartupActionRequest> {
     let mut action = None;
-    let is_confirming = show_confirm.as_deref() == Some(&item.name);
 
     card_frame(is_dark).show(ui, |ui| {
         // ── Row 1: High-Contrast Impact Badge + Signed Badge + Name + Source ──
@@ -122,140 +118,119 @@ pub(crate) fn paint_startup_item_card(
         ui.add_space(4.0);
 
         // ── Row 4: Action Controls ──
-        if is_confirming {
-            // Confirmation dialog
-            ui.horizontal(|ui| {
-                let clean_name = item.name.replace('\0', "");
-                ui.label(
-                    egui::RichText::new(format!("Disable \"{}\" from startup?", clean_name))
-                        .strong()
-                        .color(ThemePalette::STATUS_WARNING),
-                );
-                if ui.button(egui::RichText::new("Yes, disable").strong()).clicked() {
-                    action = Some(StartupActionRequest {
-                        name: item.name.clone(),
-                        source: item.source.clone(),
-                        command: item.command.clone(),
-                        action: "disable",
-                    });
-                    *show_confirm = None;
-                }
-                if ui.button("Cancel").clicked() {
-                    *show_confirm = None;
-                }
-            });
-        } else {
-            ui.horizontal(|ui| {
-                let can_modify = item.source.contains("HKCU")
-                    || item.source.contains("Startup Folder")
-                    || (is_elevated && (item.source.contains("HKLM") || item.source.contains("Task Scheduler")));
-                let is_keep = item.recommendation == Recommendation::Keep;
+        ui.horizontal(|ui| {
+            let can_modify = !item.locator.requires_admin() || is_elevated;
+            let is_keep = item.recommendation == Recommendation::Keep;
 
-                // Disable/Enable button
-                if item.enabled {
-                    ui.add_enabled_ui(can_modify && !is_keep, |ui| {
-                        if ui
-                            .button(egui::RichText::new("Disable").small())
-                            .on_hover_text(if is_keep {
-                                "System component — disabling not recommended"
-                            } else if !can_modify {
-                                "Requires Administrator privileges"
-                            } else {
-                                "Disable this startup item (reversible)"
-                            })
-                            .clicked()
-                        {
-                            *show_confirm = Some(item.name.clone());
-                        }
-                    });
-                } else {
-                    ui.add_enabled_ui(can_modify, |ui| {
-                        if ui
-                            .button(
-                                egui::RichText::new("Enable")
-                                    .small()
-                                    .color(ThemePalette::STATUS_HEALTHY),
-                            )
-                            .on_hover_text(if !can_modify {
-                                "Requires Administrator privileges"
-                            } else {
-                                "Re-enable this startup item"
-                            })
-                            .clicked()
-                        {
-                            action = Some(StartupActionRequest {
-                                name: item.name.clone(),
-                                source: item.source.clone(),
-                                command: item.command.clone(),
-                                action: "enable",
-                            });
-                        }
-                    });
-                }
+            // Disable/Enable button
+            if item.enabled {
+                ui.add_enabled_ui(can_modify && !is_keep, |ui| {
+                    if ui
+                        .button(egui::RichText::new("Disable").small())
+                        .on_hover_text(if is_keep {
+                            "System component — disabling not recommended"
+                        } else if !can_modify {
+                            "Requires Administrator privileges"
+                        } else {
+                            "Disable this startup item (reversible)"
+                        })
+                        .clicked()
+                    {
+                        action = Some(StartupActionRequest {
+                            command: crate::app::commands::ActionCommand::DisableStartup {
+                                item_name: item.name.clone(),
+                                locator: item.locator.clone(),
+                            },
+                        });
+                    }
+                });
+            } else {
+                ui.add_enabled_ui(can_modify, |ui| {
+                    if ui
+                        .button(
+                            egui::RichText::new("Enable")
+                                .small()
+                                .color(ThemePalette::STATUS_HEALTHY),
+                        )
+                        .on_hover_text(if !can_modify {
+                            "Requires Administrator privileges"
+                        } else {
+                            "Re-enable this startup item"
+                        })
+                        .clicked()
+                    {
+                        action = Some(StartupActionRequest {
+                            command: crate::app::commands::ActionCommand::EnableStartup {
+                                item_name: item.name.clone(),
+                                locator: item.locator.clone(),
+                            },
+                        });
+                    }
+                });
+            }
 
-                // Open location
-                if let Some(path) = &item.exe_path {
-                    if item.exe_exists {
-                        let path_clone = path.clone();
-                        if ui
-                            .button(egui::RichText::new("Open").small())
-                            .on_hover_text("Open file location in Explorer")
-                            .clicked()
-                        {
-                            startup::open_file_location(&path_clone);
-                        }
+            // Open location
+            if let Some(path) = &item.exe_path {
+                if item.exe_exists {
+                    let path_clone = path.clone();
+                    if ui
+                        .button(egui::RichText::new("Open").small())
+                        .on_hover_text("Open file location in Explorer")
+                        .clicked()
+                    {
+                        startup::open_file_location(&path_clone);
                     }
                 }
+            }
 
-                // Copy command
-                if ui
-                    .button(egui::RichText::new("Copy").small())
-                    .on_hover_text("Copy full command to clipboard")
+            // Copy command
+            if ui
+                .button(egui::RichText::new("Copy").small())
+                .on_hover_text("Copy full command to clipboard")
+                .clicked()
+            {
+                ui.output_mut(|o| o.copied_text = item.command.clone());
+            }
+
+            // Search online
+            let name_clone = item.name.clone();
+            if ui
+                .button(egui::RichText::new("Search Online").small())
+                .on_hover_text("Search online for info about this item")
+                .clicked()
+            {
+                startup::search_online(&name_clone);
+            }
+
+            // Quarantine keeps an exact local backup and exposes global Undo.
+            if can_modify
+                && !item.enabled
+                && ui
+                    .button(
+                        egui::RichText::new("Quarantine")
+                            .small()
+                            .color(ThemePalette::STATUS_CRITICAL),
+                    )
+                    .on_hover_text("Back up this exact entry, then remove it from startup (reversible)")
                     .clicked()
-                {
-                    ui.output_mut(|o| o.copied_text = item.command.clone());
-                }
+            {
+                action = Some(StartupActionRequest {
+                    command: crate::app::commands::ActionCommand::QuarantineStartup {
+                        item_name: item.name.clone(),
+                        locator: item.locator.clone(),
+                    },
+                });
+            }
 
-                // Search online
-                let name_clone = item.name.clone();
-                if ui
-                    .button(egui::RichText::new("Search Online").small())
-                    .on_hover_text("Search online for info about this item")
-                    .clicked()
-                {
-                    startup::search_online(&name_clone);
-                }
-
-                // Remove button (permanent delete for HKCU/Startup Folder/HKLM/Task Scheduler items)
-                if can_modify
-                    && !item.enabled
-                    && ui
-                        .button(
-                            egui::RichText::new("Remove")
-                                .small()
-                                .color(ThemePalette::STATUS_CRITICAL),
-                        )
-                        .on_hover_text("Permanently remove this startup item")
-                        .clicked()
-                {
-                    action = Some(StartupActionRequest {
-                        name: item.name.clone(),
-                        source: item.source.clone(),
-                        command: item.command.clone(),
-                        action: "remove",
-                    });
-                }
-
-                // Admin requirement notice
-                if !can_modify {
-                    ui.label(
-                        egui::RichText::new("(Requires Admin)")
-                            .size(11.0)
-                            .color(ThemePalette::text_dimmed(is_dark)),
-                    );
-                }
-            });
-        }
+            // Admin requirement notice
+            if !can_modify {
+                ui.label(
+                    egui::RichText::new("(Requires Admin)")
+                        .size(11.0)
+                        .color(ThemePalette::text_dimmed(is_dark)),
+                );
+            }
+        });
     });
 
     action

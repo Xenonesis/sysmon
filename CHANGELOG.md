@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
+## [3.7.7] - 2026-08-21
+
+### Fixed
+- **Reversible startup actions:** Startup mutations now run on the guarded background action worker with risk confirmation, persistent audit records, and Undo. Permanent removal is replaced by local quarantine and restore.
+- **Exact startup targeting:** Registry entries retain their precise hive and key, startup-folder items retain full enabled/disabled paths, and scheduled tasks retain both `TaskPath` and `TaskName`, preventing duplicate-name or cross-source mutations.
+- **Process tree hierarchy:** Process Manager now builds the tree from each process's actual parent PID and keeps ancestors visible while filtering.
+- **Alert consistency:** In-app CPU, memory, and GPU alerts no longer depend on desktop notifications; disk alerts and auto-clear use the configured disk threshold; alert identity no longer parses display text.
+- **Service restart safety:** Service control now waits on Windows service state, checkpoints, and wait hints with bounded timeouts and reports partial restart failures when a service stops but cannot restart.
+- **Quality gates:** Restored strict rustfmt and Clippy compliance and expanded the suite with startup-locator, alert-threshold, and process-tree tests.
+
+### Security
+- Pinned every GitHub Action to an immutable commit SHA, added weekly RustSec scanning, and enabled Dependabot updates for Cargo and GitHub Actions.
+
+### Changed
+- Added a keyboard-accessible skip link and mobile navigation focus handling to the project site, and replaced unmeasured performance claims with verifiable architecture descriptions.
+
+---
 ## [3.7.6] - 2026-08-17
 
 ### Optimized & Performance
@@ -208,6 +225,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+[3.7.7]: https://github.com/Xenonesis/sysmon/compare/v3.7.6...v3.7.7
 [3.7.6]: https://github.com/Xenonesis/sysmon/compare/v3.7.5...v3.7.6
 [3.7.5]: https://github.com/Xenonesis/sysmon/compare/v3.7.2...v3.7.5
 [3.7.3]: https://github.com/Xenonesis/sysmon/compare/v3.7.2...v3.7.3

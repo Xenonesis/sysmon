@@ -5,7 +5,7 @@ use tracing::warn;
 
 use crate::app::models::SystemMonitor;
 use crate::app::{actions, commands, events};
-use crate::{persistence, power, processes, services};
+use crate::{persistence, power, processes, services, startup};
 
 #[derive(Debug, Clone)]
 pub(crate) enum ActionError {
@@ -33,6 +33,7 @@ pub(crate) fn run_action_worker(commands: Receiver<commands::ActionCommand>, eve
     let mut monitor = SystemMonitor::new();
     while let Ok(command) = commands.recv() {
         let plan = actions::ActionPlan::from_command(command.clone());
+        let mut dynamic_undo = None;
         let result: Result<String, ActionError> = match command {
             commands::ActionCommand::KillProcess(pid) => monitor
                 .kill_process(pid)
@@ -53,8 +54,8 @@ pub(crate) fn run_action_worker(commands: Receiver<commands::ActionCommand>, eve
             }
             commands::ActionCommand::CleanRam => Ok(format!("Freed {} bytes", monitor.clean_ram(&[], false))),
             commands::ActionCommand::ControlService { name, action } => services::send_service_control(&name, action)
-                .then_some(format!("Service {name} action completed"))
-                .ok_or(ActionError::Failed("Service action failed".into())),
+                .map(|outcome| format!("Service {name}: {outcome}"))
+                .map_err(|error| ActionError::Failed(error.to_string())),
             commands::ActionCommand::SetPowerPlan(guid) => power::set_active_power_plan(&guid)
                 .map(|_| "Power plan changed".into())
                 .map_err(ActionError::Failed),
@@ -73,9 +74,36 @@ pub(crate) fn run_action_worker(commands: Receiver<commands::ActionCommand>, eve
                     Err(ActionError::Failed(format!("Killed {killed} of {total} processes")))
                 }
             }
+            commands::ActionCommand::DisableStartup { item_name, locator } => startup::disable_startup(&locator)
+                .map(|_| format!("Startup item {item_name} disabled"))
+                .map_err(ActionError::Failed),
+            commands::ActionCommand::EnableStartup { item_name, locator } => startup::enable_startup(&locator)
+                .map(|_| format!("Startup item {item_name} enabled"))
+                .map_err(ActionError::Failed),
+            commands::ActionCommand::QuarantineStartup { item_name, locator } => {
+                startup::quarantine_startup(&item_name, &locator)
+                    .map(|quarantine_id| {
+                        dynamic_undo = Some(commands::ActionCommand::RestoreStartup {
+                            item_name: item_name.clone(),
+                            quarantine_id: quarantine_id.clone(),
+                        });
+                        format!("Startup item {item_name} quarantined (backup {quarantine_id})")
+                    })
+                    .map_err(ActionError::Failed)
+            }
+            commands::ActionCommand::RestoreStartup {
+                item_name,
+                quarantine_id,
+            } => startup::restore_startup(&quarantine_id)
+                .map(|_| format!("Startup item {item_name} restored"))
+                .map_err(ActionError::Failed),
         };
         let audit_result = result.map_err(|error| error.to_string());
-        let record = actions::ActionAuditRecord::from_result(&plan, &audit_result);
+        let mut record = actions::ActionAuditRecord::from_result(&plan, &audit_result);
+        let undo = dynamic_undo.or(plan.undo);
+        if let Some(commands::ActionCommand::RestoreStartup { quarantine_id, .. }) = &undo {
+            record.quarantine_id = Some(quarantine_id.clone());
+        }
         if let Err(error) = persistence::action_log::append(&record) {
             warn!(%error, "Failed to persist action audit record");
         }
@@ -83,7 +111,7 @@ pub(crate) fn run_action_worker(commands: Receiver<commands::ActionCommand>, eve
             Ok(_) => events::AppEvent::ActionCompleted {
                 command: plan.command,
                 record,
-                undo: plan.undo,
+                undo,
             },
             Err(_) => events::AppEvent::ActionFailed {
                 command: plan.command,

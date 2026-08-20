@@ -3,7 +3,7 @@
 [![Rust CI](https://github.com/Xenonesis/sysmon/actions/workflows/rust-ci.yml/badge.svg)](https://github.com/Xenonesis/sysmon/actions/workflows/rust-ci.yml)
 [![Rust 1.85+](https://img.shields.io/badge/Rust-1.85%2B-orange.svg)](https://www.rust-lang.org/)
 [![Windows](https://img.shields.io/badge/Windows-10%2F11-blue.svg)](https://www.microsoft.com/windows)
-[![Version](https://img.shields.io/badge/version-3.7.6-green.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-3.7.7-green.svg)](CHANGELOG.md)
 
 SysMon is a native Windows observability and diagnostics application written in Rust. It combines live CPU, memory, disk, network, process, service, startup, battery and GPU telemetry with evidence-based diagnostics and guarded system actions. The project targets a single goal: give a technically curious user the same depth of insight a professional operations team would have, without background services, cloud accounts, or opaque tweak scripts.
 
@@ -44,11 +44,11 @@ SysMon organizes its fourteen modules around the questions users actually ask:
 
 ## Version comparison
 
-| Capability | 1.x (2024) | 2.6.x (2026-01) | 3.7.6 (current) |
+| Capability | 1.x (2024) | 2.6.x (2026-01) | 3.7.7 (current) |
 | --- | --- | --- | --- |
 | GUI framework | egui / eframe | egui / eframe | egui / eframe |
 | Telemetry engine | Single polling thread | Legacy polling thread | **TelemetryHub** (multi-tier, provider abstraction, background workers) |
-| UI render frequency | Full poll per refresh | Full poll per refresh | **60 FPS decoupled** from 1–5 Hz hardware sampling |
+| UI and sampling | Full poll per refresh | Full poll per refresh | **Decoupled UI** and 1–5 Hz hardware sampling |
 | History resolution | ~2 min graphs | ~2 min graphs | **60s / 5m / 30m / 1hr** ring buffers with min/max/avg/peak |
 | GPU support | NVIDIA only (NVML) | NVIDIA only (NVML) | **Vendor-neutral** — NVML + Windows/WMI adapters, Intel/AMD via counters |
 | Diagnostics | — | — | **Evidence-based findings + confidence**, opt-in JSONL session recording |
@@ -65,7 +65,7 @@ The 3.x series is built around a stability-first rewrite that separates sampling
 
 ### TelemetryHub
 
-The TelemetryHub is the heart of the application. Dedicated background threads sample hardware at 1–5 Hz while the UI renders at up to 60 FPS. The hub publishes a *replaceable* latest snapshot: when the UI is ready to draw, it reads the newest sample and discards nothing, because there is no queue to fall behind. This design eliminates the classic failure mode where a slow frame causes telemetry events to accumulate and the interface drifts further and further behind reality.
+The TelemetryHub is the heart of the application. Dedicated background threads sample hardware at 1–5 Hz while the UI renders independently. The hub publishes a *replaceable* latest snapshot: when the UI is ready to draw, it reads the newest sample without waiting on a telemetry-event queue. This design avoids the classic failure mode where a slow frame causes queued telemetry events to accumulate and the interface drifts further and further behind reality.
 
 ### Provider abstraction
 
@@ -120,7 +120,7 @@ Alerts are modeled as explicit state transitions — `Normal → Triggered → A
 - Windows 10 or Windows 11, x64. ARM64 and 32-bit builds are not supported.
 - No runtime dependencies beyond the OS; the MSVC runtime is statically linked into the release binary.
 - NVIDIA drivers only for NVML-specific metrics (temperature, power, clocks, fan, VRAM). All other telemetry works without them.
-- Approximately 40 MB of resident memory and under one percent of CPU during normal monitoring.
+- Runtime resource use varies with enabled providers, hardware, refresh settings and open views; use the built-in telemetry or Windows tools to measure it on the target machine.
 
 Use the installer from [GitHub Releases](https://github.com/Xenonesis/sysmon/releases/latest). SysMon verifies the downloaded installer's SHA-256 checksum against the checksum file published with the release and refuses to install when they do not match or when no checksum is published.
 
@@ -131,7 +131,7 @@ Installation steps:
 3. Launch SysMon from the Start menu or desktop shortcut.
 4. Open **Settings → About** to confirm the version and enable update checks.
 
-> Version 3.7.6 must be published through the release workflow before installed clients can receive it. Do not distribute a locally built installer as a production update.
+> Version 3.7.7 must be published through the release workflow before installed clients can receive it. Do not distribute a locally built installer as a production update.
 
 ## Build from source
 
@@ -230,7 +230,7 @@ Provider changes must use normalized metric keys, return structured errors, avoi
 
 ## Performance optimization tips
 
-- **Leave the scheduler alone.** The default 1–5 Hz sampling with 60 FPS rendering is tuned so telemetry cost stays under one percent of CPU on typical hardware. Raising the refresh rate rarely improves insight but always raises cost.
+- **Leave the scheduler alone.** The default 1–5 Hz sampling balances responsiveness with monitoring cost. Raising the refresh rate rarely improves insight and increases work.
 - **Use tray mode.** Minimizing to the tray activates reduced polling automatically, which matters on battery.
 - **Prefer recordings over faster polling.** For transient issues, a JSONL session captures far more evidence than a quicker refresh interval would.
 - **Treat RAM cleanup as temporary.** Working-set trimming can reduce resident memory briefly, but it is not a substitute for fixing a leak or adding RAM. Keep automatic cleanup bounded by its interval, target, exclusions and per-pass limits.

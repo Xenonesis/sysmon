@@ -220,7 +220,29 @@ pub fn build_tree_rows(items: &[ProcessInfo], tree: &HashMap<u32, Vec<u32>>, que
 
     if !query.is_empty() {
         let q = query.to_lowercase();
-        rows.retain(|r| r.process.name.to_lowercase().contains(&q) || r.process.pid.to_string().contains(&q));
+        let parent_by_child: HashMap<u32, u32> = tree
+            .iter()
+            .flat_map(|(parent, children)| children.iter().map(|child| (*child, *parent)))
+            .collect();
+        let mut included: std::collections::HashSet<u32> = items
+            .iter()
+            .filter(|process| process.name.to_lowercase().contains(&q) || process.pid.to_string().contains(&q))
+            .map(|process| process.pid)
+            .collect();
+        for pid in included.clone() {
+            let mut current = pid;
+            let mut chain = std::collections::HashSet::new();
+            while chain.insert(current) {
+                let Some(parent) = parent_by_child.get(&current).copied() else {
+                    break;
+                };
+                if item_map.contains_key(&parent) {
+                    included.insert(parent);
+                }
+                current = parent;
+            }
+        }
+        rows.retain(|row| included.contains(&row.process.pid));
     }
 
     rows
@@ -440,5 +462,20 @@ mod tests {
         let rows = build_tree_rows(&items, &tree, "csrss");
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].process.pid, 3);
+    }
+
+    #[test]
+    fn build_tree_rows_search_keeps_ancestors() {
+        let items = vec![
+            p(1, "system.exe", 1.0, 100, "Running"),
+            p(2, "service-host.exe", 0.5, 50, "Running"),
+            p(3, "target.exe", 0.8, 80, "Running"),
+        ];
+        let parents: HashMap<u32, u32> = [(2, 1), (3, 2)].into_iter().collect();
+        let rows = build_tree_rows(&items, &build_tree(&parents), "target");
+        assert_eq!(
+            rows.iter().map(|row| row.process.pid).collect::<Vec<_>>(),
+            vec![1, 2, 3]
+        );
     }
 }

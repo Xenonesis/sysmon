@@ -1,5 +1,8 @@
 // src/services.rs
 use serde::Deserialize;
+use std::fmt;
+use std::time::{Duration, Instant};
+use windows_service::service::{ServiceState, ServiceStatus};
 use wmi::WMIConnection;
 
 #[derive(Debug, Clone)]
@@ -22,6 +25,109 @@ pub enum ServiceControlAction {
     Restart,
 }
 
+impl fmt::Display for ServiceControlAction {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Start => "start",
+            Self::Stop => "stop",
+            Self::Restart => "restart",
+        })
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ServiceControlOutcome {
+    pub action: ServiceControlAction,
+    pub final_state: ServiceState,
+}
+
+impl fmt::Display for ServiceControlOutcome {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} completed; service is {:?}", self.action, self.final_state)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum ServiceControlError {
+    OpenManager(String),
+    OpenService(String),
+    RequestFailed {
+        phase: &'static str,
+        detail: String,
+    },
+    TimedOut {
+        phase: &'static str,
+        last_state: ServiceState,
+    },
+    PartialRestart {
+        detail: String,
+    },
+}
+
+impl fmt::Display for ServiceControlError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::OpenManager(detail) => write!(f, "Could not open the Windows service manager: {detail}"),
+            Self::OpenService(detail) => write!(f, "Could not open the service: {detail}"),
+            Self::RequestFailed { phase, detail } => write!(f, "Service {phase} request failed: {detail}"),
+            Self::TimedOut { phase, last_state } => {
+                write!(
+                    f,
+                    "Service {phase} timed out after 30 seconds (last state: {last_state:?})"
+                )
+            }
+            Self::PartialRestart { detail } => write!(f, "Service stopped but could not be restarted: {detail}"),
+        }
+    }
+}
+
+fn wait_for_state(
+    service: &windows_service::service::Service,
+    target: ServiceState,
+    phase: &'static str,
+) -> Result<ServiceStatus, ServiceControlError> {
+    let hard_deadline = Instant::now() + Duration::from_secs(30);
+    let mut last_progress = None;
+    let mut progress_deadline = hard_deadline;
+
+    loop {
+        let status = service
+            .query_status()
+            .map_err(|error| ServiceControlError::RequestFailed {
+                phase,
+                detail: error.to_string(),
+            })?;
+        if status.current_state == target {
+            return Ok(status);
+        }
+
+        let now = Instant::now();
+        let progress = (status.current_state, status.checkpoint);
+        if last_progress != Some(progress) {
+            last_progress = Some(progress);
+            let hint = if status.wait_hint.is_zero() {
+                Duration::from_secs(5)
+            } else {
+                status.wait_hint.clamp(Duration::from_secs(1), Duration::from_secs(10))
+            };
+            progress_deadline = (now + hint).min(hard_deadline);
+        }
+        if now >= hard_deadline || now >= progress_deadline {
+            return Err(ServiceControlError::TimedOut {
+                phase,
+                last_state: status.current_state,
+            });
+        }
+
+        let poll = if status.wait_hint.is_zero() {
+            Duration::from_millis(250)
+        } else {
+            (status.wait_hint / 10).clamp(Duration::from_millis(100), Duration::from_secs(1))
+        };
+        std::thread::sleep(poll);
+    }
+}
+
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "PascalCase")]
 #[allow(non_camel_case_types)]
@@ -31,52 +137,91 @@ struct Win32_Service {
     state: String,
 }
 
-pub fn send_service_control(name: &str, action: ServiceControlAction) -> bool {
-    let manager = match windows_service::service_manager::ServiceManager::local_computer(
+pub fn send_service_control(
+    name: &str,
+    action: ServiceControlAction,
+) -> Result<ServiceControlOutcome, ServiceControlError> {
+    let manager = windows_service::service_manager::ServiceManager::local_computer(
         None::<&str>,
         windows_service::service_manager::ServiceManagerAccess::CONNECT,
-    ) {
-        Ok(m) => m,
-        Err(_) => return false,
-    };
+    )
+    .map_err(|error| ServiceControlError::OpenManager(error.to_string()))?;
     let desired_access = windows_service::service::ServiceAccess::QUERY_STATUS
         | windows_service::service::ServiceAccess::START
         | windows_service::service::ServiceAccess::STOP;
-    let service = match manager.open_service(name, desired_access) {
-        Ok(s) => s,
-        Err(_) => return false,
-    };
+    let service = manager
+        .open_service(name, desired_access)
+        .map_err(|error| ServiceControlError::OpenService(error.to_string()))?;
     match action {
         ServiceControlAction::Start => {
+            if service
+                .query_status()
+                .is_ok_and(|status| status.current_state == ServiceState::Running)
+            {
+                return Ok(ServiceControlOutcome {
+                    action,
+                    final_state: ServiceState::Running,
+                });
+            }
             let empty: Vec<String> = Vec::new();
-            service.start(&empty).is_ok()
+            service
+                .start(&empty)
+                .map_err(|error| ServiceControlError::RequestFailed {
+                    phase: "start",
+                    detail: error.to_string(),
+                })?;
+            let status = wait_for_state(&service, ServiceState::Running, "start")?;
+            Ok(ServiceControlOutcome {
+                action,
+                final_state: status.current_state,
+            })
         }
-        ServiceControlAction::Stop => service.stop().is_ok(),
+        ServiceControlAction::Stop => {
+            if service
+                .query_status()
+                .is_ok_and(|status| status.current_state == ServiceState::Stopped)
+            {
+                return Ok(ServiceControlOutcome {
+                    action,
+                    final_state: ServiceState::Stopped,
+                });
+            }
+            service.stop().map_err(|error| ServiceControlError::RequestFailed {
+                phase: "stop",
+                detail: error.to_string(),
+            })?;
+            let status = wait_for_state(&service, ServiceState::Stopped, "stop")?;
+            Ok(ServiceControlOutcome {
+                action,
+                final_state: status.current_state,
+            })
+        }
         ServiceControlAction::Restart => {
-            let stop_ok = service.stop().is_ok();
-            if !stop_ok {
-                return false;
+            if !service
+                .query_status()
+                .is_ok_and(|status| status.current_state == ServiceState::Stopped)
+            {
+                service.stop().map_err(|error| ServiceControlError::RequestFailed {
+                    phase: "restart stop",
+                    detail: error.to_string(),
+                })?;
+                wait_for_state(&service, ServiceState::Stopped, "restart stop")?;
             }
-            let stopped = (0..20).any(|_| {
-                std::thread::sleep(std::time::Duration::from_millis(100));
-                service
-                    .query_status()
-                    .map(|s| matches!(s.current_state, windows_service::service::ServiceState::Stopped))
-                    .unwrap_or(false)
-            });
-            if !stopped {
-                return false;
-            }
+
             let empty: Vec<String> = Vec::new();
-            if service.start(&empty).is_err() {
-                return false;
-            }
-            (0..20).any(|_| {
-                std::thread::sleep(std::time::Duration::from_millis(100));
-                service
-                    .query_status()
-                    .map(|s| matches!(s.current_state, windows_service::service::ServiceState::Running))
-                    .unwrap_or(false)
+            service
+                .start(&empty)
+                .map_err(|error| ServiceControlError::PartialRestart {
+                    detail: error.to_string(),
+                })?;
+            let status = wait_for_state(&service, ServiceState::Running, "restart start").map_err(|error| {
+                ServiceControlError::PartialRestart {
+                    detail: error.to_string(),
+                }
+            })?;
+            Ok(ServiceControlOutcome {
+                action,
+                final_state: status.current_state,
             })
         }
     }

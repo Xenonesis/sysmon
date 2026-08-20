@@ -24,6 +24,20 @@ img { max-width: 100%; display: block; }
 a { color: inherit; text-decoration: none; }
 ::selection { background: var(--accent-soft); }
 
+.skip-link {
+  position: fixed;
+  inset: var(--space-3) auto auto var(--space-3);
+  z-index: 100;
+  padding: var(--space-2) var(--space-4);
+  border: 2px solid var(--accent);
+  border-radius: var(--radius-sm);
+  color: var(--ink);
+  background: var(--paper);
+  box-shadow: var(--shadow-2);
+  transform: translateY(-160%);
+}
+.skip-link:focus { transform: translateY(0); }
+
 :focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
@@ -36,6 +50,10 @@ a { color: inherit; text-decoration: none; }
 }
 
 .mono { font-family: var(--font-mono); }
+.facts-strip { margin-top: var(--space-8); }
+.release-history { margin-top: var(--space-12); }
+.changelog-link { margin-top: var(--space-8); text-align: center; }
+.doc-arrow-spaced { margin-left: var(--space-2); }
 
 /* ── Typography ───────────────────────────────────────────── */
 h1, h2, h3, h4 {
@@ -357,4 +375,6 @@ h1, h2, h3, h4 {
   *, *::before, *::after { animation: none !important; transition: none !important; }
   html { scroll-behavior: auto; }
   .reveal { opacity: 1; transform: none; }
+  .skip-link { transform: translateY(-160%); }
+  .skip-link:focus { transform: translateY(0); }
 }

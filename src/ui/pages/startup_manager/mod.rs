@@ -209,7 +209,7 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui) {
 
             // Process actions safely by matching (name, source)
             if let Some(act) = action {
-                action_handler::handle_startup_action(app, &act.name, &act.source, &act.command, act.action);
+                action_handler::handle_startup_action(app, act);
             }
         }
 
@@ -250,6 +250,7 @@ mod tests {
                 command: r#""C:\Program Files\Test\app.exe" --silent"#.into(),
                 enabled: true,
                 source: "Registry (HKCU)".into(),
+                locator: Default::default(),
                 exe_path: Some(r#"C:\Program Files\Test\app.exe"#.into()),
                 exe_exists: true,
                 publisher: Some("Test Corp".into()),
@@ -263,6 +264,7 @@ mod tests {
                 command: r#"C:\NonExistent\broken.exe"#.into(),
                 enabled: false,
                 source: "Task Scheduler".into(),
+                locator: Default::default(),
                 exe_path: Some(r#"C:\NonExistent\broken.exe"#.into()),
                 exe_exists: false,
                 publisher: None,
@@ -276,6 +278,7 @@ mod tests {
                 command: "C:\\App\\app.exe\0--arg".into(),
                 enabled: true,
                 source: "Startup Folder (User)".into(),
+                locator: Default::default(),
                 exe_path: None,
                 exe_exists: false,
                 publisher: Some("Unknown Pub".into()),
@@ -319,6 +322,7 @@ mod tests {
                 command: "alpha.exe".into(),
                 enabled: true,
                 source: "Registry (HKCU)".into(),
+                locator: Default::default(),
                 exe_path: None,
                 exe_exists: true,
                 publisher: Some("Corp A".into()),
@@ -332,6 +336,7 @@ mod tests {
                 command: "beta.exe".into(),
                 enabled: true,
                 source: "Registry (HKLM)".into(),
+                locator: Default::default(),
                 exe_path: None,
                 exe_exists: true,
                 publisher: Some("Corp B".into()),

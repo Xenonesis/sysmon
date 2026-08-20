@@ -53,7 +53,7 @@ impl eframe::App for SystemMonitorApp {
                 app::events::AppEvent::ActionCompleted { command, record, undo } => {
                     self.action_pending = false;
                     self.action_status = Some(record.message.clone());
-                    if matches!(command, app::commands::ActionCommand::CleanRam) {
+                    if matches!(&command, app::commands::ActionCommand::CleanRam) {
                         self.ram_cleaner_state.is_cleaning = false;
                         self.ram_cleaner_state.last_cleaned = Some(Instant::now());
                         self.ram_cleaner_state.last_cleaned_display = Local::now().format("%H:%M:%S").to_string();
@@ -70,13 +70,54 @@ impl eframe::App for SystemMonitorApp {
                             data.ram_clean_freed_bytes = data.ram_clean_freed_bytes.saturating_add(bytes);
                         }
                     }
+                    match &command {
+                        app::commands::ActionCommand::DisableStartup { locator, .. } => {
+                            if let Some(item) = self.startup_items.iter_mut().find(|item| item.locator == *locator) {
+                                item.enabled = false;
+                            }
+                        }
+                        app::commands::ActionCommand::EnableStartup { locator, .. } => {
+                            if let Some(item) = self.startup_items.iter_mut().find(|item| item.locator == *locator) {
+                                item.enabled = true;
+                            }
+                        }
+                        app::commands::ActionCommand::QuarantineStartup { locator, .. } => {
+                            self.startup_items.retain(|item| item.locator != *locator);
+                        }
+                        app::commands::ActionCommand::RestoreStartup { quarantine_id, .. } => {
+                            for entry in &mut self.action_history {
+                                if matches!(
+                                    &entry.undo,
+                                    Some(app::commands::ActionCommand::RestoreStartup {
+                                        quarantine_id: existing,
+                                        ..
+                                    }) if existing == quarantine_id
+                                ) {
+                                    entry.undo = None;
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                    if matches!(
+                        &command,
+                        app::commands::ActionCommand::DisableStartup { .. }
+                            | app::commands::ActionCommand::EnableStartup { .. }
+                            | app::commands::ActionCommand::QuarantineStartup { .. }
+                            | app::commands::ActionCommand::RestoreStartup { .. }
+                    ) {
+                        self.startup_items_loaded = false;
+                        self.startup_items_loading = false;
+                        *self.startup_items_share.lock() = None;
+                    }
+                    self.data.write().high_impact_startup_count = startup::high_impact_count(&self.startup_items);
                     self.action_history
                         .push(app::actions::ActionHistoryEntry { record, undo });
                 }
                 app::events::AppEvent::ActionFailed { command, record } => {
                     self.action_pending = false;
                     self.action_status = Some(record.message.clone());
-                    if matches!(command, app::commands::ActionCommand::CleanRam) {
+                    if matches!(&command, app::commands::ActionCommand::CleanRam) {
                         self.ram_cleaner_state.is_cleaning = false;
                     }
                     self.action_history

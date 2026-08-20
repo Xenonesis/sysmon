@@ -130,6 +130,48 @@ impl ActionPlan {
                 false,
                 None,
             ),
+            ActionCommand::DisableStartup { item_name, locator } => Self::new(
+                command.clone(),
+                format!("Disable startup item {item_name}"),
+                "The exact startup entry will be disabled without deleting it.",
+                RiskLevel::Medium,
+                locator.requires_admin(),
+                Some(ActionCommand::EnableStartup {
+                    item_name: item_name.clone(),
+                    locator: locator.clone(),
+                }),
+            ),
+            ActionCommand::EnableStartup { item_name, locator } => Self::new(
+                command.clone(),
+                format!("Enable startup item {item_name}"),
+                "The exact startup entry will run again at the next applicable sign-in.",
+                RiskLevel::Medium,
+                locator.requires_admin(),
+                Some(ActionCommand::DisableStartup {
+                    item_name: item_name.clone(),
+                    locator: locator.clone(),
+                }),
+            ),
+            ActionCommand::QuarantineStartup { item_name, locator } => {
+                let mut plan = Self::new(
+                    command.clone(),
+                    format!("Quarantine startup item {item_name}"),
+                    "The exact entry will be backed up in local app data and removed from its startup source.",
+                    RiskLevel::High,
+                    locator.requires_admin(),
+                    None,
+                );
+                plan.reversible = true;
+                plan
+            }
+            ActionCommand::RestoreStartup { item_name, .. } => Self::new(
+                command.clone(),
+                format!("Restore quarantined startup item {item_name}"),
+                "The saved entry will be restored to its exact original source.",
+                RiskLevel::Medium,
+                true,
+                None,
+            ),
         }
     }
 
@@ -163,6 +205,8 @@ pub(crate) struct ActionAuditRecord {
     pub reversible: bool,
     #[serde(default = "default_initiator")]
     pub initiator: String,
+    #[serde(default)]
+    pub quarantine_id: Option<String>,
 }
 
 fn default_initiator() -> String {
@@ -179,6 +223,7 @@ impl ActionAuditRecord {
             message: result.as_ref().map_or_else(Clone::clone, Clone::clone),
             reversible: plan.reversible && result.is_ok(),
             initiator: default_initiator(),
+            quarantine_id: None,
         }
     }
 
@@ -191,6 +236,7 @@ impl ActionAuditRecord {
             message: message.into(),
             reversible: false,
             initiator: "automatic policy".into(),
+            quarantine_id: None,
         }
     }
 }

@@ -96,23 +96,28 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ctx: &egui::Context, data:
                 let sort_col = app.process_sort_column;
                 let sort_asc = app.process_sort_ascending;
 
-                let header_btn = |ui: &mut egui::Ui, label: &str, width: f32, col: ProcessSortColumn| -> egui::Response {
-                    let arrow = if col == sort_col {
-                        if sort_asc { " ▲" } else { " ▼" }
-                    } else {
-                        ""
+                let header_btn =
+                    |ui: &mut egui::Ui, label: &str, width: f32, col: ProcessSortColumn| -> egui::Response {
+                        let arrow = if col == sort_col {
+                            if sort_asc {
+                                " ▲"
+                            } else {
+                                " ▼"
+                            }
+                        } else {
+                            ""
+                        };
+                        let text = format!("{}{}", label, arrow);
+                        let color = if col == sort_col {
+                            ThemePalette::ACCENT_PRIMARY
+                        } else {
+                            ThemePalette::text_primary(is_dark)
+                        };
+                        let btn = egui::Button::new(egui::RichText::new(text).strong().size(11.5).color(color))
+                            .fill(egui::Color32::TRANSPARENT)
+                            .stroke(egui::Stroke::NONE);
+                        ui.add_sized([width, 22.0], btn)
                     };
-                    let text = format!("{}{}", label, arrow);
-                    let color = if col == sort_col {
-                        ThemePalette::ACCENT_PRIMARY
-                    } else {
-                        ThemePalette::text_primary(is_dark)
-                    };
-                    let btn = egui::Button::new(egui::RichText::new(text).strong().size(11.5).color(color))
-                        .fill(egui::Color32::TRANSPARENT)
-                        .stroke(egui::Stroke::NONE);
-                    ui.add_sized([width, 22.0], btn)
-                };
 
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 8.0;
@@ -169,9 +174,11 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ctx: &egui::Context, data:
                 ui.add_space(2.0);
 
                 let num_rows = filtered_processes.len();
-                egui::ScrollArea::both()
-                    .auto_shrink([false, false])
-                    .show_rows(ui, row_height, num_rows, |ui, row_range| {
+                egui::ScrollArea::both().auto_shrink([false, false]).show_rows(
+                    ui,
+                    row_height,
+                    num_rows,
+                    |ui, row_range| {
                         ui.spacing_mut().item_spacing.y = 0.0;
 
                         for idx in row_range {
@@ -197,7 +204,8 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ctx: &egui::Context, data:
                                 } else {
                                     egui::Color32::from_rgba_unmultiplied(0, 0, 0, 3)
                                 };
-                                ui.painter().rect_filled(row_rect, egui::Rounding::same(2.0), stripe_fill);
+                                ui.painter()
+                                    .rect_filled(row_rect, egui::Rounding::same(2.0), stripe_fill);
                             }
 
                             ui.allocate_ui_at_rect(row_rect, |ui| {
@@ -268,10 +276,7 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ctx: &egui::Context, data:
                                     ui.add_sized(
                                         [90.0, row_height],
                                         egui::Label::new(
-                                            egui::RichText::new(disk_str)
-                                                .monospace()
-                                                .size(11.0)
-                                                .color(text_color),
+                                            egui::RichText::new(disk_str).monospace().size(11.0).color(text_color),
                                         ),
                                     );
 
@@ -340,10 +345,15 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ctx: &egui::Context, data:
                                 });
                             });
                         }
-                    });
+                    },
+                );
             } else {
                 // ── Tree View Mode ──
-                let parent_map: std::collections::HashMap<u32, u32> = std::collections::HashMap::new();
+                let parent_map: std::collections::HashMap<u32, u32> = data
+                    .top_processes
+                    .iter()
+                    .filter_map(|process| process.parent_pid.map(|parent| (process.pid, parent)))
+                    .collect();
                 let tree = processes::build_tree(&parent_map);
                 let tree_rows = processes::build_tree_rows(&data.top_processes, &tree, &app.process_search);
 
@@ -353,11 +363,28 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ctx: &egui::Context, data:
                 // Header
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 8.0;
-                    ui.add_sized([55.0, 22.0], egui::Label::new(egui::RichText::new("PID").strong().size(11.5)));
-                    ui.add_sized([220.0, 22.0], egui::Label::new(egui::RichText::new("Process Hierarchy").strong().size(11.5)));
-                    ui.add_sized([80.0, 22.0], egui::Label::new(egui::RichText::new("Memory").strong().size(11.5)));
-                    ui.add_sized([65.0, 22.0], egui::Label::new(egui::RichText::new("CPU %").strong().size(11.5)));
-                    ui.label(egui::RichText::new("Actions").strong().size(11.5).color(ThemePalette::text_secondary(is_dark)));
+                    ui.add_sized(
+                        [55.0, 22.0],
+                        egui::Label::new(egui::RichText::new("PID").strong().size(11.5)),
+                    );
+                    ui.add_sized(
+                        [220.0, 22.0],
+                        egui::Label::new(egui::RichText::new("Process Hierarchy").strong().size(11.5)),
+                    );
+                    ui.add_sized(
+                        [80.0, 22.0],
+                        egui::Label::new(egui::RichText::new("Memory").strong().size(11.5)),
+                    );
+                    ui.add_sized(
+                        [65.0, 22.0],
+                        egui::Label::new(egui::RichText::new("CPU %").strong().size(11.5)),
+                    );
+                    ui.label(
+                        egui::RichText::new("Actions")
+                            .strong()
+                            .size(11.5)
+                            .color(ThemePalette::text_secondary(is_dark)),
+                    );
                 });
 
                 ui.add_space(2.0);
@@ -365,9 +392,11 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ctx: &egui::Context, data:
                 ui.add_space(2.0);
 
                 let num_tree_rows = tree_rows.len();
-                egui::ScrollArea::both()
-                    .auto_shrink([false, false])
-                    .show_rows(ui, row_height, num_tree_rows, |ui, row_range| {
+                egui::ScrollArea::both().auto_shrink([false, false]).show_rows(
+                    ui,
+                    row_height,
+                    num_tree_rows,
+                    |ui, row_range| {
                         ui.spacing_mut().item_spacing.y = 0.0;
 
                         for idx in row_range {
@@ -393,7 +422,8 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ctx: &egui::Context, data:
                                 } else {
                                     egui::Color32::from_rgba_unmultiplied(0, 0, 0, 3)
                                 };
-                                ui.painter().rect_filled(row_rect, egui::Rounding::same(2.0), stripe_fill);
+                                ui.painter()
+                                    .rect_filled(row_rect, egui::Rounding::same(2.0), stripe_fill);
                             }
 
                             ui.allocate_ui_at_rect(row_rect, |ui| {
@@ -513,7 +543,8 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ctx: &egui::Context, data:
                                 });
                             });
                         }
-                    });
+                    },
+                );
             }
 
             if let Some(status) = &app.action_status {

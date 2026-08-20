@@ -1,4 +1,4 @@
-use crate::{services::ServiceControlAction, AppSettings};
+use crate::{services::ServiceControlAction, startup::StartupLocator, AppSettings};
 
 #[derive(Debug, Clone)]
 pub(crate) enum MonitoringCommand {
@@ -24,7 +24,8 @@ pub(crate) enum ActionCommand {
     CleanRam,
     ControlService { name: String, action: ServiceControlAction },
     SetPowerPlan(String),
-    // ponytail: startup item mutations (DisableStartup/EnableStartup/RemoveStartup)
-    // deferred — UI still calls startup::* directly; add variants here when
-    // transactional registry moves land.
+    DisableStartup { item_name: String, locator: StartupLocator },
+    EnableStartup { item_name: String, locator: StartupLocator },
+    QuarantineStartup { item_name: String, locator: StartupLocator },
+    RestoreStartup { item_name: String, quarantine_id: String },
 }

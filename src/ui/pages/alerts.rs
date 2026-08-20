@@ -1,4 +1,3 @@
-
 use crate::ui::components::*;
 use crate::ui::theme::ThemePalette;
 use crate::*;
@@ -226,6 +225,7 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
         d.alerts.push(AlertInfo {
             timestamp: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
             alert_type: AlertType::CpuHigh,
+            source: AlertSource::Cpu,
             message: "Simulated Test Alert: CPU load threshold exceeded (Diagnostic Test)".to_string(),
             value: 95.0,
         });
@@ -241,12 +241,7 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
 }
 
 /// Renders the Live Metric Proximity & Headroom Matrix card.
-fn paint_proximity_matrix(
-    app: &crate::SystemMonitorApp,
-    ui: &mut egui::Ui,
-    data: &SystemData,
-    is_dark: bool,
-) {
+fn paint_proximity_matrix(app: &crate::SystemMonitorApp, ui: &mut egui::Ui, data: &SystemData, is_dark: bool) {
     card_frame(is_dark).show(ui, |ui| {
         ui.horizontal(|ui| {
             ui.label(
@@ -282,12 +277,14 @@ fn paint_proximity_matrix(
 
         paint_proximity_row(
             ui,
-            "CPU Saturation Limit",
-            &format!("{:.1}%", cpu_curr),
-            &format!("> {:.0}%", cpu_thresh),
-            &format!("+{:.1}% Headroom", cpu_headroom),
-            cpu_curr / 100.0,
-            cpu_color,
+            ProximityRow {
+                title: "CPU Saturation Limit",
+                current_value: format!("{:.1}%", cpu_curr),
+                threshold_value: format!("> {:.0}%", cpu_thresh),
+                headroom: format!("+{:.1}% Headroom", cpu_headroom),
+                fraction: cpu_curr / 100.0,
+                color: cpu_color,
+            },
             is_dark,
         );
 
@@ -309,12 +306,14 @@ fn paint_proximity_matrix(
 
         paint_proximity_row(
             ui,
-            "Memory Exhaustion Limit",
-            &format!("{:.1}%", mem_curr),
-            &format!("> {:.0}%", mem_thresh),
-            &format!("+{:.1}% Headroom", mem_headroom),
-            mem_curr / 100.0,
-            mem_color,
+            ProximityRow {
+                title: "Memory Exhaustion Limit",
+                current_value: format!("{:.1}%", mem_curr),
+                threshold_value: format!("> {:.0}%", mem_thresh),
+                headroom: format!("+{:.1}% Headroom", mem_headroom),
+                fraction: mem_curr / 100.0,
+                color: mem_color,
+            },
             is_dark,
         );
 
@@ -335,19 +334,31 @@ fn paint_proximity_matrix(
             } else {
                 ThemePalette::STATUS_HEALTHY
             };
-            (format!("{:.0} °C", temp_f), format!("+{:.0} °C Margin", headroom), (temp_f / 100.0).clamp(0.0, 1.0), color)
+            (
+                format!("{:.0} °C", temp_f),
+                format!("+{:.0} °C Margin", headroom),
+                (temp_f / 100.0).clamp(0.0, 1.0),
+                color,
+            )
         } else {
-            ("N/A".to_string(), "Thermal sensor offline".to_string(), 0.0, ThemePalette::text_dimmed(is_dark))
+            (
+                "N/A".to_string(),
+                "Thermal sensor offline".to_string(),
+                0.0,
+                ThemePalette::text_dimmed(is_dark),
+            )
         };
 
         paint_proximity_row(
             ui,
-            "GPU Thermal Boundary",
-            &gpu_val_str,
-            &format!("> {:.0} °C", gpu_thresh),
-            &gpu_headroom_str,
-            gpu_frac,
-            gpu_color,
+            ProximityRow {
+                title: "GPU Thermal Boundary",
+                current_value: gpu_val_str,
+                threshold_value: format!("> {:.0} °C", gpu_thresh),
+                headroom: gpu_headroom_str,
+                fraction: gpu_frac,
+                color: gpu_color,
+            },
             is_dark,
         );
 
@@ -373,60 +384,62 @@ fn paint_proximity_matrix(
 
         paint_proximity_row(
             ui,
-            "Disk Capacity Warning",
-            &format!("{:.1}%", max_disk_usage),
-            &format!("> {:.0}%", disk_thresh),
-            &format!("+{:.1}% Free Space Margin", disk_headroom),
-            max_disk_usage / 100.0,
-            disk_color,
+            ProximityRow {
+                title: "Disk Capacity Warning",
+                current_value: format!("{:.1}%", max_disk_usage),
+                threshold_value: format!("> {:.0}%", disk_thresh),
+                headroom: format!("+{:.1}% Free Space Margin", disk_headroom),
+                fraction: max_disk_usage / 100.0,
+                color: disk_color,
+            },
             is_dark,
         );
     });
 }
 
 /// Helper to render an individual metric threshold proximity row with progress bar and headroom badge.
-fn paint_proximity_row(
-    ui: &mut egui::Ui,
-    title: &str,
-    current_val: &str,
-    threshold_val: &str,
-    headroom_text: &str,
+struct ProximityRow {
+    title: &'static str,
+    current_value: String,
+    threshold_value: String,
+    headroom: String,
     fraction: f32,
     color: egui::Color32,
-    is_dark: bool,
-) {
+}
+
+fn paint_proximity_row(ui: &mut egui::Ui, row: ProximityRow, is_dark: bool) {
     ui.horizontal(|ui| {
         ui.label(
-            egui::RichText::new(title)
+            egui::RichText::new(row.title)
                 .strong()
                 .size(12.0)
                 .color(ThemePalette::text_primary(is_dark)),
         );
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.label(
-                egui::RichText::new(headroom_text)
+                egui::RichText::new(&row.headroom)
                     .monospace()
                     .size(11.0)
                     .strong()
-                    .color(color),
+                    .color(row.color),
             );
         });
     });
 
     ui.add_space(3.0);
-    paint_progress_bar(ui, fraction, color, 6.0, is_dark);
+    paint_progress_bar(ui, row.fraction, row.color, 6.0, is_dark);
     ui.add_space(3.0);
 
     ui.horizontal(|ui| {
         ui.label(
-            egui::RichText::new(format!("Current Load: {}", current_val))
+            egui::RichText::new(format!("Current Load: {}", row.current_value))
                 .monospace()
                 .size(11.0)
                 .color(ThemePalette::text_primary(is_dark)),
         );
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.label(
-                egui::RichText::new(format!("Trigger Limit: {}", threshold_val))
+                egui::RichText::new(format!("Trigger Limit: {}", row.threshold_value))
                     .monospace()
                     .size(11.0)
                     .color(ThemePalette::text_secondary(is_dark)),
@@ -460,10 +473,22 @@ fn paint_nominal_health_board(ui: &mut egui::Ui, data: &SystemData, is_dark: boo
 
         // Guard Status Items
         let guards = [
-            ("✓ CPU Thermal & Saturation Guard", "Continuous sampling of global usage & per-core throttling thresholds."),
-            ("✓ Memory Working Set Watchdog", "Proactively tracks RAM exhaustion with automated one-click working set cleanup."),
-            ("✓ Storage Volume Exhaustion Sentinel", "Monitors NTFS & ReFS partition limits to avoid critical disk-write lockouts."),
-            ("✓ Windows Startup Degradation Scanner", "Evaluates Boot Diagnostics event logs for rogue startup performance impacts."),
+            (
+                "✓ CPU Thermal & Saturation Guard",
+                "Continuous sampling of global usage & per-core throttling thresholds.",
+            ),
+            (
+                "✓ Memory Working Set Watchdog",
+                "Proactively tracks RAM exhaustion with automated one-click working set cleanup.",
+            ),
+            (
+                "✓ Storage Volume Exhaustion Sentinel",
+                "Monitors NTFS & ReFS partition limits to avoid critical disk-write lockouts.",
+            ),
+            (
+                "✓ Windows Startup Degradation Scanner",
+                "Evaluates Boot Diagnostics event logs for rogue startup performance impacts.",
+            ),
         ];
 
         for (name, desc) in guards {
@@ -499,20 +524,56 @@ fn paint_nominal_health_board(ui: &mut egui::Ui, data: &SystemData, is_dark: boo
             .num_columns(2)
             .spacing([24.0, 6.0])
             .show(ui, |ui| {
-                ui.label(egui::RichText::new("System Uptime:").size(11.5).color(ThemePalette::text_secondary(is_dark)));
-                ui.label(egui::RichText::new(format_uptime(data.system_info.uptime)).monospace().strong().color(ThemePalette::text_primary(is_dark)));
+                ui.label(
+                    egui::RichText::new("System Uptime:")
+                        .size(11.5)
+                        .color(ThemePalette::text_secondary(is_dark)),
+                );
+                ui.label(
+                    egui::RichText::new(format_uptime(data.system_info.uptime))
+                        .monospace()
+                        .strong()
+                        .color(ThemePalette::text_primary(is_dark)),
+                );
                 ui.end_row();
 
-                ui.label(egui::RichText::new("Monitored Processes:").size(11.5).color(ThemePalette::text_secondary(is_dark)));
-                ui.label(egui::RichText::new(format!("{} active processes", data.top_processes.len())).monospace().strong().color(ThemePalette::text_primary(is_dark)));
+                ui.label(
+                    egui::RichText::new("Monitored Processes:")
+                        .size(11.5)
+                        .color(ThemePalette::text_secondary(is_dark)),
+                );
+                ui.label(
+                    egui::RichText::new(format!("{} active processes", data.top_processes.len()))
+                        .monospace()
+                        .strong()
+                        .color(ThemePalette::text_primary(is_dark)),
+                );
                 ui.end_row();
 
-                ui.label(egui::RichText::new("Network Interfaces:").size(11.5).color(ThemePalette::text_secondary(is_dark)));
-                ui.label(egui::RichText::new(format!("{} adapters polled", data.network_info.len())).monospace().strong().color(ThemePalette::text_primary(is_dark)));
+                ui.label(
+                    egui::RichText::new("Network Interfaces:")
+                        .size(11.5)
+                        .color(ThemePalette::text_secondary(is_dark)),
+                );
+                ui.label(
+                    egui::RichText::new(format!("{} adapters polled", data.network_info.len()))
+                        .monospace()
+                        .strong()
+                        .color(ThemePalette::text_primary(is_dark)),
+                );
                 ui.end_row();
 
-                ui.label(egui::RichText::new("Storage Volumes:").size(11.5).color(ThemePalette::text_secondary(is_dark)));
-                ui.label(egui::RichText::new(format!("{} physical/logical volumes", data.disk_info.len())).monospace().strong().color(ThemePalette::text_primary(is_dark)));
+                ui.label(
+                    egui::RichText::new("Storage Volumes:")
+                        .size(11.5)
+                        .color(ThemePalette::text_secondary(is_dark)),
+                );
+                ui.label(
+                    egui::RichText::new(format!("{} physical/logical volumes", data.disk_info.len()))
+                        .monospace()
+                        .strong()
+                        .color(ThemePalette::text_primary(is_dark)),
+                );
                 ui.end_row();
             });
     });
@@ -565,7 +626,11 @@ fn paint_active_incidents_feed(
                 );
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.small_button("× Dismiss").on_hover_text("Dismiss this incident").clicked() {
+                    if ui
+                        .small_button("× Dismiss")
+                        .on_hover_text("Dismiss this incident")
+                        .clicked()
+                    {
                         *remove_alert_idx = Some(i);
                     }
 
@@ -594,7 +659,12 @@ fn paint_active_incidents_feed(
                     match alert.alert_type {
                         AlertType::MemoryHigh => {
                             if ui
-                                .button(egui::RichText::new("🧹 Clean RAM Now").strong().size(11.0).color(ThemePalette::ACCENT_PRIMARY))
+                                .button(
+                                    egui::RichText::new("🧹 Clean RAM Now")
+                                        .strong()
+                                        .size(11.0)
+                                        .color(ThemePalette::ACCENT_PRIMARY),
+                                )
                                 .on_hover_text("Execute working set optimization to free up RAM")
                                 .clicked()
                             {
@@ -603,7 +673,12 @@ fn paint_active_incidents_feed(
                         }
                         AlertType::CpuHigh => {
                             if ui
-                                .button(egui::RichText::new("📋 Inspect Processes").strong().size(11.0).color(ThemePalette::ACCENT_PRIMARY))
+                                .button(
+                                    egui::RichText::new("📋 Inspect Processes")
+                                        .strong()
+                                        .size(11.0)
+                                        .color(ThemePalette::ACCENT_PRIMARY),
+                                )
                                 .on_hover_text("Open Process Monitor to inspect high CPU consumers")
                                 .clicked()
                             {
@@ -612,7 +687,12 @@ fn paint_active_incidents_feed(
                         }
                         AlertType::DiskSpaceLow => {
                             if ui
-                                .button(egui::RichText::new("💾 Open Storage Manager").strong().size(11.0).color(ThemePalette::ACCENT_PRIMARY))
+                                .button(
+                                    egui::RichText::new("💾 Open Storage Manager")
+                                        .strong()
+                                        .size(11.0)
+                                        .color(ThemePalette::ACCENT_PRIMARY),
+                                )
                                 .on_hover_text("Inspect disk usage and partition breakdown")
                                 .clicked()
                             {
@@ -621,7 +701,12 @@ fn paint_active_incidents_feed(
                         }
                         AlertType::GpuTempHigh => {
                             if ui
-                                .button(egui::RichText::new("🩺 GPU Diagnostics").strong().size(11.0).color(ThemePalette::ACCENT_PRIMARY))
+                                .button(
+                                    egui::RichText::new("🩺 GPU Diagnostics")
+                                        .strong()
+                                        .size(11.0)
+                                        .color(ThemePalette::ACCENT_PRIMARY),
+                                )
                                 .on_hover_text("Inspect GPU clock rates, fan speeds, and memory usage")
                                 .clicked()
                             {
@@ -630,7 +715,12 @@ fn paint_active_incidents_feed(
                         }
                         AlertType::StartupHighImpact => {
                             if ui
-                                .button(egui::RichText::new("🚀 Manage Startup Apps").strong().size(11.0).color(ThemePalette::ACCENT_PRIMARY))
+                                .button(
+                                    egui::RichText::new("🚀 Manage Startup Apps")
+                                        .strong()
+                                        .size(11.0)
+                                        .color(ThemePalette::ACCENT_PRIMARY),
+                                )
                                 .on_hover_text("Open Startup Manager to disable heavy startup programs")
                                 .clicked()
                             {
@@ -669,40 +759,52 @@ mod tests {
     #[test]
     fn test_alerts_page_render_with_active_incidents() {
         let mut app = SystemMonitorApp::test_app();
-        let mut data = SystemData::default();
-
-        data.alerts = vec![
-            AlertInfo {
-                timestamp: "2026-08-17 15:00:00".into(),
-                alert_type: AlertType::CpuHigh,
-                message: "CPU usage exceeded 90% threshold (94.2%)".into(),
-                value: 94.2,
-            },
-            AlertInfo {
-                timestamp: "2026-08-17 15:01:00".into(),
-                alert_type: AlertType::MemoryHigh,
-                message: "RAM memory usage critical (92.5%)".into(),
-                value: 92.5,
-            },
-            AlertInfo {
-                timestamp: "2026-08-17 15:02:00".into(),
-                alert_type: AlertType::GpuTempHigh,
-                message: "GPU temperature high (88 °C)".into(),
-                value: 88.0,
-            },
-            AlertInfo {
-                timestamp: "2026-08-17 15:03:00".into(),
-                alert_type: AlertType::DiskSpaceLow,
-                message: "C:\\ disk volume almost full (93.1%)".into(),
-                value: 93.1,
-            },
-            AlertInfo {
-                timestamp: "2026-08-17 15:04:00".into(),
-                alert_type: AlertType::StartupHighImpact,
-                message: "High-impact startup apps detected".into(),
-                value: 3.0,
-            },
-        ];
+        let data = SystemData {
+            alerts: vec![
+                AlertInfo {
+                    timestamp: "2026-08-17 15:00:00".into(),
+                    alert_type: AlertType::CpuHigh,
+                    source: AlertSource::Cpu,
+                    message: "CPU usage exceeded 90% threshold (94.2%)".into(),
+                    value: 94.2,
+                },
+                AlertInfo {
+                    timestamp: "2026-08-17 15:01:00".into(),
+                    alert_type: AlertType::MemoryHigh,
+                    source: AlertSource::Memory,
+                    message: "RAM memory usage critical (92.5%)".into(),
+                    value: 92.5,
+                },
+                AlertInfo {
+                    timestamp: "2026-08-17 15:02:00".into(),
+                    alert_type: AlertType::GpuTempHigh,
+                    source: AlertSource::Gpu {
+                        index: 0,
+                        name: "Test GPU".into(),
+                    },
+                    message: "GPU temperature high (88 °C)".into(),
+                    value: 88.0,
+                },
+                AlertInfo {
+                    timestamp: "2026-08-17 15:03:00".into(),
+                    alert_type: AlertType::DiskSpaceLow,
+                    source: AlertSource::Disk {
+                        mount_point: "C:\\".into(),
+                        name: "C:\\".into(),
+                    },
+                    message: "C:\\ disk volume almost full (93.1%)".into(),
+                    value: 93.1,
+                },
+                AlertInfo {
+                    timestamp: "2026-08-17 15:04:00".into(),
+                    alert_type: AlertType::StartupHighImpact,
+                    source: AlertSource::Startup,
+                    message: "High-impact startup apps detected".into(),
+                    value: 3.0,
+                },
+            ],
+            ..Default::default()
+        };
 
         let ctx = egui::Context::default();
         let _ = ctx.run(Default::default(), |ctx| {

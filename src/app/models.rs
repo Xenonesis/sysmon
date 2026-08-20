@@ -199,29 +199,30 @@ pub(crate) struct NetworkInfo {
 pub(crate) struct AlertInfo {
     pub(crate) timestamp: String,
     pub(crate) alert_type: AlertType,
+    pub(crate) source: AlertSource,
     pub(crate) message: String,
     pub(crate) value: f32,
 }
 
 impl AlertInfo {
     pub fn key(&self) -> String {
-        match self.alert_type {
-            AlertType::GpuTempHigh => format!(
-                "gpu:{}",
-                self.message
-                    .rsplit_once('(')
-                    .map(|(_, v)| v.trim_end_matches(')'))
-                    .unwrap_or("unknown")
-            ),
-            AlertType::DiskSpaceLow => format!(
-                "disk:{}",
-                self.message.split(" is almost full").next().unwrap_or(&self.message)
-            ),
-            AlertType::CpuHigh => "cpu".into(),
-            AlertType::MemoryHigh => "memory".into(),
-            AlertType::StartupHighImpact => "startup".into(),
+        match &self.source {
+            AlertSource::Cpu => "cpu".into(),
+            AlertSource::Memory => "memory".into(),
+            AlertSource::Gpu { index, .. } => format!("gpu:{index}"),
+            AlertSource::Disk { mount_point, .. } => format!("disk:{mount_point}"),
+            AlertSource::Startup => "startup".into(),
         }
     }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub(crate) enum AlertSource {
+    Cpu,
+    Memory,
+    Gpu { index: usize, name: String },
+    Disk { mount_point: String, name: String },
+    Startup,
 }
 
 #[derive(Clone, PartialEq, Eq, Hash)]
