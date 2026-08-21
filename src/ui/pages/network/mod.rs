@@ -83,6 +83,7 @@ mod tests {
             top_processes: vec![crate::processes::ProcessInfo {
                 parent_pid: None,
                 pid: 1001,
+                start_time: 0,
                 name: "browser.exe".to_string(),
                 cpu_usage: 5.0,
                 memory: 500 * 1024 * 1024,

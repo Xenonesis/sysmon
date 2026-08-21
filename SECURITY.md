@@ -13,8 +13,8 @@ Include the affected version, Windows version, reproduction steps, impact and a 
 ## Security boundaries
 
 - Monitoring works as a standard user; elevation is requested for specific privileged actions.
-- Diagnostic sessions and action audits are local files and may contain system or process metadata.
-- Automatic updates require HTTPS, the official release repository, a bounded download, and a SHA-256 checksum match against the checksum file published with the release.
-- Published builds must use the release workflow, which publishes the installer together with its SHA-256 checksum, an SPDX SBOM and a GitHub build provenance attestation. Locally built installers are development artifacts, not production updates.
+- Diagnostic sessions, opt-in timeline history, and action audits are local files and may contain system or process metadata. Timeline storage excludes command lines, executable paths, working directories, usernames, and remote IP addresses.
+- Automatic updates require HTTPS, the official release repository, exact paired installer/checksum asset names, a bounded download, and a SHA-256 checksum match against the checksum file published with the release.
+- Published builds must use the release workflow, which publishes the installer together with its SHA-256 checksum and SPDX SBOM, and verifies GitHub build attestations before publication. Missing or invalid release evidence fails publication. Locally built installers are development artifacts, not production updates.
 
 Never commit passwords, access tokens or private diagnostic exports.

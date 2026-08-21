@@ -40,6 +40,9 @@ pub(crate) fn validated(mut settings: AppSettings) -> AppSettings {
     settings.auto_clean_max_mb = settings.auto_clean_max_mb.min(4096);
     settings.auto_clean_interval = settings.auto_clean_interval.max(30);
     settings.notification_disk_threshold = settings.notification_disk_threshold.clamp(50.0, 100.0);
+    if !matches!(settings.timeline_retention_days, 1 | 7 | 30) {
+        settings.timeline_retention_days = 7;
+    }
     settings
 }
 

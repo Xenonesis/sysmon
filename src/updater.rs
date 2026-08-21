@@ -33,6 +33,21 @@ fn validate_checksum_url(url: &str) -> Result<(), String> {
     Ok(())
 }
 
+fn validate_release_pair(download_url: &str, checksum_url: &str) -> Result<String, String> {
+    validate_asset_url(download_url)?;
+    validate_checksum_url(checksum_url)?;
+    let expected_checksum_url = format!("{download_url}.sha256");
+    if !checksum_url.eq_ignore_ascii_case(&expected_checksum_url) {
+        return Err("Installer and checksum must be matching assets from the same release".into());
+    }
+    let filename = download_url
+        .rsplit('/')
+        .next()
+        .filter(|name| !name.is_empty() && !name.contains(['\\', '/']))
+        .ok_or_else(|| "Update installer filename is invalid".to_string())?;
+    Ok(filename.to_string())
+}
+
 // Must match the AppId in installer.iss.
 const INSTALLER_APP_ID: &str = "{3F2A9C41-8E7D-4B6A-9C21-5D8E4F1A7B62}";
 
@@ -116,17 +131,20 @@ impl Updater {
                 // offered, and only together with the SHA-256 checksum file
                 // published next to it. Without a published checksum the
                 // download cannot be verified, so no update is offered.
+                let expected_installer = format!("systemmonitor-{latest_version}-setup.exe");
+                let expected_checksum = format!("{expected_installer}.sha256");
                 for asset in release.assets {
-                    let name = asset.name.to_lowercase();
-                    if name.contains("setup") && name.ends_with(".exe.sha256") {
+                    let name = asset.name.to_ascii_lowercase();
+                    if name == expected_checksum {
                         self.update_info.checksum_url = asset.browser_download_url;
-                    } else if name.contains("setup") && name.ends_with(".exe") {
+                    } else if name == expected_installer {
                         self.update_info.download_url = asset.browser_download_url;
                     }
                 }
                 self.update_info.update_available = self.update_info.update_available
                     && !self.update_info.download_url.is_empty()
-                    && !self.update_info.checksum_url.is_empty();
+                    && !self.update_info.checksum_url.is_empty()
+                    && validate_release_pair(&self.update_info.download_url, &self.update_info.checksum_url).is_ok();
 
                 Ok(self.update_info.clone())
             }
@@ -196,7 +214,7 @@ impl Updater {
         false
     }
 
-    fn fetch_expected_checksum(&self, checksum_url: &str) -> Result<String, String> {
+    fn fetch_expected_checksum(&self, checksum_url: &str, expected_filename: &str) -> Result<String, String> {
         let response = http_agent()
             .get(checksum_url)
             .set("User-Agent", "SystemMonitor/1.0")
@@ -213,13 +231,13 @@ impl Updater {
             return Err("Checksum file exceeds size limit".into());
         }
 
-        parse_checksum_file(&body).ok_or_else(|| "Checksum file contains no SHA-256 hash".to_string())
+        parse_checksum_file(&body, expected_filename)
+            .ok_or_else(|| "Checksum file does not contain the expected installer hash and filename".to_string())
     }
 
     pub fn download_and_install_update(&self, download_url: &str, checksum_url: &str) -> Result<(), String> {
-        validate_asset_url(download_url)?;
-        validate_checksum_url(checksum_url)?;
-        let expected_sha256 = self.fetch_expected_checksum(checksum_url)?;
+        let installer_filename = validate_release_pair(download_url, checksum_url)?;
+        let expected_sha256 = self.fetch_expected_checksum(checksum_url, &installer_filename)?;
 
         // Download the update using ureq
         let response = http_agent()
@@ -299,12 +317,17 @@ impl Clone for UpdateInfo {
     }
 }
 
-/// Parses a `sha256sum`-style file (`<hash> *<name>` or `<hash>  <name>`) and
-/// returns the first 64-hex-digit hash, lowercased.
-fn parse_checksum_file(text: &str) -> Option<String> {
+/// Parses a `sha256sum`-style file and accepts only the exact installer name.
+fn parse_checksum_file(text: &str, expected_filename: &str) -> Option<String> {
     for line in text.lines() {
-        if let Some(hash) = line.split_whitespace().next() {
-            if hash.len() == 64 && hash.chars().all(|c| c.is_ascii_hexdigit()) {
+        let mut fields = line.split_whitespace();
+        if let (Some(hash), Some(filename)) = (fields.next(), fields.next()) {
+            let filename = filename.strip_prefix('*').unwrap_or(filename);
+            if fields.next().is_none()
+                && filename == expected_filename
+                && hash.len() == 64
+                && hash.chars().all(|c| c.is_ascii_hexdigit())
+            {
                 return Some(hash.to_ascii_lowercase());
             }
         }
@@ -367,6 +390,20 @@ mod tests {
     }
 
     #[test]
+    fn accepts_only_matching_release_pair() {
+        let installer = "https://github.com/Xenonesis/sysmon/releases/download/v3.8.0/SystemMonitor-3.8.0-setup.exe";
+        assert_eq!(
+            validate_release_pair(installer, &format!("{installer}.sha256")).unwrap(),
+            "SystemMonitor-3.8.0-setup.exe"
+        );
+        assert!(validate_release_pair(
+            installer,
+            "https://github.com/Xenonesis/sysmon/releases/download/v3.7.7/SystemMonitor-3.7.7-setup.exe.sha256"
+        )
+        .is_err());
+    }
+
+    #[test]
     fn rejects_untrusted_checksum_urls() {
         for url in [
             "http://github.com/Xenonesis/sysmon/releases/download/v3/a.exe.sha256",
@@ -384,23 +421,33 @@ mod tests {
         let hash = "a1".repeat(32);
         // sha256sum binary-mode format, as published by the release workflow.
         assert_eq!(
-            parse_checksum_file(&format!("{hash} *SystemMonitor-3.7.6-setup.exe")),
+            parse_checksum_file(
+                &format!("{hash} *SystemMonitor-3.7.6-setup.exe"),
+                "SystemMonitor-3.7.6-setup.exe"
+            ),
             Some(hash.clone())
         );
         // GNU coreutils text-mode (two-space) format.
         assert_eq!(
-            parse_checksum_file(&format!("{hash}  SystemMonitor-3.7.6-setup.exe\n")),
+            parse_checksum_file(
+                &format!("{hash}  SystemMonitor-3.7.6-setup.exe\n"),
+                "SystemMonitor-3.7.6-setup.exe"
+            ),
             Some(hash.clone())
         );
         // Uppercase hashes are normalized.
         assert_eq!(
-            parse_checksum_file(&format!("{} *setup.exe", hash.to_uppercase())),
-            Some(hash)
+            parse_checksum_file(&format!("{} *setup.exe", hash.to_uppercase()), "setup.exe"),
+            Some(hash.clone())
         );
         // Empty, missing or malformed content yields no hash.
-        assert_eq!(parse_checksum_file(""), None);
-        assert_eq!(parse_checksum_file("nothash *setup.exe"), None);
-        assert_eq!(parse_checksum_file(&format!("{} *setup.exe", "z".repeat(64))), None);
+        assert_eq!(parse_checksum_file("", "setup.exe"), None);
+        assert_eq!(parse_checksum_file("nothash *setup.exe", "setup.exe"), None);
+        assert_eq!(
+            parse_checksum_file(&format!("{} *setup.exe", "z".repeat(64)), "setup.exe"),
+            None
+        );
+        assert_eq!(parse_checksum_file(&format!("{hash} *other.exe"), "setup.exe"), None);
     }
 
     #[test]

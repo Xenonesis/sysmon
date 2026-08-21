@@ -81,6 +81,72 @@ pub(super) fn paint_telemetry_settings(
 
     ui.add_space(10.0);
 
+    card_frame(is_dark).show(ui, |ui| {
+        ui.label(
+            egui::RichText::new("LOCAL DIAGNOSTIC TIMELINE")
+                .size(11.0)
+                .strong()
+                .color(ThemePalette::text_secondary(is_dark)),
+        );
+        ui.add_space(6.0);
+        *changed |= ui
+            .checkbox(
+                &mut app.settings.timeline_enabled,
+                "Record a private rolling timeline on this PC",
+            )
+            .on_hover_text("Stores five-second metric samples and process names locally. No command lines, paths, usernames, or remote IPs are retained.")
+            .changed();
+
+        ui.add_enabled_ui(app.settings.timeline_enabled, |ui| {
+            ui.horizontal(|ui| {
+                ui.label("Retention:");
+                for days in [1_u16, 7, 30] {
+                    *changed |= ui
+                        .selectable_value(
+                            &mut app.settings.timeline_retention_days,
+                            days,
+                            format!("{days} day{}", if days == 1 { "" } else { "s" }),
+                        )
+                        .changed();
+                }
+            });
+        });
+
+        let status = app.timeline.status();
+        ui.label(
+            egui::RichText::new(format!(
+                "Local storage: {:.1} MB · hard limit 512 MB",
+                status.storage_bytes as f64 / 1_048_576.0
+            ))
+            .size(11.0)
+            .color(ThemePalette::text_dimmed(is_dark)),
+        );
+        if let Some(error) = status.last_error {
+            ui.colored_label(ThemePalette::STATUS_CRITICAL, error);
+        }
+
+        ui.horizontal(|ui| {
+            if !app.timeline_ui.clear_confirmation {
+                if ui.button("Clear Timeline History").clicked() {
+                    app.timeline_ui.clear_confirmation = true;
+                }
+            } else {
+                ui.label("Delete all recorded timeline data?");
+                if ui.button("Delete").clicked() {
+                    app.timeline.clear();
+                    app.timeline_ui.window = None;
+                    app.timeline_ui.clear_confirmation = false;
+                    app.timeline_ui.message = Some("Timeline history cleared.".into());
+                }
+                if ui.button("Cancel").clicked() {
+                    app.timeline_ui.clear_confirmation = false;
+                }
+            }
+        });
+    });
+
+    ui.add_space(10.0);
+
     // ── 3. Safety & Audit ──
     card_frame(is_dark).show(ui, |ui| {
         ui.label(

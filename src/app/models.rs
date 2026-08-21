@@ -378,6 +378,14 @@ pub(crate) struct AppSettings {
     pub(crate) notification_disk_threshold: f32,
     #[serde(default)]
     pub(crate) sidebar_collapsed: bool,
+    #[serde(default)]
+    pub(crate) timeline_enabled: bool,
+    #[serde(default = "default_timeline_retention_days")]
+    pub(crate) timeline_retention_days: u16,
+}
+
+fn default_timeline_retention_days() -> u16 {
+    7
 }
 
 fn default_enable_alert_sound() -> bool {
@@ -482,6 +490,8 @@ impl Default for AppSettings {
             show_widget: false,
             notification_disk_threshold: 90.0,
             sidebar_collapsed: false,
+            timeline_enabled: false,
+            timeline_retention_days: default_timeline_retention_days(),
         }
     }
 }
@@ -559,6 +569,7 @@ pub(crate) struct SystemData {
     pub(crate) cpu_cores: Vec<CpuCoreInfo>,
     pub(crate) gpu_info: Vec<GpuInfo>,
     pub(crate) top_processes: Vec<crate::processes::ProcessInfo>,
+    pub(crate) timeline_processes: Vec<crate::processes::ProcessInfo>,
     pub(crate) monitoring_paused: bool,
     pub(crate) selected_process_pid: Option<u32>,
     pub(crate) selected_process_details: Option<(u32, crate::processes::ProcessDetails)>,
@@ -607,6 +618,7 @@ impl Default for SystemData {
             cpu_cores: Vec::new(),
             gpu_info: Vec::new(),
             top_processes: Vec::new(),
+            timeline_processes: Vec::new(),
             monitoring_paused: false,
             selected_process_pid: None,
             selected_process_details: None,
@@ -707,5 +719,17 @@ mod tests {
         let serialized = serde_json::to_string(&original).unwrap();
         let deserialized: AppSettings = serde_json::from_str(&serialized).unwrap();
         assert_eq!(deserialized.theme, AppTheme::System);
+    }
+
+    #[test]
+    fn app_settings_migrates_without_timeline_fields() {
+        let mut legacy = serde_json::to_value(AppSettings::default()).unwrap();
+        let object = legacy.as_object_mut().unwrap();
+        object.remove("timeline_enabled");
+        object.remove("timeline_retention_days");
+
+        let migrated: AppSettings = serde_json::from_value(legacy).unwrap();
+        assert!(!migrated.timeline_enabled);
+        assert_eq!(migrated.timeline_retention_days, 7);
     }
 }

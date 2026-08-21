@@ -12,3 +12,4 @@ pub(crate) mod settings;
 pub(crate) mod startup_manager;
 pub(crate) mod storage;
 pub(crate) mod system_info;
+pub(crate) mod timeline;

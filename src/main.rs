@@ -16,6 +16,7 @@ mod services;
 mod startup;
 mod storage;
 pub mod telemetry;
+mod timeline;
 mod updater;
 use eframe::egui;
 
@@ -44,13 +45,17 @@ impl eframe::App for SystemMonitorApp {
                     if let Err(error) = self.session_recorder.record(&snapshot) {
                         self.session_status = Some(format!("Session recording failed: {error}"));
                     }
-                    self.latest_snapshot = Some(*snapshot);
+                    let snapshot = *snapshot;
+                    self.timeline.record_snapshot(snapshot.clone());
+                    self.latest_snapshot = Some(snapshot);
                 }
                 app::events::AppEvent::AuditRecorded(record) => {
                     self.action_history
                         .push(app::actions::ActionHistoryEntry { record, undo: None });
                 }
                 app::events::AppEvent::ActionCompleted { command, record, undo } => {
+                    self.timeline
+                        .record_event(crate::timeline::TimelineEvent::from_audit(&record));
                     self.action_pending = false;
                     self.action_status = Some(record.message.clone());
                     if matches!(&command, app::commands::ActionCommand::CleanRam) {
@@ -115,6 +120,8 @@ impl eframe::App for SystemMonitorApp {
                         .push(app::actions::ActionHistoryEntry { record, undo });
                 }
                 app::events::AppEvent::ActionFailed { command, record } => {
+                    self.timeline
+                        .record_event(crate::timeline::TimelineEvent::from_audit(&record));
                     self.action_pending = false;
                     self.action_status = Some(record.message.clone());
                     if matches!(&command, app::commands::ActionCommand::CleanRam) {
@@ -127,6 +134,138 @@ impl eframe::App for SystemMonitorApp {
                     }
                 }
             }
+        }
+        if let Some(result) = self.timeline.take_query_result() {
+            match result {
+                Ok(window) => {
+                    self.timeline_ui.window = Some(window);
+                    self.timeline_ui.last_refresh = Some(Instant::now());
+                    self.timeline_ui.message = None;
+                }
+                Err(error) => self.timeline_ui.message = Some(error),
+            }
+        }
+        if let Some(result) = self.timeline.take_export_result() {
+            self.timeline_ui.message = Some(match result {
+                Ok(path) => format!("Incident exported to {}", path.display()),
+                Err(error) => format!("Incident export failed: {error}"),
+            });
+        }
+        let active_alerts = self.data.read().alerts.clone();
+        let active_keys: std::collections::HashSet<_> = active_alerts.iter().map(AlertInfo::key).collect();
+        for alert in &active_alerts {
+            let key = alert.key();
+            if !self.timeline_ui.active_alert_keys.contains(&key) {
+                self.timeline.record_event(crate::timeline::TimelineEvent::new(
+                    crate::timeline::TimelineEventKind::AlertTriggered,
+                    key,
+                    "warning",
+                    alert.message.clone(),
+                    format!("Observed value: {:.2}", alert.value),
+                ));
+            }
+        }
+        for resolved in self.timeline_ui.active_alert_keys.difference(&active_keys) {
+            self.timeline.record_event(crate::timeline::TimelineEvent::new(
+                crate::timeline::TimelineEventKind::AlertResolved,
+                resolved.clone(),
+                "info",
+                format!("{} alert resolved", resolved),
+                "The metric returned below its configured threshold.",
+            ));
+        }
+        self.timeline_ui.active_alert_keys = active_keys;
+        if self.timeline.status().enabled {
+            let services = self.data.read().services.clone();
+            if !services.is_empty() {
+                let current: std::collections::HashMap<_, _> = services
+                    .into_iter()
+                    .map(|service| (service.name, service.state))
+                    .collect();
+                let mut changes = Vec::new();
+                if let Some(previous) = &self.timeline_ui.service_states {
+                    for (name, state) in current.iter().take(50) {
+                        match previous.get(name) {
+                            Some(old_state) if old_state != state => changes.push(crate::timeline::TimelineEvent::new(
+                                crate::timeline::TimelineEventKind::ServiceChanged,
+                                "services",
+                                "info",
+                                format!("Service {name} changed state"),
+                                format!("State changed from {old_state} to {state}"),
+                            )),
+                            None => changes.push(crate::timeline::TimelineEvent::new(
+                                crate::timeline::TimelineEventKind::ServiceChanged,
+                                "services",
+                                "info",
+                                format!("Service {name} detected"),
+                                format!("Current state: {state}"),
+                            )),
+                            _ => {}
+                        }
+                    }
+                    for name in previous.keys().filter(|name| !current.contains_key(*name)).take(50) {
+                        changes.push(crate::timeline::TimelineEvent::new(
+                            crate::timeline::TimelineEventKind::ServiceChanged,
+                            "services",
+                            "info",
+                            format!("Service {name} no longer reported"),
+                            "The latest successful service inventory no longer contains this service.",
+                        ));
+                    }
+                }
+                self.timeline_ui.service_states = Some(current);
+                for event in changes {
+                    self.timeline.record_event(event);
+                }
+            }
+
+            if self.startup_items_loaded {
+                let current: std::collections::HashMap<_, _> = self
+                    .startup_items
+                    .iter()
+                    .map(|item| (item.name.clone(), item.enabled))
+                    .collect();
+                let mut changes = Vec::new();
+                if let Some(previous) = &self.timeline_ui.startup_states {
+                    for (name, enabled) in current.iter().take(50) {
+                        match previous.get(name) {
+                            Some(was_enabled) if was_enabled != enabled => {
+                                changes.push(crate::timeline::TimelineEvent::new(
+                                    crate::timeline::TimelineEventKind::StartupChanged,
+                                    "startup",
+                                    "info",
+                                    format!("Startup item {name} changed"),
+                                    format!("Enabled changed from {was_enabled} to {enabled}"),
+                                ));
+                            }
+                            None => changes.push(crate::timeline::TimelineEvent::new(
+                                crate::timeline::TimelineEventKind::StartupChanged,
+                                "startup",
+                                "info",
+                                format!("Startup item {name} detected"),
+                                format!("Enabled: {enabled}"),
+                            )),
+                            _ => {}
+                        }
+                    }
+                    for name in previous.keys().filter(|name| !current.contains_key(*name)).take(50) {
+                        changes.push(crate::timeline::TimelineEvent::new(
+                            crate::timeline::TimelineEventKind::StartupChanged,
+                            "startup",
+                            "info",
+                            format!("Startup item {name} no longer reported"),
+                            "The latest successful startup inventory no longer contains this item.",
+                        ));
+                    }
+                }
+                self.timeline_ui.startup_states = Some(current);
+                for event in changes {
+                    self.timeline.record_event(event);
+                }
+            }
+        } else {
+            self.timeline_ui.service_states = None;
+            self.timeline_ui.startup_states = None;
         }
         {
             let mut data = self.data.write();
@@ -882,6 +1021,11 @@ impl eframe::App for SystemMonitorApp {
                                 icon: "🩺",
                             },
                             NavItem {
+                                tab: Tab::Timeline,
+                                label: "Timeline",
+                                icon: "🕒",
+                            },
+                            NavItem {
                                 tab: Tab::SystemInfo,
                                 label: "System Info",
                                 icon: "💻",
@@ -1524,6 +1668,7 @@ impl eframe::App for SystemMonitorApp {
             Tab::StartupManager => crate::ui::pages::startup_manager::show(self, ui),
             Tab::Services => crate::ui::pages::services::show(self, ui, &data),
             Tab::Diagnostics => crate::ui::pages::diagnostics::show(self, ui, &data),
+            Tab::Timeline => crate::ui::pages::timeline::show(self, ui),
             Tab::About => crate::ui::pages::about::show(self, ui, &data),
         });
         crate::ui::dialogs::render_action_confirmation(self, ctx);

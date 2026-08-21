@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
+## [3.8.0] - 2026-08-21
+
+### Added
+- **Trusted Timeline:** opt-in, local SQLite history records five-second system metrics, a PID-plus-start-time union of the top CPU/memory/disk-I/O processes, and alert/provider/action/pause/power transitions on a dedicated worker thread.
+- **Incident analysis:** synchronized utilization and throughput charts, an event rail, 15-minute through 7-day ranges, preceding five-minute baseline comparisons, evidence completeness, and explicit insufficient-data states.
+- **Sanitized incident export:** writes `summary.json`, `metrics.csv`, `processes.csv`, and `events.json` without command lines, executable paths, working directories, usernames, or remote IP addresses.
+
+### Security
+- **Certificate-free release trust:** publication now requires exact-filename SHA-256 verification, a valid SPDX SBOM, and verified GitHub attestations for the binary, installer, checksum, and SBOM. No paid Authenticode certificate or private signing secret is required.
+- **Updater asset binding:** the updater accepts only the exact `SystemMonitor-X.Y.Z-setup.exe` and paired `.exe.sha256` assets from the official HTTPS release path and deletes any installer whose checksum is absent or mismatched.
+
+### Changed
+- Timeline history is disabled by default, supports 1, 7, or 30-day retention, is capped at 512 MiB, and reports storage failures without interrupting live monitoring. Existing JSONL recordings and audit logs are unchanged.
+
+---
 ## [3.7.7] - 2026-08-21
 
 ### Fixed
@@ -225,6 +240,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+[3.8.0]: https://github.com/Xenonesis/sysmon/compare/v3.7.7...v3.8.0
 [3.7.7]: https://github.com/Xenonesis/sysmon/compare/v3.7.6...v3.7.7
 [3.7.6]: https://github.com/Xenonesis/sysmon/compare/v3.7.5...v3.7.6
 [3.7.5]: https://github.com/Xenonesis/sysmon/compare/v3.7.2...v3.7.5

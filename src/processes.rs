@@ -9,6 +9,7 @@ use sysinfo::{Pid, System};
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct ProcessInfo {
     pub pid: u32,
+    pub start_time: u64,
     pub name: String,
     pub parent_pid: Option<u32>,
     pub cpu_usage: f32,
@@ -303,6 +304,7 @@ mod tests {
     fn p(pid: u32, name: &str, cpu: f32, mem: u64, status: &str) -> ProcessInfo {
         ProcessInfo {
             pid,
+            start_time: 0,
             name: name.to_string(),
             parent_pid: None,
             cpu_usage: cpu,

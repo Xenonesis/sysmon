@@ -116,7 +116,33 @@ jobs:
         with:
           subject-path: |
             downloads/SystemMonitor-${{ env.APP_VERSION }}-setup.exe
+            downloads/SystemMonitor-${{ env.APP_VERSION }}-setup.exe.sha256
+            downloads/SystemMonitor-${{ env.APP_VERSION }}.spdx.json
             target/x86_64-pc-windows-msvc/release/system-monitor.exe
+
+      - name: Verify checksums, SBOM, and GitHub attestations
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          $installer = "downloads\SystemMonitor-$env:APP_VERSION-setup.exe"
+          $checksum = "$installer.sha256"
+          $sbom = "downloads\SystemMonitor-$env:APP_VERSION.spdx.json"
+          if (-not (Test-Path -LiteralPath $installer -PathType Leaf)) { throw "Installer is unavailable" }
+          if (-not (Test-Path -LiteralPath $checksum -PathType Leaf)) { throw "Checksum is unavailable" }
+          if (-not (Test-Path -LiteralPath $sbom -PathType Leaf)) { throw "SBOM is unavailable" }
+          $entry = (Get-Content -LiteralPath $checksum -Raw).Trim() -split '\s+'
+          if ($entry.Count -ne 2) { throw "Checksum entry is malformed" }
+          $expectedName = "*$(Split-Path $installer -Leaf)"
+          if ($entry[1] -ne $expectedName) { throw "Checksum filename does not match installer" }
+          $actual = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($entry[0].ToLowerInvariant() -ne $actual) { throw "Installer checksum verification failed" }
+          Get-Content -LiteralPath $sbom -Raw | ConvertFrom-Json | Out-Null
+          gh attestation verify $installer --repo $env:GITHUB_REPOSITORY
+          gh attestation verify $checksum --repo $env:GITHUB_REPOSITORY
+          gh attestation verify $sbom --repo $env:GITHUB_REPOSITORY
 
       - name: Publish GitHub release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2

@@ -46,6 +46,7 @@ pub struct NetworkSnapshot {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ProcessSnapshot {
     pub pid: u32,
+    pub start_time: u64,
     pub name: String,
     pub cpu_usage: f32,
     pub memory: u64,

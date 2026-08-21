@@ -16,7 +16,15 @@ Recordings are newline-delimited JSON files in the local SysMon application-data
 
 ## Performance history
 
-The Performance page shows live graphs plus bounded summaries for four time windows: 60 seconds, 5 minutes, 30 minutes and 1 hour. Each summary reports average and maximum values. The in-memory windows are designed to remain bounded; use a diagnostic recording when you need a persistent timeline.
+The Performance page shows live graphs plus bounded summaries for four time windows: 60 seconds, 5 minutes, 30 minutes and 1 hour. Each summary reports average and maximum values. The in-memory windows are designed to remain bounded.
+
+## Trusted Timeline
+
+Timeline history is off by default. To use it, open **Settings → Local diagnostic timeline**, enable history, and choose 1, 7, or 30 days of retention. SysMon then records five-second system metrics, the deduplicated top CPU/memory/disk-I/O contributors, and alert, provider, action, pause/resume, and power transitions to `history/timeline.sqlite3` in local application data.
+
+Open **Timeline** and select 15 minutes, 1 hour, 6 hours, 24 hours, or 7 days. Selecting an event shows the closest recorded metrics, contributing processes, changes against the preceding five-minute baseline, and evidence completeness. SysMon displays **Insufficient data** when it cannot support a conclusion.
+
+Timeline never stores command lines, executable paths, working directories, usernames, or remote IP addresses. Use **Export incident** to create a sanitized directory containing `summary.json`, `metrics.csv`, `processes.csv`, and `events.json`. Settings shows current storage usage and requires a second confirmation before deleting history. The database is capped at 512 MiB; a storage error does not stop live monitoring.
 
 ## Providers and GPU behavior
 
@@ -62,9 +70,10 @@ SysMon checks the official GitHub repository for releases. An installer is accep
 - the download is HTTPS and belongs to the expected release repository;
 - it is an `.exe` installer and remains within the configured size limit;
 - the release publishes a SHA-256 checksum file next to the installer;
+- the checksum entry names that exact installer asset;
 - the downloaded installer's SHA-256 hash matches that published checksum.
 
-If verification fails, SysMon deletes the temporary installer and does not run it.
+The release workflow also verifies GitHub attestations for the installer, checksum, and SBOM before publication. If client-side checksum verification fails, SysMon deletes the temporary installer and does not run it.
 
 ## Troubleshooting
 

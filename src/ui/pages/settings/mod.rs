@@ -33,6 +33,8 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui) {
 
         if changed {
             let _ = app.settings.save();
+            app.timeline
+                .set_policy(app.settings.timeline_enabled, app.settings.timeline_retention_days);
             let _ = app
                 .app_channels
                 .monitoring_sender

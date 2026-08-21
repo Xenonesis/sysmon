@@ -128,6 +128,7 @@ impl SystemMonitor {
 
                 crate::processes::ProcessInfo {
                     pid: pid.as_u32(),
+                    start_time: process.start_time(),
                     name: name_str,
                     parent_pid: process.parent().map(|p| p.as_u32()),
                     cpu_usage: process.cpu_usage() / cpu_count,
@@ -142,6 +143,28 @@ impl SystemMonitor {
         processes.sort_by_key(|process| std::cmp::Reverse(process.memory));
         processes.truncate(count);
         processes
+    }
+
+    fn get_timeline_processes(&self, per_metric: usize) -> Vec<crate::processes::ProcessInfo> {
+        let processes = self.get_top_processes(usize::MAX);
+        let mut selected = std::collections::BTreeMap::new();
+        let mut by_cpu = processes.iter().collect::<Vec<_>>();
+        let mut by_memory = by_cpu.clone();
+        let mut by_disk = by_cpu.clone();
+        by_cpu.sort_by(|a, b| b.cpu_usage.total_cmp(&a.cpu_usage));
+        by_memory.sort_by_key(|process| std::cmp::Reverse(process.memory));
+        by_disk.sort_by_key(|process| {
+            std::cmp::Reverse(process.disk_read_bytes.saturating_add(process.disk_written_bytes))
+        });
+        for process in by_cpu
+            .into_iter()
+            .take(per_metric)
+            .chain(by_memory.into_iter().take(per_metric))
+            .chain(by_disk.into_iter().take(per_metric))
+        {
+            selected.insert((process.pid, process.start_time), process.clone());
+        }
+        selected.into_values().collect()
     }
 
     fn get_cpu_cores_info(&self) -> Vec<CpuCoreInfo> {
@@ -786,6 +809,8 @@ pub(crate) struct SystemMonitorApp {
     pub(crate) show_action_history: bool,
     pub(crate) session_recorder: crate::persistence::session::SessionRecorder,
     pub(crate) session_status: Option<String>,
+    pub(crate) timeline: crate::timeline::TimelineHandle,
+    pub(crate) timeline_ui: crate::timeline::TimelineUiState,
     pub(crate) telemetry_commands: std::sync::mpsc::SyncSender<crate::telemetry::HubCommand>,
     pub(crate) settings: AppSettings,
     pub(crate) shared_settings: Arc<Mutex<AppSettings>>,
@@ -889,6 +914,7 @@ pub(crate) enum Tab {
     StartupManager,
     Services,
     Diagnostics,
+    Timeline,
     About,
 }
 
@@ -899,6 +925,8 @@ impl SystemMonitorApp {
 
         // Load settings
         let settings = AppSettings::load();
+        let timeline =
+            crate::timeline::TimelineHandle::start(settings.timeline_enabled, settings.timeline_retention_days);
 
         // Load Windows system fonts at runtime to support all standard symbols and checkmarks
         #[cfg(target_os = "windows")]
@@ -1228,18 +1256,22 @@ impl SystemMonitorApp {
                     let need_cpu_temp = !is_hidden && selected_tab == Tab::Overview;
                     let need_gpu_wmi =
                         !is_hidden && (selected_tab == Tab::Overview || selected_tab == Tab::Performance);
-                    let need_gpu_info =
-                        need_gpu_wmi || settings_snapshot.show_notifications || settings_snapshot.show_graphs;
+                    let need_gpu_info = need_gpu_wmi
+                        || settings_snapshot.show_notifications
+                        || settings_snapshot.show_graphs
+                        || settings_snapshot.timeline_enabled;
                     // Fetch processes for both Processes tab (all) and Overview tab (top N summary)
                     let need_processes =
                         !is_hidden && (selected_tab == Tab::Processes || selected_tab == Tab::Overview);
                     let need_disks = (!is_hidden && (selected_tab == Tab::Overview || selected_tab == Tab::Storage))
                         || settings_snapshot.show_notifications
-                        || settings_snapshot.show_graphs;
-                    let need_network = !is_hidden
-                        && (selected_tab == Tab::Overview
-                            || selected_tab == Tab::Network
-                            || selected_tab == Tab::Performance);
+                        || settings_snapshot.show_graphs
+                        || settings_snapshot.timeline_enabled;
+                    let need_network = settings_snapshot.timeline_enabled
+                        || (!is_hidden
+                            && (selected_tab == Tab::Overview
+                                || selected_tab == Tab::Network
+                                || selected_tab == Tab::Performance));
 
                     let cpu_cores = if need_cpu_cores {
                         let cores = cpu_cores_from_telemetry(&latest_telemetry);
@@ -1282,6 +1314,11 @@ impl SystemMonitorApp {
                     } else {
                         Vec::new()
                     };
+                    let timeline_processes = if settings_snapshot.timeline_enabled {
+                        monitor.get_timeline_processes(10)
+                    } else {
+                        Vec::new()
+                    };
 
                     let disk_info = if need_disks {
                         monitor.get_disk_info()
@@ -1318,7 +1355,7 @@ impl SystemMonitorApp {
                         _ => monitor.get_swap_info(),
                     };
 
-                    let (disk_read_rate, disk_write_rate) = if !is_hidden {
+                    let (disk_read_rate, disk_write_rate) = if !is_hidden || settings_snapshot.timeline_enabled {
                         monitor.get_disk_io(refresh_interval)
                     } else {
                         (0.0, 0.0)
@@ -1429,6 +1466,11 @@ impl SystemMonitorApp {
                         if need_processes {
                             data.top_processes = top_processes;
                         }
+                        if settings_snapshot.timeline_enabled {
+                            data.timeline_processes = timeline_processes;
+                        } else {
+                            data.timeline_processes.clear();
+                        }
                         if need_disks {
                             data.disk_info = disk_info;
                         }
@@ -1438,7 +1480,7 @@ impl SystemMonitorApp {
                         data.system_info = system_info.clone();
                         data.last_update = timestamp;
                         data.swap_info = swap_info;
-                        if !is_hidden {
+                        if !is_hidden || settings_snapshot.timeline_enabled {
                             data.disk_read_rate = disk_read_rate;
                             data.disk_write_rate = disk_write_rate;
                         }
@@ -1731,6 +1773,8 @@ impl SystemMonitorApp {
             show_action_history: false,
             session_recorder: crate::persistence::session::SessionRecorder::default(),
             session_status: None,
+            timeline,
+            timeline_ui: crate::timeline::TimelineUiState::default(),
             telemetry_commands,
             data,
             settings: settings.clone(),
@@ -1833,6 +1877,7 @@ impl SystemMonitorApp {
         let shared_settings = Arc::new(Mutex::new(settings.clone()));
         let app_channels = crate::app::AppChannels::new();
         let (telemetry_commands, _) = std::sync::mpsc::sync_channel(16);
+        let timeline = crate::timeline::TimelineHandle::start(false, 7);
 
         Self {
             app_channels,
@@ -1844,6 +1889,8 @@ impl SystemMonitorApp {
             show_action_history: false,
             session_recorder: crate::persistence::session::SessionRecorder::default(),
             session_status: None,
+            timeline,
+            timeline_ui: crate::timeline::TimelineUiState::default(),
             telemetry_commands,
             data,
             settings: settings.clone(),
@@ -2077,6 +2124,7 @@ impl Drop for SystemMonitorApp {
             .monitoring_sender
             .send(crate::app::commands::MonitoringCommand::Shutdown);
         let _ = self.telemetry_commands.try_send(crate::telemetry::HubCommand::Shutdown);
+        self.timeline.shutdown();
     }
 }
 
@@ -2161,19 +2209,23 @@ pub(crate) fn snapshot_from_data(data: &SystemData) -> crate::monitoring::System
                 transmitted_bytes_per_second: network.transmitted_rate,
             })
             .collect(),
-        processes: data
-            .top_processes
-            .iter()
-            .map(|process| crate::monitoring::snapshot::ProcessSnapshot {
-                pid: process.pid,
-                name: process.name.clone(),
-                cpu_usage: process.cpu_usage,
-                memory: process.memory,
-                status: process.status.clone(),
-                disk_read_bytes: process.disk_read_bytes,
-                disk_written_bytes: process.disk_written_bytes,
-            })
-            .collect(),
+        processes: (if data.timeline_processes.is_empty() {
+            &data.top_processes
+        } else {
+            &data.timeline_processes
+        })
+        .iter()
+        .map(|process| crate::monitoring::snapshot::ProcessSnapshot {
+            pid: process.pid,
+            start_time: process.start_time,
+            name: process.name.clone(),
+            cpu_usage: process.cpu_usage,
+            memory: process.memory,
+            status: process.status.clone(),
+            disk_read_bytes: process.disk_read_bytes,
+            disk_written_bytes: process.disk_written_bytes,
+        })
+        .collect(),
         battery: data
             .battery_info
             .as_ref()

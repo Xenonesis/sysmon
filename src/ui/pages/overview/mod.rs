@@ -171,6 +171,7 @@ mod tests {
         data.top_processes = vec![crate::processes::ProcessInfo {
             parent_pid: None,
             pid: 1234,
+            start_time: 0,
             name: "sysmon.exe".to_string(),
             cpu_usage: 1.2,
             memory: 128 * 1024 * 1024,

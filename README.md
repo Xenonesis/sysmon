@@ -3,7 +3,7 @@
 [![Rust CI](https://github.com/Xenonesis/sysmon/actions/workflows/rust-ci.yml/badge.svg)](https://github.com/Xenonesis/sysmon/actions/workflows/rust-ci.yml)
 [![Rust 1.85+](https://img.shields.io/badge/Rust-1.85%2B-orange.svg)](https://www.rust-lang.org/)
 [![Windows](https://img.shields.io/badge/Windows-10%2F11-blue.svg)](https://www.microsoft.com/windows)
-[![Version](https://img.shields.io/badge/version-3.7.7-green.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-3.8.0-green.svg)](CHANGELOG.md)
 
 SysMon is a native Windows observability and diagnostics application written in Rust. It combines live CPU, memory, disk, network, process, service, startup, battery and GPU telemetry with evidence-based diagnostics and guarded system actions. The project targets a single goal: give a technically curious user the same depth of insight a professional operations team would have, without background services, cloud accounts, or opaque tweak scripts.
 
@@ -14,6 +14,7 @@ SysMon runs as a normal desktop application. Standard monitoring never requires 
 - **Unified TelemetryHub:** replaceable latest-snapshot delivery keeps the UI current without a growing event backlog. The interface always renders the newest sample instead of replaying a queue of stale ones.
 - **Vendor-neutral GPU coverage:** NVIDIA NVML plus Windows/WMI adapters and GPU performance counters for Intel, AMD and other Windows GPUs. A machine without an NVIDIA card still gets meaningful GPU utilization and memory data.
 - **Multi-resolution history:** bounded 60-second, 5-minute, 30-minute and 1-hour windows with current, minimum, maximum and average statistics. Memory use stays constant regardless of how long the application runs.
+- **Trusted Timeline:** optional, entirely local 15-minute to 7-day incident history with synchronized charts, event transitions, process contributors, five-minute baseline comparisons, and sanitized exports. It is off by default and never stores command lines, executable paths, usernames, working directories, or remote IP addresses.
 - **Floating Desktop HUD:** always-on-top compact telemetry widget (`Ctrl + M` or `[ ◰ HUD ]` header button) showing live CPU%, RAM%, GPU%, disk throughput, network rates, and an instant 1-click RAM cleaner.
 - **Active network socket inspection:** real-time TCP and UDP socket connection tables with PID resolution, process name mapping, and connection state filtering (`ESTABLISHED`, `LISTEN`, `TIME_WAIT`, `CLOSE_WAIT`).
 - **Storage S.M.A.R.T. and hardware detection:** auto-detects physical drives (`NVMe SSD`, `SATA SSD`, `USB`, `Virtual`) with health states, S.M.A.R.T. status, and media types.
@@ -25,10 +26,11 @@ SysMon runs as a normal desktop application. Standard monitoring never requires 
 
 ## Main views
 
-SysMon organizes its fourteen modules around the questions users actually ask:
+SysMon organizes its fifteen modules around the questions users actually ask:
 
 - **Overview** — a single-screen summary of CPU, memory, GPU, disk and network health with quick status indicators.
 - **Performance** — live graphs plus bounded summaries for the 60-second, 5-minute, 30-minute and 1-hour windows, each reporting average and maximum values.
+- **Timeline** — opt-in local history across 15 minutes, 1 hour, 6 hours, 24 hours, or 7 days, with event-linked evidence, contributors, confidence, and sanitized incident export.
 - **Diagnostics** — evidence-based findings with severity, recommendation and confidence, opt-in session recording, and 1-click CSV session export with summary stats.
 - **CPU Cores** — per-core utilization so a single saturated thread is visible even when total CPU looks calm.
 - **Processes** — search, sort by CPU, memory, PID, or per-process live disk read/write throughput; switch to hierarchical parent-child process tree mode (`🌲 Process Tree`); manage CPU core affinities; and execute kill, kill-tree, suspend, resume and priority actions behind explicit confirmation.
@@ -44,18 +46,18 @@ SysMon organizes its fourteen modules around the questions users actually ask:
 
 ## Version comparison
 
-| Capability | 1.x (2024) | 2.6.x (2026-01) | 3.7.7 (current) |
+| Capability | 1.x (2024) | 2.6.x (2026-01) | 3.8.0 (current) |
 | --- | --- | --- | --- |
 | GUI framework | egui / eframe | egui / eframe | egui / eframe |
 | Telemetry engine | Single polling thread | Legacy polling thread | **TelemetryHub** (multi-tier, provider abstraction, background workers) |
 | UI and sampling | Full poll per refresh | Full poll per refresh | **Decoupled UI** and 1–5 Hz hardware sampling |
-| History resolution | ~2 min graphs | ~2 min graphs | **60s / 5m / 30m / 1hr** ring buffers with min/max/avg/peak |
+| History resolution | ~2 min graphs | ~2 min graphs | **60s / 5m / 30m / 1hr** live buffers plus optional **15m–7d local timeline** |
 | GPU support | NVIDIA only (NVML) | NVIDIA only (NVML) | **Vendor-neutral** — NVML + Windows/WMI adapters, Intel/AMD via counters |
 | Diagnostics | — | — | **Evidence-based findings + confidence**, opt-in JSONL session recording |
 | Action safety | — | — | **Risk preview, elevation disclosure, audit history, Undo** |
 | Update verification | Plain download | HTTPS + basic checks | **SHA-256 checksum verification**, SBOM, build provenance |
 | Supply chain / CI | — | Basic scripts | **Checksum + provenance release workflow**, Windows CI quality gates |
-| Views / modules | 4 tabs | 7 tabs | **14 modules** (incl. Process Tree, Sockets, Storage S.M.A.R.T., Desktop HUD) |
+| Views / modules | 4 tabs | 7 tabs | **15 modules** (incl. Trusted Timeline, Process Tree, Sockets, Storage S.M.A.R.T., Desktop HUD) |
 
 See the [changelog](CHANGELOG.md) for the complete per-version history.
 
@@ -80,7 +82,11 @@ Providers fail in isolation. If one source errors — for example NVML on a mach
 
 ### Multi-resolution ring buffers
 
-`MetricHistory` stores samples in bounded circular buffers for four windows: 60 seconds, 5 minutes, 30 minutes and 1 hour. Each window maintains running statistics — minimum, maximum, average and peak time — and evicted samples never leak into the summaries. Because the buffers are fixed-size, memory consumption is constant no matter how long SysMon stays open. When you need a persistent timeline beyond one hour, a diagnostic session recording is the intended tool.
+`MetricHistory` stores samples in bounded circular buffers for four windows: 60 seconds, 5 minutes, 30 minutes and 1 hour. Each window maintains running statistics — minimum, maximum, average and peak time — and evicted samples never leak into the summaries. Because the buffers are fixed-size, memory consumption is constant no matter how long SysMon stays open.
+
+### Local timeline worker
+
+When history is enabled, a dedicated worker thread writes five-second metric samples, a deduplicated union of the top CPU/memory/disk-I/O processes, and event transitions to bundled SQLite under local application data. PID plus process start time distinguishes reused process IDs. Retention is restricted to 1, 7, or 30 days and a 512 MiB ceiling is enforced independently of the render thread. Storage errors are reported without interrupting live monitoring. Existing JSONL sessions and action audits remain unchanged.
 
 ### Polling scheduler
 
@@ -101,11 +107,12 @@ src/
 ├── monitoring/      # legacy engine, snapshots, rates, history
 ├── diagnostics/     # evidence-based finding rules
 ├── persistence/     # settings, sessions, action audit log
+├── timeline.rs      # dedicated SQLite worker, queries, analysis and export
 ├── ui/              # pages, windows, components, theme
 └── updater.rs       # release check and verified install
 ```
 
-There is no async runtime, no database and no orchestration framework. Threads and mutexes are kept deliberately simple, and replacements are only considered when measurements justify them.
+There is no async runtime, cloud database or orchestration framework. The optional local timeline uses bundled SQLite on its own worker thread. Other threads and mutexes are kept deliberately simple, and replacements are only considered when measurements justify them.
 
 ### Rate calculation and alert lifecycle
 
@@ -131,7 +138,7 @@ Installation steps:
 3. Launch SysMon from the Start menu or desktop shortcut.
 4. Open **Settings → About** to confirm the version and enable update checks.
 
-> Version 3.7.7 must be published through the release workflow before installed clients can receive it. Do not distribute a locally built installer as a production update.
+> Version 3.8.0 must be published through the release workflow before installed clients can receive it. Do not distribute a locally built installer as a production update.
 
 ## Build from source
 
@@ -242,23 +249,22 @@ Provider changes must use normalized metric keys, return structured errors, avoi
 - **GUI:** egui / eframe with hardware-accelerated rendering, dark and light themes.
 - **Telemetry sources:** `sysinfo`, NVML bindings, the `wmi` crate and native Windows GPU performance counters.
 - **Concurrency:** plain OS threads with `parking_lot` mutexes; no async runtime.
-- **Persistence:** JSON settings, JSONL sessions and append-only JSONL audit logs under per-user app-data directories.
+- **Persistence:** JSON settings, JSONL sessions, append-only JSONL audit logs, and an opt-in bounded SQLite timeline under per-user app-data directories.
 - **Packaging:** Inno Setup installer produced by the release workflow, with SHA-256 checksum, SPDX SBOM and GitHub build provenance.
 - **CI:** GitHub Actions on Windows runners running format, Clippy, test and release-build gates.
 
 ## Privacy and data locations
 
-SysMon has no telemetry-upload feature. Settings, diagnostic sessions, logs and system-action audit records stay under the current user's Windows application-data directories. A session is written only after the user presses **Start recording** on Diagnostics. The audit file is append-only JSONL recording action outcomes — never passwords or tokens.
+SysMon has no telemetry-upload feature. Settings, diagnostic sessions, timeline history, logs and system-action audit records stay under the current user's Windows application-data directories. JSONL sessions are written only after the user presses **Start recording** on Diagnostics; timeline history is written only after the user enables it in Settings. The timeline deliberately excludes command lines, executable paths, working directories, usernames, and remote IP addresses. The audit file is append-only JSONL recording action outcomes — never passwords or tokens.
 
 ## Release security
 
-Tagged releases build the application and installer in CI, generate a SHA-256 checksum and SPDX SBOM, and attach GitHub build provenance. The updater verifies the installer checksum before installing. An installer is accepted only when the download is HTTPS, belongs to the expected release repository, is an `.exe` within the configured size limit, and hashes to the published checksum. See [release-rule.md](docs/release-rule.md) and [SECURITY.md](SECURITY.md).
+Tagged releases build the application and installer in CI, generate an exact-filename SHA-256 checksum and SPDX SBOM, attest the binary and release artifacts, and verify those attestations before publication. The updater verifies the paired installer checksum before installing. An installer is accepted only when the download is HTTPS, belongs to the expected release repository, uses the exact release asset contract, remains within the configured size limit, and hashes to the published checksum. See [release-rule.md](docs/release-rule.md) and [SECURITY.md](SECURITY.md).
 
 ## Roadmap
 
 Planned directions, in rough priority order:
 
-- **Diagnostics export enhancements** with sensitive command lines and user paths excluded by default, so findings can be shared with maintainers without leaking private data.
 - **Alert center refinements** — active/resolved grouping, dismissal, cooldowns and per-source identity, building on the existing state-transition alert model.
 - **Custom alert rules** and expanded threshold types beyond the current CPU, memory, GPU-temperature and disk set.
 - **Plugin & scriptable provider hooks** for custom sensors and external metrics collection.
@@ -276,7 +282,7 @@ Planned directions, in rough priority order:
 
 **How do I interpret the RAM cleaner results?** A successful pass reports how many working sets were trimmed. Freed memory is temporary — Windows repopulates working sets as needed — so treat it as a diagnostic aid, not a permanent optimization.
 
-**Where are my recordings and audit logs?** Under the current user's Windows application-data directories, as newline-delimited JSON files. They may contain process names and hardware details, so review them before sharing.
+**Where are my recordings, timeline, and audit logs?** Under the current user's Windows application-data directories. Recordings and audits are newline-delimited JSON; optional timeline history is `history/timeline.sqlite3`. They may contain process names and hardware details, so review them before sharing or use Timeline's sanitized incident export.
 
 **Can I run SysMon on a machine without a GPU or battery?** Yes. Missing hardware simply means the corresponding provider reports nothing; nothing crashes and no configuration is required.
 
