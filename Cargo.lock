@@ -4793,7 +4793,7 @@ dependencies = [
  "tray-icon",
  "ureq",
  "widestring 1.2.1",
- "windows 0.52.0",
+ "windows 0.61.3",
  "windows-service",
  "windows-sys 0.61.2",
  "winreg",
