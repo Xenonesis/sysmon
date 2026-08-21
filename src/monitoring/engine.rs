@@ -825,6 +825,8 @@ pub(crate) struct SystemMonitorApp {
     pub(crate) pending_service_action: Option<services::ServiceAction>,
     pub(crate) service_search: String,
     pub(crate) service_state_filter: Option<String>,
+    pub(crate) service_sort_column: services::ServiceSortColumn,
+    pub(crate) service_sort_ascending: bool,
     pub(crate) process_search: String,
     pub(crate) process_sort_column: crate::processes::ProcessSortColumn,
     pub(crate) process_sort_ascending: bool,
@@ -1838,6 +1840,8 @@ impl SystemMonitorApp {
             network_socket_search: String::new(),
             service_search: String::new(),
             service_state_filter: None,
+            service_sort_column: services::ServiceSortColumn::DisplayName,
+            service_sort_ascending: true,
             pending_service_action: None,
             #[cfg(target_os = "windows")]
             tray_icon,
@@ -1954,6 +1958,8 @@ impl SystemMonitorApp {
             network_socket_search: String::new(),
             service_search: String::new(),
             service_state_filter: None,
+            service_sort_column: services::ServiceSortColumn::DisplayName,
+            service_sort_ascending: true,
             pending_service_action: None,
             #[cfg(target_os = "windows")]
             tray_icon: None,

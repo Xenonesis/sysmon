@@ -12,6 +12,44 @@ pub struct ServiceInfo {
     pub state: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ServiceSortColumn {
+    #[default]
+    DisplayName,
+    Name,
+    State,
+}
+
+pub fn sort_services_refs(
+    services: &mut [&ServiceInfo],
+    column: ServiceSortColumn,
+    ascending: bool,
+) {
+    services.sort_by(|a, b| {
+        let cmp = match column {
+            ServiceSortColumn::DisplayName => a
+                .display_name
+                .to_lowercase()
+                .cmp(&b.display_name.to_lowercase()),
+            ServiceSortColumn::Name => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
+            ServiceSortColumn::State => {
+                let sa = a.state.to_lowercase();
+                let sb = b.state.to_lowercase();
+                sa.cmp(&sb).then_with(|| {
+                    a.display_name
+                        .to_lowercase()
+                        .cmp(&b.display_name.to_lowercase())
+                })
+            }
+        };
+        if ascending {
+            cmp
+        } else {
+            cmp.reverse()
+        }
+    });
+}
+
 #[derive(Debug, Clone)]
 pub struct ServiceAction {
     pub name: String,
@@ -266,4 +304,53 @@ pub fn get_services_with_com(com: Option<&std::rc::Rc<wmi::COMLibrary>>) -> Vec<
 
     result.sort_by(|a, b| a.display_name.cmp(&b.display_name));
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_sort_services_refs() {
+        let s1 = ServiceInfo {
+            name: "svc_c".to_string(),
+            display_name: "Apple Service".to_string(),
+            state: "Stopped".to_string(),
+        };
+        let s2 = ServiceInfo {
+            name: "svc_a".to_string(),
+            display_name: "Zebra Service".to_string(),
+            state: "Running".to_string(),
+        };
+        let s3 = ServiceInfo {
+            name: "svc_b".to_string(),
+            display_name: "Mango Service".to_string(),
+            state: "Running".to_string(),
+        };
+
+        let mut list = vec![&s1, &s2, &s3];
+
+        // Sort by Display Name ascending
+        sort_services_refs(&mut list, ServiceSortColumn::DisplayName, true);
+        assert_eq!(list[0].display_name, "Apple Service");
+        assert_eq!(list[1].display_name, "Mango Service");
+        assert_eq!(list[2].display_name, "Zebra Service");
+
+        // Sort by Display Name descending
+        sort_services_refs(&mut list, ServiceSortColumn::DisplayName, false);
+        assert_eq!(list[0].display_name, "Zebra Service");
+        assert_eq!(list[2].display_name, "Apple Service");
+
+        // Sort by Identifier Name ascending
+        sort_services_refs(&mut list, ServiceSortColumn::Name, true);
+        assert_eq!(list[0].name, "svc_a");
+        assert_eq!(list[1].name, "svc_b");
+        assert_eq!(list[2].name, "svc_c");
+
+        // Sort by State ascending (Running before Stopped)
+        sort_services_refs(&mut list, ServiceSortColumn::State, true);
+        assert_eq!(list[0].state, "Running");
+        assert_eq!(list[1].state, "Running");
+        assert_eq!(list[2].state, "Stopped");
+    }
 }
