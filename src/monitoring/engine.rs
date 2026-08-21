@@ -823,6 +823,7 @@ pub(crate) struct SystemMonitorApp {
     pub(crate) details_pid: Option<u32>,
     pub(crate) kill_tree_pid: Option<u32>,
     pub(crate) pending_service_action: Option<services::ServiceAction>,
+    pub(crate) selected_service_name: Option<String>,
     pub(crate) service_search: String,
     pub(crate) service_state_filter: Option<String>,
     pub(crate) service_sort_column: services::ServiceSortColumn,
@@ -1842,6 +1843,7 @@ impl SystemMonitorApp {
             service_state_filter: None,
             service_sort_column: services::ServiceSortColumn::DisplayName,
             service_sort_ascending: true,
+            selected_service_name: None,
             pending_service_action: None,
             #[cfg(target_os = "windows")]
             tray_icon,
@@ -1960,6 +1962,7 @@ impl SystemMonitorApp {
             service_state_filter: None,
             service_sort_column: services::ServiceSortColumn::DisplayName,
             service_sort_ascending: true,
+            selected_service_name: None,
             pending_service_action: None,
             #[cfg(target_os = "windows")]
             tray_icon: None,

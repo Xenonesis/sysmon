@@ -12,6 +12,18 @@ pub(super) fn paint_process_table(
     is_dark: bool,
 ) {
     card_frame(is_dark).show(ui, |ui| {
+        let total_w = ui.available_width().max(720.0);
+        let spacing = 8.0;
+        let pid_w = 60.0;
+        let mem_w = 85.0;
+        let cpu_w = 70.0;
+        let disk_read_w = 85.0;
+        let disk_write_w = 85.0;
+        let action_w = 175.0;
+
+        let fixed_w = pid_w + mem_w + cpu_w + disk_read_w + disk_write_w + action_w + (6.0 * spacing);
+        let name_w = (total_w - fixed_w).max(180.0);
+
         // Sticky Header with sortable columns
         let sort_col = app.process_sort_column;
         let sort_asc = app.process_sort_ascending;
@@ -37,9 +49,9 @@ pub(super) fn paint_process_table(
         };
 
         ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 8.0;
+            ui.spacing_mut().item_spacing.x = spacing;
 
-            if header_button(ui, "PID", 55.0, ProcessSortColumn::Pid, sort_col, sort_asc).clicked() {
+            if header_button(ui, "PID", pid_w, ProcessSortColumn::Pid, sort_col, sort_asc).clicked() {
                 if app.process_sort_column == ProcessSortColumn::Pid {
                     app.process_sort_ascending = !app.process_sort_ascending;
                 } else {
@@ -48,7 +60,7 @@ pub(super) fn paint_process_table(
                 }
             }
 
-            if header_button(ui, "Process Name", 180.0, ProcessSortColumn::Name, sort_col, sort_asc).clicked() {
+            if header_button(ui, "Process Name", name_w, ProcessSortColumn::Name, sort_col, sort_asc).clicked() {
                 if app.process_sort_column == ProcessSortColumn::Name {
                     app.process_sort_ascending = !app.process_sort_ascending;
                 } else {
@@ -57,7 +69,7 @@ pub(super) fn paint_process_table(
                 }
             }
 
-            if header_button(ui, "Memory", 80.0, ProcessSortColumn::Memory, sort_col, sort_asc).clicked() {
+            if header_button(ui, "Memory", mem_w, ProcessSortColumn::Memory, sort_col, sort_asc).clicked() {
                 if app.process_sort_column == ProcessSortColumn::Memory {
                     app.process_sort_ascending = !app.process_sort_ascending;
                 } else {
@@ -66,7 +78,7 @@ pub(super) fn paint_process_table(
                 }
             }
 
-            if header_button(ui, "CPU %", 65.0, ProcessSortColumn::Cpu, sort_col, sort_asc).clicked() {
+            if header_button(ui, "CPU %", cpu_w, ProcessSortColumn::Cpu, sort_col, sort_asc).clicked() {
                 if app.process_sort_column == ProcessSortColumn::Cpu {
                     app.process_sort_ascending = !app.process_sort_ascending;
                 } else {
@@ -75,7 +87,7 @@ pub(super) fn paint_process_table(
                 }
             }
 
-            if header_button(ui, "Disk Read", 80.0, ProcessSortColumn::Disk, sort_col, sort_asc).clicked() {
+            if header_button(ui, "Disk Read", disk_read_w, ProcessSortColumn::Disk, sort_col, sort_asc).clicked() {
                 if app.process_sort_column == ProcessSortColumn::Disk {
                     app.process_sort_ascending = !app.process_sort_ascending;
                 } else {
@@ -84,7 +96,7 @@ pub(super) fn paint_process_table(
                 }
             }
 
-            if header_button(ui, "Disk Write", 80.0, ProcessSortColumn::Disk, sort_col, sort_asc).clicked() {
+            if header_button(ui, "Disk Write", disk_write_w, ProcessSortColumn::Disk, sort_col, sort_asc).clicked() {
                 if app.process_sort_column == ProcessSortColumn::Disk {
                     app.process_sort_ascending = !app.process_sort_ascending;
                 } else {
@@ -93,11 +105,17 @@ pub(super) fn paint_process_table(
                 }
             }
 
-            ui.label(
-                egui::RichText::new("Actions")
-                    .strong()
-                    .size(11.5)
-                    .color(ThemePalette::text_secondary(is_dark)),
+            ui.allocate_ui_with_layout(
+                egui::vec2(action_w, 22.0),
+                egui::Layout::left_to_right(egui::Align::Center),
+                |ui| {
+                    ui.label(
+                        egui::RichText::new("Actions")
+                            .strong()
+                            .size(11.5)
+                            .color(ThemePalette::text_secondary(is_dark)),
+                    );
+                },
             );
         });
 
@@ -118,18 +136,11 @@ pub(super) fn paint_process_table(
                     let process = filtered_processes[idx];
                     let memory_mb = bytes_to_mb(process.memory);
 
-                    let mut text_color = ThemePalette::text_primary(is_dark);
-                    if memory_mb > 500.0 || process.cpu_usage > 20.0 {
-                        text_color = ThemePalette::STATUS_CRITICAL;
-                    } else if memory_mb > 200.0 || process.cpu_usage > 10.0 {
-                        text_color = ThemePalette::STATUS_WARNING;
-                    }
-
                     let selected = app.details_pid == Some(process.pid);
                     let is_even = idx % 2 == 0;
 
                     let (row_rect, _) = ui.allocate_exact_size(
-                        egui::vec2(ui.available_width().max(680.0), row_height),
+                        egui::vec2(total_w, row_height),
                         egui::Sense::hover(),
                     );
 
@@ -153,22 +164,23 @@ pub(super) fn paint_process_table(
 
                     ui.allocate_ui_at_rect(row_rect, |ui| {
                         ui.horizontal(|ui| {
-                            ui.spacing_mut().item_spacing.x = 8.0;
+                            ui.spacing_mut().item_spacing.x = spacing;
 
                             // PID
                             ui.add_sized(
-                                [55.0, row_height],
+                                [pid_w, row_height],
                                 egui::Label::new(
                                     egui::RichText::new(process.pid.to_string())
                                         .monospace()
                                         .size(11.5)
-                                        .color(text_color),
+                                        .color(ThemePalette::text_primary(is_dark)),
                                 ),
                             );
 
-                            // Process Name
-                            let display_name = if process.name.chars().count() > 22 {
-                                let truncated: String = process.name.chars().take(19).collect();
+                            // Process Name (Dynamic width with responsive truncation)
+                            let max_chars = ((name_w / 7.2) as usize).max(18);
+                            let display_name = if process.name.chars().count() > max_chars {
+                                let truncated: String = process.name.chars().take(max_chars.saturating_sub(3)).collect();
                                 format!("{}...", truncated)
                             } else {
                                 process.name.clone()
@@ -178,14 +190,21 @@ pub(super) fn paint_process_table(
                                 egui::RichText::new(&display_name)
                                     .monospace()
                                     .size(11.5)
-                                    .color(text_color),
+                                    .color(if selected {
+                                        ThemePalette::ACCENT_PRIMARY
+                                    } else {
+                                        ThemePalette::text_primary(is_dark)
+                                    }),
                             )
                             .fill(egui::Color32::TRANSPARENT)
                             .stroke(egui::Stroke::NONE);
 
                             if ui
-                                .add_sized([180.0, row_height], name_btn)
-                                .on_hover_text(format!("Click to inspect {}\nPID: {}", process.name, process.pid))
+                                .add_sized([name_w, row_height], name_btn)
+                                .on_hover_text(format!(
+                                    "Click to inspect {}\nPID: {}\nStatus: {}",
+                                    process.name, process.pid, process.status
+                                ))
                                 .clicked()
                             {
                                 if app.details_pid == Some(process.pid) {
@@ -195,25 +214,43 @@ pub(super) fn paint_process_table(
                                 }
                             }
 
-                            // Memory
+                            // Memory (Semantic highlighting only on the value)
+                            let mem_color = if memory_mb > 1024.0 {
+                                ThemePalette::STATUS_CRITICAL
+                            } else if memory_mb > 400.0 {
+                                ThemePalette::STATUS_WARNING
+                            } else {
+                                ThemePalette::text_primary(is_dark)
+                            };
+
                             ui.add_sized(
-                                [80.0, row_height],
+                                [mem_w, row_height],
                                 egui::Label::new(
                                     egui::RichText::new(format!("{:.1} MB", memory_mb))
                                         .monospace()
                                         .size(11.5)
-                                        .color(text_color),
+                                        .color(mem_color),
                                 ),
                             );
 
-                            // CPU %
+                            // CPU % (Semantic highlighting only on the value)
+                            let cpu_color = if process.cpu_usage > 50.0 {
+                                ThemePalette::STATUS_CRITICAL
+                            } else if process.cpu_usage > 15.0 {
+                                ThemePalette::STATUS_WARNING
+                            } else if process.cpu_usage > 0.05 {
+                                ThemePalette::text_primary(is_dark)
+                            } else {
+                                ThemePalette::text_dimmed(is_dark)
+                            };
+
                             ui.add_sized(
-                                [65.0, row_height],
+                                [cpu_w, row_height],
                                 egui::Label::new(
                                     egui::RichText::new(format!("{:.1}%", process.cpu_usage))
                                         .monospace()
                                         .size(11.5)
-                                        .color(text_color),
+                                        .color(cpu_color),
                                 ),
                             );
 
@@ -227,119 +264,143 @@ pub(super) fn paint_process_table(
                             let read_rate_mb = process.disk_read_bytes as f64 / effective_elapsed / 1024.0 / 1024.0;
                             let write_rate_mb = process.disk_written_bytes as f64 / effective_elapsed / 1024.0 / 1024.0;
 
+                            let (read_label, read_color) = if read_rate_mb > 10.0 {
+                                (format!("{:.2} MB/s", read_rate_mb), ThemePalette::STATUS_CRITICAL)
+                            } else if read_rate_mb > 0.05 {
+                                (format!("{:.2} MB/s", read_rate_mb), ThemePalette::text_primary(is_dark))
+                            } else {
+                                ("—".to_string(), ThemePalette::text_dimmed(is_dark))
+                            };
+
                             ui.add_sized(
-                                [80.0, row_height],
+                                [disk_read_w, row_height],
                                 egui::Label::new(
-                                    egui::RichText::new(format!("{:.2} MB/s", read_rate_mb))
+                                    egui::RichText::new(read_label)
                                         .monospace()
                                         .size(11.0)
-                                        .color(text_color),
+                                        .color(read_color),
                                 ),
                             );
 
+                            let (write_label, write_color) = if write_rate_mb > 10.0 {
+                                (format!("{:.2} MB/s", write_rate_mb), ThemePalette::STATUS_CRITICAL)
+                            } else if write_rate_mb > 0.05 {
+                                (format!("{:.2} MB/s", write_rate_mb), ThemePalette::text_primary(is_dark))
+                            } else {
+                                ("—".to_string(), ThemePalette::text_dimmed(is_dark))
+                            };
+
                             ui.add_sized(
-                                [80.0, row_height],
+                                [disk_write_w, row_height],
                                 egui::Label::new(
-                                    egui::RichText::new(format!("{:.2} MB/s", write_rate_mb))
+                                    egui::RichText::new(write_label)
                                         .monospace()
                                         .size(11.0)
-                                        .color(text_color),
+                                        .color(write_color),
                                 ),
                             );
 
-                            // Action buttons: Kill, Tree, Suspend/Resume, Menu
-                            if ui
-                                .small_button(egui::RichText::new("Kill").color(ThemePalette::STATUS_CRITICAL))
-                                .on_hover_text("Terminate this process")
-                                .clicked()
-                            {
-                                app.selected_process_pid = Some(process.pid);
-                            }
+                            // Action buttons container: Kill, Tree, Suspend/Resume, Menu
+                            ui.allocate_ui_with_layout(
+                                egui::vec2(action_w, row_height),
+                                egui::Layout::left_to_right(egui::Align::Center),
+                                |ui| {
+                                    ui.spacing_mut().item_spacing.x = 4.0;
 
-                            if ui
-                                .small_button("Tree")
-                                .on_hover_text("Kill this process and all its children (deepest first)")
-                                .clicked()
-                            {
-                                app.kill_tree_pid = Some(process.pid);
-                            }
-
-                            let is_suspended = app.suspended_pids.contains(&process.pid);
-                            if is_suspended {
-                                if ui
-                                    .small_button(egui::RichText::new("Resume").color(ThemePalette::STATUS_HEALTHY))
-                                    .on_hover_text("Resume suspended process")
-                                    .clicked()
-                                {
-                                    app.resume_process_pid = Some(process.pid);
-                                }
-                            } else if ui
-                                .small_button("Suspend")
-                                .on_hover_text("Freeze process execution (Windows only)")
-                                .clicked()
-                            {
-                                app.suspend_process_pid = Some(process.pid);
-                            }
-
-                            // Unified lightweight Menu Button
-                            ui.menu_button("⚙", |ui| {
-                                ui.set_min_width(160.0);
-                                ui.label(egui::RichText::new(format!("PID {} Actions", process.pid)).strong());
-                                ui.separator();
-
-                                ui.menu_button("Set Priority ▸", |ui| {
-                                    for priority in &["High", "AboveNormal", "Normal", "BelowNormal", "Idle"] {
-                                        if ui.button(*priority).clicked() {
-                                            app.priority_change = Some((process.pid, priority.to_string()));
-                                            ui.close_menu();
-                                        }
+                                    if ui
+                                        .small_button(egui::RichText::new("Kill").color(ThemePalette::STATUS_CRITICAL))
+                                        .on_hover_text("Terminate this process")
+                                        .clicked()
+                                    {
+                                        app.selected_process_pid = Some(process.pid);
                                     }
-                                });
 
-                                ui.menu_button("Set CPU Affinity ▸", |ui| {
-                                    let num_cores = data.cpu_cores.len().max(1);
-                                    let all_mask = if num_cores >= 64 {
-                                        usize::MAX
-                                    } else {
-                                        (1usize << num_cores) - 1
-                                    };
-                                    if ui.button("All Cores (Default)").clicked() {
-                                        app.affinity_change = Some((process.pid, all_mask));
-                                        ui.close_menu();
+                                    if ui
+                                        .small_button("Tree")
+                                        .on_hover_text("Kill this process and all its children (deepest first)")
+                                        .clicked()
+                                    {
+                                        app.kill_tree_pid = Some(process.pid);
                                     }
-                                    if num_cores > 1 {
-                                        if ui.button("Core 0 Only (0x1)").clicked() {
-                                            app.affinity_change = Some((process.pid, 1));
-                                            ui.close_menu();
+
+                                    let is_suspended = app.suspended_pids.contains(&process.pid);
+                                    if is_suspended {
+                                        if ui
+                                            .small_button(egui::RichText::new("Resume").color(ThemePalette::STATUS_HEALTHY))
+                                            .on_hover_text("Resume suspended process")
+                                            .clicked()
+                                        {
+                                            app.resume_process_pid = Some(process.pid);
                                         }
-                                        if ui.button("Core 1 Only (0x2)").clicked() {
-                                            app.affinity_change = Some((process.pid, 2));
-                                            ui.close_menu();
-                                        }
-                                        if num_cores >= 4 {
-                                            let half_mask = (1usize << (num_cores / 2)) - 1;
-                                            if ui.button(format!("First {} Cores", num_cores / 2)).clicked() {
-                                                app.affinity_change = Some((process.pid, half_mask));
+                                    } else if ui
+                                        .small_button("Suspend")
+                                        .on_hover_text("Freeze process execution (Windows only)")
+                                        .clicked()
+                                    {
+                                        app.suspend_process_pid = Some(process.pid);
+                                    }
+
+                                    // Unified lightweight Menu Button
+                                    ui.menu_button("⚙", |ui| {
+                                        ui.set_min_width(160.0);
+                                        ui.label(egui::RichText::new(format!("PID {} Actions", process.pid)).strong());
+                                        ui.separator();
+
+                                        ui.menu_button("Set Priority ▸", |ui| {
+                                            for priority in &["High", "AboveNormal", "Normal", "BelowNormal", "Idle"] {
+                                                if ui.button(*priority).clicked() {
+                                                    app.priority_change = Some((process.pid, priority.to_string()));
+                                                    ui.close_menu();
+                                                }
+                                            }
+                                        });
+
+                                        ui.menu_button("Set CPU Affinity ▸", |ui| {
+                                            let num_cores = data.cpu_cores.len().max(1);
+                                            let all_mask = if num_cores >= 64 {
+                                                usize::MAX
+                                            } else {
+                                                (1usize << num_cores) - 1
+                                            };
+                                            if ui.button("All Cores (Default)").clicked() {
+                                                app.affinity_change = Some((process.pid, all_mask));
                                                 ui.close_menu();
                                             }
+                                            if num_cores > 1 {
+                                                if ui.button("Core 0 Only (0x1)").clicked() {
+                                                    app.affinity_change = Some((process.pid, 1));
+                                                    ui.close_menu();
+                                                }
+                                                if ui.button("Core 1 Only (0x2)").clicked() {
+                                                    app.affinity_change = Some((process.pid, 2));
+                                                    ui.close_menu();
+                                                }
+                                                if num_cores >= 4 {
+                                                    let half_mask = (1usize << (num_cores / 2)) - 1;
+                                                    if ui.button(format!("First {} Cores", num_cores / 2)).clicked() {
+                                                        app.affinity_change = Some((process.pid, half_mask));
+                                                        ui.close_menu();
+                                                    }
+                                                }
+                                            }
+                                        });
+
+                                        ui.separator();
+
+                                        if ui.button("📋 Copy PID").clicked() {
+                                            ui.output_mut(|o| o.copied_text = process.pid.to_string());
+                                            ui.close_menu();
                                         }
-                                    }
-                                });
 
-                                ui.separator();
-
-                                if ui.button("📋 Copy PID").clicked() {
-                                    ui.output_mut(|o| o.copied_text = process.pid.to_string());
-                                    ui.close_menu();
-                                }
-
-                                if ui.button("🔍 Inspect Details").clicked() {
-                                    app.details_pid = Some(process.pid);
-                                    ui.close_menu();
-                                }
-                            })
-                            .response
-                            .on_hover_text("More actions (Priority, Affinity, Copy PID, Details)");
+                                        if ui.button("🔍 Inspect Details").clicked() {
+                                            app.details_pid = Some(process.pid);
+                                            ui.close_menu();
+                                        }
+                                    })
+                                    .response
+                                    .on_hover_text("More actions (Priority, Affinity, Copy PID, Details)");
+                                },
+                            );
                         });
                     });
                 }
