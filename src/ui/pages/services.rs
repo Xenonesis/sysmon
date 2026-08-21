@@ -526,15 +526,24 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
             } else {
                 ThemePalette::text_primary(is_dark)
             };
-            let btn = egui::Button::new(
-                egui::RichText::new(text)
-                    .strong()
-                    .size(11.5)
-                    .color(text_color),
-            )
-            .fill(egui::Color32::TRANSPARENT)
-            .stroke(egui::Stroke::NONE);
-            ui.add_sized([width, 22.0], btn)
+            let mut response = None;
+            ui.allocate_ui_with_layout(
+                egui::vec2(width, 22.0),
+                egui::Layout::left_to_right(egui::Align::Center),
+                |ui| {
+                    ui.set_width(width);
+                    let btn = egui::Button::new(
+                        egui::RichText::new(text)
+                            .strong()
+                            .size(11.5)
+                            .color(text_color),
+                    )
+                    .fill(egui::Color32::TRANSPARENT)
+                    .stroke(egui::Stroke::NONE);
+                    response = Some(ui.add(btn));
+                }
+            );
+            response.unwrap()
         };
 
         // Sticky Header with interactive sorting
@@ -599,6 +608,7 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
                 egui::vec2(action_w, 22.0),
                 egui::Layout::left_to_right(egui::Align::Center),
                 |ui| {
+                    ui.set_width(action_w);
                     ui.label(
                         egui::RichText::new("Actions")
                             .strong()
@@ -708,6 +718,7 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
                                 egui::vec2(display_w, row_height),
                                 egui::Layout::left_to_right(egui::Align::Center),
                                 |ui| {
+                                    ui.set_width(display_w);
                                     let text_color = if is_selected {
                                         ThemePalette::ACCENT_PRIMARY
                                     } else {
@@ -733,6 +744,7 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
                                 egui::vec2(id_w, row_height),
                                 egui::Layout::left_to_right(egui::Align::Center),
                                 |ui| {
+                                    ui.set_width(id_w);
                                     let copy_resp = ui.add(
                                         egui::Label::new(
                                             egui::RichText::new(&svc.name)
@@ -756,6 +768,7 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
                                 egui::vec2(state_w, row_height),
                                 egui::Layout::left_to_right(egui::Align::Center),
                                 |ui| {
+                                    ui.set_width(state_w);
                                     status_pill(ui, &svc.state.to_uppercase(), state_c, is_dark);
                                 },
                             );
@@ -765,6 +778,7 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
                                 egui::vec2(action_w, row_height),
                                 egui::Layout::left_to_right(egui::Align::Center),
                                 |ui| {
+                                    ui.set_width(action_w);
                                     let is_running = svc.state.eq_ignore_ascii_case("running");
                                     let is_stopped = svc.state.eq_ignore_ascii_case("stopped");
 
