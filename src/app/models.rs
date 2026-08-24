@@ -523,8 +523,8 @@ impl AppSettings {
 
 impl AppSettings {
     pub fn load() -> Self {
-        if let Some(config_dir) = directories::ProjectDirs::from("com", "Xenonesis", "SystemMonitor") {
-            let config_path = config_dir.config_dir().join("settings.json");
+        if let Some(config_dir) = crate::app_paths::config_dir() {
+            let config_path = config_dir.join("settings.json");
             if let Ok(settings) = crate::persistence::settings::load(&config_path) {
                 return settings;
             }
@@ -533,9 +533,8 @@ impl AppSettings {
     }
 
     pub fn save(&self) -> Result<(), Box<dyn std::error::Error>> {
-        if let Some(config_dir) = directories::ProjectDirs::from("com", "Xenonesis", "SystemMonitor") {
-            let config_path = config_dir.config_dir();
-            fs::create_dir_all(config_path)?;
+        if let Some(config_path) = crate::app_paths::config_dir() {
+            fs::create_dir_all(&config_path)?;
             let config_file = config_path.join("settings.json");
             crate::persistence::settings::save(&config_file, self)?;
         }

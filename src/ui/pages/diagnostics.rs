@@ -1,3 +1,5 @@
+mod guided;
+
 use crate::diagnostics::{self, Severity};
 use crate::ui::components::{card_frame, paint_progress_bar, paint_section_header, status_pill};
 use crate::ui::theme::ThemePalette;
@@ -9,6 +11,9 @@ pub(crate) fn show(app: &mut SystemMonitorApp, ui: &mut egui::Ui, data: &SystemD
     paint_section_header(ui, "Diagnostics & Session Recorder", is_dark);
 
     egui::ScrollArea::vertical().show(ui, |ui| {
+        guided::show(app, ui, is_dark);
+        ui.add_space(8.0);
+
         // ── 1. Session Recorder Banner ──
         card_frame(is_dark).show(ui, |ui| {
             ui.horizontal(|ui| {
@@ -313,4 +318,47 @@ pub(crate) fn show(app: &mut SystemMonitorApp, ui: &mut egui::Ui, data: &SystemD
             }
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{Duration, SystemTime};
+
+    #[test]
+    fn diagnostics_guided_flow_renders_ready_and_review_states() {
+        let root = std::env::temp_dir().join(format!("sysmon-diagnostics-ui-{}", std::process::id()));
+        crate::app_paths::with_test_data_local_dir(root.clone(), || {
+            let mut app = crate::SystemMonitorApp::test_app();
+            let data = SystemData::default();
+            let ctx = egui::Context::default();
+
+            let _ = ctx.run(Default::default(), |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| show(&mut app, ui, &data));
+            });
+
+            app.session_recorder.start().unwrap();
+            for index in 0..20 {
+                let snapshot = crate::monitoring::SystemSnapshot {
+                    sampled_at: SystemTime::UNIX_EPOCH + Duration::from_secs(index),
+                    cpu_usage: if index < 6 { 10.0 } else { 75.0 },
+                    memory_percentage: 45.0,
+                    ..Default::default()
+                };
+                app.session_recorder.record(&snapshot).unwrap();
+            }
+            app.session_recorder.stop().unwrap();
+
+            let _ = ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(900.0, 700.0))),
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default().show(ctx, |ui| show(&mut app, ui, &data));
+                },
+            );
+        });
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }

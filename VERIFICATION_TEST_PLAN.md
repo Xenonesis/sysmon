@@ -160,7 +160,7 @@ Get-CimInstance Win32_VideoController | Select Name       # expect GPU list
 .\target\release\system-monitor.exe
 ```
 - Let run ≥ 60 s. **Pass:** process stays alive, window
-  `System Monitor v3.7.0` visible, no crash dialog, RSS stable.
+  `System Monitor v3.8.0` visible, no crash dialog, RSS stable.
 - Capture window screenshot as evidence (see §3.4).
 
 ### TC-3.2 Single-instance guard (S-06)
@@ -186,15 +186,15 @@ Select-String -Path "$env:LOCALAPPDATA\Xenonesis\SystemMonitor\data\logs\system-
   App must remain alive regardless of provider failure count.
 
 ### TC-3.4 UI evidence capture
-- Screenshot the main window (title `System Monitor v3.7.0`). Walk all 14 views
-  (U-01…U-14); for each record: renders, shows live data, no blank/error region.
+- Screenshot the main window (title `System Monitor v3.8.0`). Walk all 15 modules
+  (U-01…U-15); for each record: renders, shows live data, no blank/error region.
 - Verify DESIGN.md compliance while walking views (no Inter font, no pure black,
   no gradients/emoji, mono numerals).
 
 ### TC-3.5 Feature exercise (manual, per view)
 | Case | Action | Acceptance |
 | --- | --- | --- |
-| TC-3.5a | Diagnostics → Start/Stop recording (D-02) | JSONL appears under `data\sessions\`; findings show severity/evidence/confidence |
+| TC-3.5a | Diagnostics → guided diagnosis (D-02) | 15-sample baseline, reproduce phase, JSONL under `data\sessions\`, ranked evidence and contributor link |
 | TC-3.5b | Processes → kill/suspend/resume a test process (A-02) | Risk/elevation dialog shown; audit row written; Undo offered for suspend |
 | TC-3.5c | Services → start/stop/restart (A-03) | Confirmation dialog; state changes; audit row |
 | TC-3.5d | RAM Cleaner → manual clean (A-04) | Runs, logs `RAM clean complete freed_mb=…`; audit row |

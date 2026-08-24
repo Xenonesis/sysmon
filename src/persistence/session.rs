@@ -15,12 +15,14 @@ pub(crate) struct SessionRecorder {
 
 impl SessionRecorder {
     pub(crate) fn start(&mut self) -> Result<PathBuf, std::io::Error> {
-        let root = directories::ProjectDirs::from("com", "Xenonesis", "SystemMonitor")
-            .ok_or_else(|| std::io::Error::other("application data directory unavailable"))?
-            .data_local_dir()
-            .join("sessions");
+        let root = crate::app_paths::sessions_dir()
+            .ok_or_else(|| std::io::Error::other("application data directory unavailable"))?;
         fs::create_dir_all(&root)?;
-        let name = format!("session-{}.jsonl", chrono::Utc::now().format("%Y%m%d-%H%M%S"));
+        let name = format!(
+            "session-{}-{}.jsonl",
+            chrono::Utc::now().format("%Y%m%d-%H%M%S%.3f"),
+            std::process::id()
+        );
         let path = root.join(name);
         self.writer = Some(BufWriter::new(File::create(&path)?));
         self.path = Some(path.clone());
@@ -88,6 +90,19 @@ pub struct SessionSummary {
     pub max_gpu_util: f32,
     pub total_net_recv_mb: f64,
     pub total_net_sent_mb: f64,
+}
+
+#[derive(Debug, Clone, serde::Serialize, PartialEq)]
+pub struct SessionDiagnosis {
+    pub sample_count: usize,
+    pub baseline_samples: usize,
+    pub incident_sample: usize,
+    pub primary_signal: String,
+    pub summary: String,
+    pub recommendation: String,
+    pub confidence: String,
+    pub evidence: Vec<String>,
+    pub contributor: Option<String>,
 }
 
 /// Export a recorded .jsonl session file to standard multi-column CSV.
@@ -219,12 +234,104 @@ pub fn calculate_session_summary(jsonl_path: &std::path::Path) -> Result<Session
     })
 }
 
+/// Compare the first stable portion of a recorded session with the strongest
+/// later deviation. The workflow intentionally requires a baseline so SysMon
+/// does not guess from one isolated sample.
+pub fn analyze_session_against_baseline(jsonl_path: &std::path::Path) -> Result<SessionDiagnosis, std::io::Error> {
+    let snapshots = read_session_snapshots(jsonl_path)?;
+    if snapshots.len() < 6 {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "at least 6 valid samples are required (3 baseline and 3 incident)",
+        ));
+    }
+
+    let baseline_count = (snapshots.len() / 3).clamp(3, 15);
+    let baseline: Vec<_> = snapshots[..baseline_count].iter().map(signal_sample).collect();
+    let (incident_index, comparison) = snapshots[baseline_count..]
+        .iter()
+        .enumerate()
+        .filter_map(|(index, snapshot)| {
+            crate::diagnostics::compare_to_baseline(&baseline, signal_sample(snapshot))
+                .map(|comparison| (baseline_count + index, comparison))
+        })
+        .max_by(|(_, left), (_, right)| left.primary_score.total_cmp(&right.primary_score))
+        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "session metrics are not comparable"))?;
+
+    let incident = &snapshots[incident_index];
+    let contributor = incident
+        .processes
+        .iter()
+        .max_by(|left, right| process_score(left).total_cmp(&process_score(right)))
+        .map(|process| {
+            format!(
+                "{} (PID {}) — CPU {:.1}%, RAM {:.1} MB",
+                process.name,
+                process.pid,
+                process.cpu_usage,
+                process.memory as f64 / 1_048_576.0
+            )
+        });
+    let recommendation = match comparison.primary_signal {
+        "CPU" => "Inspect the leading process and its child processes before changing priority or power settings.",
+        "Memory" => {
+            "Check the leading process for sustained growth; working-set trimming is only a temporary diagnostic step."
+        }
+        "Disk I/O" => "Inspect per-process disk throughput and storage health before stopping a service or process.",
+        "Network" => "Inspect active sockets and the owning process before blocking or terminating anything.",
+        _ => "Review the ranked evidence before taking a system-changing action.",
+    };
+
+    Ok(SessionDiagnosis {
+        sample_count: snapshots.len(),
+        baseline_samples: baseline_count,
+        incident_sample: incident_index + 1,
+        primary_signal: comparison.primary_signal.into(),
+        summary: comparison.summary,
+        recommendation: recommendation.into(),
+        confidence: comparison.confidence.into(),
+        evidence: comparison.evidence,
+        contributor,
+    })
+}
+
+fn read_session_snapshots(jsonl_path: &std::path::Path) -> Result<Vec<SystemSnapshot>, std::io::Error> {
+    use std::io::BufRead;
+
+    let reader = std::io::BufReader::new(File::open(jsonl_path)?);
+    Ok(reader
+        .lines()
+        .map_while(Result::ok)
+        .filter_map(|line| serde_json::from_str::<SystemSnapshot>(&line).ok())
+        .collect())
+}
+
+fn signal_sample(snapshot: &SystemSnapshot) -> crate::diagnostics::SignalSample {
+    crate::diagnostics::SignalSample {
+        cpu_pct: snapshot.cpu_usage as f64,
+        memory_pct: snapshot.memory_percentage as f64,
+        disk_bps: snapshot
+            .disks
+            .iter()
+            .map(|disk| disk.read_bytes_per_second + disk.written_bytes_per_second)
+            .sum(),
+        network_bps: snapshot
+            .networks
+            .iter()
+            .map(|network| network.received_bytes_per_second + network.transmitted_bytes_per_second)
+            .sum(),
+    }
+}
+
+fn process_score(process: &crate::monitoring::snapshot::ProcessSnapshot) -> f64 {
+    process.cpu_usage as f64
+        + process.memory as f64 / 100_000_000.0
+        + process.disk_read_bytes.saturating_add(process.disk_written_bytes) as f64 / 1_000_000.0
+}
+
 /// List all recorded session paths sorted by newest first.
 pub fn list_recorded_sessions() -> Vec<PathBuf> {
-    let Ok(root) = directories::ProjectDirs::from("com", "Xenonesis", "SystemMonitor")
-        .map(|p| p.data_local_dir().join("sessions"))
-        .ok_or(())
-    else {
+    let Some(root) = crate::app_paths::sessions_dir() else {
         return Vec::new();
     };
 
@@ -247,17 +354,21 @@ mod tests {
 
     #[test]
     fn session_recorder_toggle() {
-        let mut recorder = SessionRecorder::default();
-        assert!(!recorder.is_recording());
-        assert_eq!(recorder.sample_count(), 0);
+        let root = std::env::temp_dir().join(format!("sysmon-recorder-test-{}", std::process::id()));
+        crate::app_paths::with_test_data_local_dir(root.clone(), || {
+            let mut recorder = SessionRecorder::default();
+            assert!(!recorder.is_recording());
+            assert_eq!(recorder.sample_count(), 0);
 
-        let start_res = recorder.toggle();
-        assert!(start_res.is_ok());
-        assert!(recorder.is_recording());
+            let start_res = recorder.toggle();
+            assert!(start_res.is_ok());
+            assert!(recorder.is_recording());
 
-        let stop_res = recorder.toggle();
-        assert!(stop_res.is_ok());
-        assert!(!recorder.is_recording());
+            let stop_res = recorder.toggle();
+            assert!(stop_res.is_ok());
+            assert!(!recorder.is_recording());
+        });
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]
@@ -293,5 +404,60 @@ mod tests {
         let _ = fs::remove_file(jsonl_file);
         let _ = fs::remove_file(csv_file);
         let _ = fs::remove_dir(temp_dir);
+    }
+
+    #[test]
+    fn session_diagnosis_compares_baseline_and_names_contributor() {
+        let temp_dir = std::env::temp_dir().join(format!("sysmon_diagnosis_test_{}", std::process::id()));
+        fs::create_dir_all(&temp_dir).unwrap();
+        let jsonl_file = temp_dir.join("diagnosis.jsonl");
+        let mut lines = String::new();
+        for index in 0..9 {
+            let mut snapshot = SystemSnapshot {
+                cpu_usage: if index < 3 { 10.0 } else { 20.0 },
+                memory_percentage: 40.0,
+                ..Default::default()
+            };
+            if index == 7 {
+                snapshot.cpu_usage = 95.0;
+                snapshot.processes.push(crate::monitoring::snapshot::ProcessSnapshot {
+                    pid: 42,
+                    name: "encoder.exe".into(),
+                    cpu_usage: 80.0,
+                    memory: 512 * 1_048_576,
+                    ..Default::default()
+                });
+            }
+            lines.push_str(&serde_json::to_string(&snapshot).unwrap());
+            lines.push('\n');
+        }
+        fs::write(&jsonl_file, lines).unwrap();
+
+        let diagnosis = analyze_session_against_baseline(&jsonl_file).unwrap();
+        assert_eq!(diagnosis.primary_signal, "CPU");
+        assert!(diagnosis
+            .contributor
+            .as_deref()
+            .is_some_and(|value| value.contains("encoder.exe")));
+        assert_eq!(diagnosis.baseline_samples, 3);
+
+        fs::remove_dir_all(temp_dir).unwrap();
+    }
+
+    #[test]
+    fn session_diagnosis_refuses_to_guess_without_baseline() {
+        let temp_dir = std::env::temp_dir().join(format!("sysmon_short_diagnosis_{}", std::process::id()));
+        fs::create_dir_all(&temp_dir).unwrap();
+        let jsonl_file = temp_dir.join("short.jsonl");
+        fs::write(
+            &jsonl_file,
+            format!("{}\n", serde_json::to_string(&SystemSnapshot::default()).unwrap()),
+        )
+        .unwrap();
+
+        let error = analyze_session_against_baseline(&jsonl_file).unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+
+        fs::remove_dir_all(temp_dir).unwrap();
     }
 }

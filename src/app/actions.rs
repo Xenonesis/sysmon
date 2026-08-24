@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use super::commands::ActionCommand;
 use crate::services::ServiceControlAction;
 
-#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub(crate) enum RiskLevel {
     Low,
     Medium,
@@ -250,6 +250,7 @@ pub(crate) struct ActionHistoryEntry {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::startup::{StartupLocator, StartupRegistryHive};
 
     #[test]
     fn kill_tree_is_critical_and_irreversible() {
@@ -262,5 +263,84 @@ mod tests {
     fn suspend_has_resume_undo() {
         let plan = ActionPlan::from_command(ActionCommand::SuspendProcess(42));
         assert!(matches!(plan.undo, Some(ActionCommand::ResumeProcess(42))));
+    }
+
+    #[test]
+    fn privileged_action_contracts_are_explicit() {
+        let current_user_startup = StartupLocator::Registry {
+            hive: StartupRegistryHive::CurrentUser,
+            value_path: "Software\\Test".into(),
+            enabled_value_path: "Software\\Test".into(),
+            approved_path: "Software\\Approved".into(),
+            value_name: "Example".into(),
+        };
+        let machine_startup = StartupLocator::Registry {
+            hive: StartupRegistryHive::LocalMachine,
+            value_path: "Software\\Test".into(),
+            enabled_value_path: "Software\\Test".into(),
+            approved_path: "Software\\Approved".into(),
+            value_name: "Example".into(),
+        };
+        let cases = [
+            (ActionCommand::KillProcess(7), RiskLevel::High, true, false),
+            (ActionCommand::CleanRam, RiskLevel::Medium, true, false),
+            (
+                ActionCommand::ControlService {
+                    name: "Example".into(),
+                    action: ServiceControlAction::Stop,
+                },
+                RiskLevel::High,
+                true,
+                true,
+            ),
+            (
+                ActionCommand::SetPowerPlan("balanced".into()),
+                RiskLevel::Low,
+                false,
+                false,
+            ),
+            (
+                ActionCommand::DisableStartup {
+                    item_name: "User item".into(),
+                    locator: current_user_startup,
+                },
+                RiskLevel::Medium,
+                false,
+                true,
+            ),
+            (
+                ActionCommand::DisableStartup {
+                    item_name: "Machine item".into(),
+                    locator: machine_startup,
+                },
+                RiskLevel::Medium,
+                true,
+                true,
+            ),
+        ];
+
+        for (command, risk, requires_admin, reversible) in cases {
+            let plan = ActionPlan::from_command(command);
+            assert_eq!(plan.risk, risk, "unexpected risk for {}", plan.title);
+            assert_eq!(
+                plan.requires_admin, requires_admin,
+                "unexpected elevation for {}",
+                plan.title
+            );
+            assert_eq!(
+                plan.reversible, reversible,
+                "unexpected Undo contract for {}",
+                plan.title
+            );
+            assert!(!plan.summary.trim().is_empty());
+        }
+    }
+
+    #[test]
+    fn failed_actions_are_never_marked_reversible() {
+        let plan = ActionPlan::from_command(ActionCommand::SuspendProcess(42));
+        let record = ActionAuditRecord::from_result(&plan, &Err("access denied".into()));
+        assert!(!record.succeeded);
+        assert!(!record.reversible);
     }
 }

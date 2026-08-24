@@ -19,7 +19,7 @@ SysMon runs as a normal desktop application. Standard monitoring never requires 
 - **Active network socket inspection:** real-time TCP and UDP socket connection tables with PID resolution, process name mapping, and connection state filtering (`ESTABLISHED`, `LISTEN`, `TIME_WAIT`, `CLOSE_WAIT`).
 - **Storage S.M.A.R.T. and hardware detection:** auto-detects physical drives (`NVMe SSD`, `SATA SSD`, `USB`, `Virtual`) with health states, S.M.A.R.T. status, and media types.
 - **Process forensics & hierarchy:** search, inspect, sort by live per-process disk read/write bandwidth, toggle parent-child process tree hierarchy (`🌲 Process Tree`), and adjust CPU core affinity masks.
-- **Explainable diagnostics & CSV export:** findings include evidence, recommendations and confidence; 1-click CSV export of recorded JSONL sessions with aggregate summary analytics.
+- **Guided, explainable diagnostics:** the "Why is my PC slow?" workflow captures a personal baseline, guides reproduction, ranks CPU/memory/disk/network changes, names a likely process contributor, and links directly to the relevant evidence view. Recorded JSONL sessions remain local and exportable to CSV.
 - **Battery health & power plan switching:** live battery charge metrics, AC power status, and 1-click power scheme toggles (*Balanced*, *High Performance*, *Power Saver*).
 - **Guarded actions:** process, service, RAM and power actions show risk and administrator requirements before execution, then write a local audit record. Reversible actions offer Undo when the prior state is known.
 - **Secure updates:** HTTPS/repository asset validation, bounded downloads and SHA-256 checksum verification against the checksum published with each release. An installer that fails verification is deleted, never executed.
@@ -31,7 +31,7 @@ SysMon organizes its fifteen modules around the questions users actually ask:
 - **Overview** — a single-screen summary of CPU, memory, GPU, disk and network health with quick status indicators.
 - **Performance** — live graphs plus bounded summaries for the 60-second, 5-minute, 30-minute and 1-hour windows, each reporting average and maximum values.
 - **Timeline** — opt-in local history across 15 minutes, 1 hour, 6 hours, 24 hours, or 7 days, with event-linked evidence, contributors, confidence, and sanitized incident export.
-- **Diagnostics** — evidence-based findings with severity, recommendation and confidence, opt-in session recording, and 1-click CSV session export with summary stats.
+- **Diagnostics** — guided baseline/reproduction analysis plus live findings with severity, recommendation and confidence, opt-in local session recording, and CSV export.
 - **CPU Cores** — per-core utilization so a single saturated thread is visible even when total CPU looks calm.
 - **Processes** — search, sort by CPU, memory, PID, or per-process live disk read/write throughput; switch to hierarchical parent-child process tree mode (`🌲 Process Tree`); manage CPU core affinities; and execute kill, kill-tree, suspend, resume and priority actions behind explicit confirmation.
 - **Services** — start, stop or restart Windows services with dependency visibility before you confirm.
@@ -166,11 +166,19 @@ cargo test --locked --all-targets
 cargo build --locked --release --bin system-monitor
 ```
 
+For release-candidate validation on Windows, run the hardware telemetry and process soak gate:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Invoke-SysMonWindowsQa.ps1 -TelemetrySoakSeconds 300 -ProcessSoakMinutes 30
+```
+
+The representative hardware, DPI, lifecycle, and disposable-VM action matrix is documented in [`docs/WINDOWS_QA_MATRIX.md`](docs/WINDOWS_QA_MATRIX.md). The hardware soak reports non-finite/out-of-range metrics and sampling gaps; the process soak records CPU, working set, threads, and handles to a JSON artifact.
+
 CI runs the same commands on Windows. Hardware-dependent telemetry smoke tests remain ignored by default because results depend on the runner's devices and drivers; deterministic provider/hub tests run normally. The release workflow propagates native exit codes, so a failing format, lint or test step can never publish a release.
 
 ## Real-world use cases
 
-**Why is my machine slow right now?** Open Diagnostics and press **Start recording** just before reproducing the problem. Reproduce the slowdown, press **Stop recording**, then review each finding's severity, evidence, recommendation and confidence. The finding names the component; Processes, Storage, Services or Startup Manager lets you inspect it directly.
+**Why is my machine slow right now?** Open Diagnostics and choose **Start guided diagnosis**. Leave the machine in its normal state while SysMon captures 15 baseline samples, reproduce the slowdown, then choose **Finish capture and analyze**. SysMon ranks the change against that baseline, identifies a likely contributor, and links to Processes, Storage, Network, or Timeline evidence.
 
 **Is one core the bottleneck?** A video encode or a single-threaded game can pin one core at 100% while total CPU shows 25%. The CPU Cores view exposes per-core utilization so the saturation is obvious.
 

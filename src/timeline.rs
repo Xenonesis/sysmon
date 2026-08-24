@@ -590,8 +590,7 @@ fn run_worker(
 }
 
 fn timeline_db_path() -> Option<PathBuf> {
-    directories::ProjectDirs::from("com", "Xenonesis", "SystemMonitor")
-        .map(|dirs| dirs.data_local_dir().join("history").join("timeline.sqlite3"))
+    crate::app_paths::timeline_db_path()
 }
 
 fn ensure_connection(connection: &mut Option<Connection>, path: &Path, create: bool) -> Result<(), String> {
@@ -1056,65 +1055,37 @@ pub(crate) fn analyze_window(window: &TimelineWindow, timestamp_ms: i64) -> Inci
         };
     }
 
-    let average = |select: fn(&TimelineMetricSample) -> f64| {
-        baseline.iter().map(|sample| select(sample)).sum::<f64>() / baseline.len() as f64
+    let baseline: Vec<_> = baseline
+        .iter()
+        .map(|sample| crate::diagnostics::SignalSample {
+            cpu_pct: sample.cpu_pct,
+            memory_pct: sample.memory_pct,
+            disk_bps: sample.disk_read_bps + sample.disk_write_bps,
+            network_bps: sample.network_down_bps + sample.network_up_bps,
+        })
+        .collect();
+    let incident = crate::diagnostics::SignalSample {
+        cpu_pct: peak.cpu_pct,
+        memory_pct: peak.memory_pct,
+        disk_bps: peak.disk_read_bps + peak.disk_write_bps,
+        network_bps: peak.network_down_bps + peak.network_up_bps,
     };
-    let cpu_base = average(|sample| sample.cpu_pct);
-    let memory_base = average(|sample| sample.memory_pct);
-    let disk_base = average(|sample| sample.disk_read_bps + sample.disk_write_bps);
-    let network_base = average(|sample| sample.network_down_bps + sample.network_up_bps);
-    let cpu_delta = peak.cpu_pct - cpu_base;
-    let memory_delta = peak.memory_pct - memory_base;
-    let disk_value = peak.disk_read_bps + peak.disk_write_bps;
-    let network_value = peak.network_down_bps + peak.network_up_bps;
-    let mut ranked = [
-        (
-            "CPU",
-            cpu_delta.max(0.0),
-            format!("CPU was {:.1}% versus a {:.1}% baseline.", peak.cpu_pct, cpu_base),
-        ),
-        (
-            "Memory",
-            memory_delta.max(0.0),
-            format!(
-                "Memory was {:.1}% versus a {:.1}% baseline.",
-                peak.memory_pct, memory_base
-            ),
-        ),
-        (
-            "Disk I/O",
-            normalized_delta(disk_value, disk_base),
-            format!(
-                "Disk throughput was {:.1} MB/s versus {:.1} MB/s baseline.",
-                disk_value / 1_048_576.0,
-                disk_base / 1_048_576.0
-            ),
-        ),
-        (
-            "Network",
-            normalized_delta(network_value, network_base),
-            format!(
-                "Network throughput was {:.1} MB/s versus {:.1} MB/s baseline.",
-                network_value / 1_048_576.0,
-                network_base / 1_048_576.0
-            ),
-        ),
-    ];
-    ranked.sort_by(|a, b| b.1.total_cmp(&a.1));
-    let primary = &ranked[0];
-    let confidence = if baseline.len() >= 30 {
-        "high"
-    } else if baseline.len() >= 10 {
-        "medium"
-    } else {
-        "low"
+    let Some(comparison) = crate::diagnostics::compare_to_baseline(&baseline, incident) else {
+        return IncidentAnalysis {
+            timestamp_ms: peak.timestamp_ms,
+            title: "Invalid baseline".into(),
+            summary: "Recorded samples could not be compared safely.".into(),
+            confidence: "none".into(),
+            evidence: vec!["The baseline contained invalid or non-finite metric values.".into()],
+            contributors: contributors_near(window, peak.timestamp_ms),
+        };
     };
     IncidentAnalysis {
         timestamp_ms: peak.timestamp_ms,
-        title: format!("{} change near selected time", primary.0),
-        summary: primary.2.clone(),
-        confidence: confidence.into(),
-        evidence: ranked.into_iter().map(|entry| entry.2).collect(),
+        title: format!("{} change near selected time", comparison.primary_signal),
+        summary: comparison.summary,
+        confidence: comparison.confidence.into(),
+        evidence: comparison.evidence,
         contributors: contributors_near(window, peak.timestamp_ms),
     }
 }
@@ -1148,14 +1119,6 @@ fn contributors_near(window: &TimelineWindow, timestamp_ms: i64) -> Vec<Incident
     });
     contributors.truncate(5);
     contributors
-}
-
-fn normalized_delta(value: f64, baseline: f64) -> f64 {
-    if baseline <= f64::EPSILON {
-        value.max(0.0)
-    } else {
-        ((value - baseline) / baseline * 100.0).max(0.0)
-    }
 }
 
 fn prune(conn: &Connection, retention_days: u16, path: &Path) -> Result<(), String> {

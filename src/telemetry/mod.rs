@@ -4,6 +4,8 @@
 //! and consumers read a replaceable latest snapshot instead of replaying a
 //! queue of stale samples.
 
+#[cfg(test)]
+pub(crate) mod quality;
 pub mod ring_buffer;
 pub mod scheduler;
 
@@ -373,5 +375,54 @@ mod tests {
         command_sender.send(HubCommand::Shutdown).unwrap();
         handle.join().unwrap();
         assert!(snapshots > 0);
+    }
+
+    #[test]
+    #[ignore] // Run explicitly on representative Windows hardware before release.
+    fn hardware_telemetry_soak_test() {
+        use crate::providers::nvml_provider::NvmlProvider;
+        use crate::providers::sysinfo_provider::SysinfoProvider;
+        use crate::providers::windows_gpu_provider::WindowsGpuProvider;
+        use crate::providers::wmi_provider::WmiProvider;
+        use crate::telemetry::quality::TelemetryQualityTracker;
+
+        let seconds = std::env::var("SYSMON_SOAK_SECONDS")
+            .ok()
+            .and_then(|value| value.parse::<u64>().ok())
+            .unwrap_or(60)
+            .clamp(10, 86_400);
+        let (mut hub, mut reader, command_sender) = TelemetryHub::new();
+        hub.add_provider(Box::new(SysinfoProvider::new()));
+        hub.add_provider(Box::new(NvmlProvider::new()));
+        hub.add_provider(Box::new(WmiProvider::new()));
+        hub.add_provider(Box::new(WindowsGpuProvider::new()));
+        let handle = std::thread::spawn(move || hub.run());
+
+        let deadline = std::time::Instant::now() + Duration::from_secs(seconds);
+        let mut tracker = TelemetryQualityTracker::default();
+        while std::time::Instant::now() < deadline {
+            if let Some(snapshot) = reader.latest_if_updated() {
+                tracker.observe(std::time::Instant::now(), &snapshot);
+            }
+            std::thread::sleep(Duration::from_millis(25));
+        }
+
+        command_sender.send(HubCommand::Shutdown).unwrap();
+        handle.join().unwrap();
+        let report = tracker.report();
+        println!("{}", serde_json::to_string_pretty(&report).unwrap());
+        assert!(
+            report.samples >= seconds * 2,
+            "sampling rate fell below 2 Hz: {report:?}"
+        );
+        assert_eq!(report.invalid_values, 0, "non-finite telemetry observed: {report:?}");
+        assert_eq!(
+            report.out_of_range_percentages, 0,
+            "percentage telemetry exceeded 0..=100: {report:?}"
+        );
+        assert!(
+            report.maximum_gap_ms <= 1_500,
+            "telemetry gap exceeded 1.5 seconds: {report:?}"
+        );
     }
 }

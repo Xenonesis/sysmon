@@ -237,11 +237,7 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
         })
         .collect();
 
-    services::sort_services_refs(
-        &mut filtered,
-        app.service_sort_column,
-        app.service_sort_ascending,
-    );
+    services::sort_services_refs(&mut filtered, app.service_sort_column, app.service_sort_ascending);
 
     card_frame(is_dark).show(ui, |ui| {
         ui.horizontal(|ui| {
@@ -258,12 +254,7 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
                     .hint_text("Filter by name or identifier...")
                     .desired_width(240.0),
             );
-            if !app.service_search.is_empty()
-                && ui
-                    .small_button("×")
-                    .on_hover_text("Clear search filter")
-                    .clicked()
-            {
+            if !app.service_search.is_empty() && ui.small_button("×").on_hover_text("Clear search filter").clicked() {
                 app.service_search.clear();
             }
 
@@ -284,17 +275,22 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
             }
 
             let is_run = app.service_state_filter.as_deref() == Some("Running");
-            if ui.selectable_label(is_run, format!("Running ({running_count})")).clicked() {
+            if ui
+                .selectable_label(is_run, format!("Running ({running_count})"))
+                .clicked()
+            {
                 app.service_state_filter = if is_run { None } else { Some("Running".to_string()) };
             }
 
             let is_stop = app.service_state_filter.as_deref() == Some("Stopped");
-            if ui.selectable_label(is_stop, format!("Stopped ({stopped_count})")).clicked() {
+            if ui
+                .selectable_label(is_stop, format!("Stopped ({stopped_count})"))
+                .clicked()
+            {
                 app.service_state_filter = if is_stop { None } else { Some("Stopped".to_string()) };
             }
 
-            let has_active_filter =
-                !app.service_search.is_empty() || app.service_state_filter.is_some();
+            let has_active_filter = !app.service_search.is_empty() || app.service_state_filter.is_some();
             if has_active_filter
                 && ui
                     .small_button("Reset")
@@ -338,11 +334,7 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
                     status_pill(ui, &svc.state.to_uppercase(), state_c, is_dark);
 
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui
-                            .small_button("✕ Close")
-                            .on_hover_text("Deselect service")
-                            .clicked()
-                        {
+                        if ui.small_button("✕ Close").on_hover_text("Deselect service").clicked() {
                             app.selected_service_name = None;
                         }
                     });
@@ -407,9 +399,7 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
                                 .on_hover_text("Copy 'Get-Service -Name <svc>' command")
                                 .clicked()
                             {
-                                ui.output_mut(|o| {
-                                    o.copied_text = format!("Get-Service -Name \"{}\"", svc.name)
-                                });
+                                ui.output_mut(|o| o.copied_text = format!("Get-Service -Name \"{}\"", svc.name));
                             }
 
                             if ui
@@ -418,8 +408,7 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
                                 .clicked()
                             {
                                 ui.output_mut(|o| {
-                                    o.copied_text =
-                                        format!("Restart-Service -Name \"{}\" -Force", svc.name)
+                                    o.copied_text = format!("Restart-Service -Name \"{}\" -Force", svc.name)
                                 });
                             }
 
@@ -428,9 +417,7 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
                                 .on_hover_text("Copy 'sc.exe query <svc>' command")
                                 .clicked()
                             {
-                                ui.output_mut(|o| {
-                                    o.copied_text = format!("sc.exe query \"{}\"", svc.name)
-                                });
+                                ui.output_mut(|o| o.copied_text = format!("sc.exe query \"{}\"", svc.name));
                             }
                         });
                     });
@@ -452,15 +439,13 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
                     );
                     let stop_btn = ui.add_enabled(
                         is_elevated && !is_stopped,
-                        egui::Button::new(
-                            egui::RichText::new("⏹ Stop Service")
-                                .strong()
-                                .color(if is_elevated && !is_stopped {
-                                    ThemePalette::STATUS_CRITICAL
-                                } else {
-                                    ThemePalette::text_dimmed(is_dark)
-                                }),
-                        ),
+                        egui::Button::new(egui::RichText::new("⏹ Stop Service").strong().color(
+                            if is_elevated && !is_stopped {
+                                ThemePalette::STATUS_CRITICAL
+                            } else {
+                                ThemePalette::text_dimmed(is_dark)
+                            },
+                        )),
                     );
                     let restart_btn = ui.add_enabled(
                         is_elevated && is_running,
@@ -532,16 +517,11 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
                 egui::Layout::left_to_right(egui::Align::Center),
                 |ui| {
                     ui.set_width(width);
-                    let btn = egui::Button::new(
-                        egui::RichText::new(text)
-                            .strong()
-                            .size(11.5)
-                            .color(text_color),
-                    )
-                    .fill(egui::Color32::TRANSPARENT)
-                    .stroke(egui::Stroke::NONE);
+                    let btn = egui::Button::new(egui::RichText::new(text).strong().size(11.5).color(text_color))
+                        .fill(egui::Color32::TRANSPARENT)
+                        .stroke(egui::Stroke::NONE);
                     response = Some(ui.add(btn));
-                }
+                },
             );
             response.unwrap()
         };
@@ -653,10 +633,7 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
                 for idx in row_range {
                     let svc = filtered[idx];
                     let is_even = idx % 2 == 0;
-                    let is_selected = app
-                        .selected_service_name
-                        .as_ref()
-                        .is_some_and(|n| n == &svc.name);
+                    let is_selected = app.selected_service_name.as_ref().is_some_and(|n| n == &svc.name);
 
                     let (row_rect, row_resp) = ui.allocate_exact_size(
                         egui::vec2(ui.available_width().max(total_w), row_height),
@@ -678,19 +655,12 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
                         } else {
                             egui::Color32::from_rgba_unmultiplied(16, 185, 129, 20)
                         };
-                        ui.painter()
-                            .rect_filled(row_rect, egui::Rounding::same(3.0), sel_fill);
+                        ui.painter().rect_filled(row_rect, egui::Rounding::same(3.0), sel_fill);
 
                         // Accent left indicator bar
-                        let ind_rect = egui::Rect::from_min_size(
-                            row_rect.min,
-                            egui::vec2(3.0, row_rect.height()),
-                        );
-                        ui.painter().rect_filled(
-                            ind_rect,
-                            egui::Rounding::same(1.5),
-                            ThemePalette::ACCENT_PRIMARY,
-                        );
+                        let ind_rect = egui::Rect::from_min_size(row_rect.min, egui::vec2(3.0, row_rect.height()));
+                        ui.painter()
+                            .rect_filled(ind_rect, egui::Rounding::same(1.5), ThemePalette::ACCENT_PRIMARY);
                     } else if row_resp.hovered() {
                         let hover_fill = if is_dark {
                             egui::Color32::from_rgba_unmultiplied(255, 255, 255, 10)
@@ -726,9 +696,7 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
                                     };
                                     ui.add(
                                         egui::Label::new(
-                                            egui::RichText::new(&svc.display_name)
-                                                .strong()
-                                                .color(text_color),
+                                            egui::RichText::new(&svc.display_name).strong().color(text_color),
                                         )
                                         .truncate(),
                                     )
@@ -745,16 +713,17 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
                                 egui::Layout::left_to_right(egui::Align::Center),
                                 |ui| {
                                     ui.set_width(id_w);
-                                    let copy_resp = ui.add(
-                                        egui::Label::new(
-                                            egui::RichText::new(&svc.name)
-                                                .monospace()
-                                                .color(ThemePalette::text_secondary(is_dark)),
+                                    let copy_resp = ui
+                                        .add(
+                                            egui::Label::new(
+                                                egui::RichText::new(&svc.name)
+                                                    .monospace()
+                                                    .color(ThemePalette::text_secondary(is_dark)),
+                                            )
+                                            .truncate()
+                                            .sense(egui::Sense::click()),
                                         )
-                                        .truncate()
-                                        .sense(egui::Sense::click()),
-                                    )
-                                    .on_hover_text(format!("Click to copy '{}'", svc.name));
+                                        .on_hover_text(format!("Click to copy '{}'", svc.name));
 
                                     if copy_resp.clicked() {
                                         ui.output_mut(|o| o.copied_text = svc.name.clone());
@@ -794,21 +763,17 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
                                     );
                                     let stop_btn = ui.add_enabled(
                                         is_elevated && !is_stopped,
-                                        egui::Button::new(
-                                            egui::RichText::new("Stop").small().color(
-                                                if is_elevated && !is_stopped {
-                                                    ThemePalette::STATUS_CRITICAL
-                                                } else {
-                                                    ThemePalette::text_dimmed(is_dark)
-                                                },
-                                            ),
-                                        ),
+                                        egui::Button::new(egui::RichText::new("Stop").small().color(
+                                            if is_elevated && !is_stopped {
+                                                ThemePalette::STATUS_CRITICAL
+                                            } else {
+                                                ThemePalette::text_dimmed(is_dark)
+                                            },
+                                        )),
                                     );
                                     let restart_btn = ui.add_enabled(
                                         is_elevated && is_running,
-                                        egui::Button::new(
-                                            egui::RichText::new("Restart").small(),
-                                        ),
+                                        egui::Button::new(egui::RichText::new("Restart").small()),
                                     );
 
                                     if start_btn.on_hover_text(tooltip).clicked() {
@@ -851,30 +816,12 @@ mod tests {
 
     #[test]
     fn test_service_state_color_mapping() {
-        assert_eq!(
-            service_state_color("Running", true),
-            ThemePalette::STATUS_HEALTHY
-        );
-        assert_eq!(
-            service_state_color("RUNNING", false),
-            ThemePalette::STATUS_HEALTHY
-        );
-        assert_eq!(
-            service_state_color("Stopped", true),
-            ThemePalette::text_dimmed(true)
-        );
-        assert_eq!(
-            service_state_color("Paused", true),
-            ThemePalette::STATUS_WARNING
-        );
-        assert_eq!(
-            service_state_color("Start Pending", true),
-            ThemePalette::STATUS_WARNING
-        );
-        assert_eq!(
-            service_state_color("Stop Pending", false),
-            ThemePalette::STATUS_WARNING
-        );
+        assert_eq!(service_state_color("Running", true), ThemePalette::STATUS_HEALTHY);
+        assert_eq!(service_state_color("RUNNING", false), ThemePalette::STATUS_HEALTHY);
+        assert_eq!(service_state_color("Stopped", true), ThemePalette::text_dimmed(true));
+        assert_eq!(service_state_color("Paused", true), ThemePalette::STATUS_WARNING);
+        assert_eq!(service_state_color("Start Pending", true), ThemePalette::STATUS_WARNING);
+        assert_eq!(service_state_color("Stop Pending", false), ThemePalette::STATUS_WARNING);
     }
 
     #[test]

@@ -87,7 +87,16 @@ pub(super) fn paint_process_table(
                 }
             }
 
-            if header_button(ui, "Disk Read", disk_read_w, ProcessSortColumn::Disk, sort_col, sort_asc).clicked() {
+            if header_button(
+                ui,
+                "Disk Read",
+                disk_read_w,
+                ProcessSortColumn::Disk,
+                sort_col,
+                sort_asc,
+            )
+            .clicked()
+            {
                 if app.process_sort_column == ProcessSortColumn::Disk {
                     app.process_sort_ascending = !app.process_sort_ascending;
                 } else {
@@ -96,7 +105,16 @@ pub(super) fn paint_process_table(
                 }
             }
 
-            if header_button(ui, "Disk Write", disk_write_w, ProcessSortColumn::Disk, sort_col, sort_asc).clicked() {
+            if header_button(
+                ui,
+                "Disk Write",
+                disk_write_w,
+                ProcessSortColumn::Disk,
+                sort_col,
+                sort_asc,
+            )
+            .clicked()
+            {
                 if app.process_sort_column == ProcessSortColumn::Disk {
                     app.process_sort_ascending = !app.process_sort_ascending;
                 } else {
@@ -139,10 +157,7 @@ pub(super) fn paint_process_table(
                     let selected = app.details_pid == Some(process.pid);
                     let is_even = idx % 2 == 0;
 
-                    let (row_rect, _) = ui.allocate_exact_size(
-                        egui::vec2(total_w, row_height),
-                        egui::Sense::hover(),
-                    );
+                    let (row_rect, _) = ui.allocate_exact_size(egui::vec2(total_w, row_height), egui::Sense::hover());
 
                     // Row background styling
                     if selected {
@@ -180,24 +195,23 @@ pub(super) fn paint_process_table(
                             // Process Name (Dynamic width with responsive truncation)
                             let max_chars = ((name_w / 7.2) as usize).max(18);
                             let display_name = if process.name.chars().count() > max_chars {
-                                let truncated: String = process.name.chars().take(max_chars.saturating_sub(3)).collect();
+                                let truncated: String =
+                                    process.name.chars().take(max_chars.saturating_sub(3)).collect();
                                 format!("{}...", truncated)
                             } else {
                                 process.name.clone()
                             };
 
-                            let name_btn = egui::Button::new(
-                                egui::RichText::new(&display_name)
-                                    .monospace()
-                                    .size(11.5)
-                                    .color(if selected {
+                            let name_btn =
+                                egui::Button::new(egui::RichText::new(&display_name).monospace().size(11.5).color(
+                                    if selected {
                                         ThemePalette::ACCENT_PRIMARY
                                     } else {
                                         ThemePalette::text_primary(is_dark)
-                                    }),
-                            )
-                            .fill(egui::Color32::TRANSPARENT)
-                            .stroke(egui::Stroke::NONE);
+                                    },
+                                ))
+                                .fill(egui::Color32::TRANSPARENT)
+                                .stroke(egui::Stroke::NONE);
 
                             if ui
                                 .add_sized([name_w, row_height], name_btn)
@@ -275,17 +289,17 @@ pub(super) fn paint_process_table(
                             ui.add_sized(
                                 [disk_read_w, row_height],
                                 egui::Label::new(
-                                    egui::RichText::new(read_label)
-                                        .monospace()
-                                        .size(11.0)
-                                        .color(read_color),
+                                    egui::RichText::new(read_label).monospace().size(11.0).color(read_color),
                                 ),
                             );
 
                             let (write_label, write_color) = if write_rate_mb > 10.0 {
                                 (format!("{:.2} MB/s", write_rate_mb), ThemePalette::STATUS_CRITICAL)
                             } else if write_rate_mb > 0.05 {
-                                (format!("{:.2} MB/s", write_rate_mb), ThemePalette::text_primary(is_dark))
+                                (
+                                    format!("{:.2} MB/s", write_rate_mb),
+                                    ThemePalette::text_primary(is_dark),
+                                )
                             } else {
                                 ("—".to_string(), ThemePalette::text_dimmed(is_dark))
                             };
@@ -326,7 +340,9 @@ pub(super) fn paint_process_table(
                                     let is_suspended = app.suspended_pids.contains(&process.pid);
                                     if is_suspended {
                                         if ui
-                                            .small_button(egui::RichText::new("Resume").color(ThemePalette::STATUS_HEALTHY))
+                                            .small_button(
+                                                egui::RichText::new("Resume").color(ThemePalette::STATUS_HEALTHY),
+                                            )
                                             .on_hover_text("Resume suspended process")
                                             .clicked()
                                         {

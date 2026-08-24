@@ -20,26 +20,16 @@ pub enum ServiceSortColumn {
     State,
 }
 
-pub fn sort_services_refs(
-    services: &mut [&ServiceInfo],
-    column: ServiceSortColumn,
-    ascending: bool,
-) {
+pub fn sort_services_refs(services: &mut [&ServiceInfo], column: ServiceSortColumn, ascending: bool) {
     services.sort_by(|a, b| {
         let cmp = match column {
-            ServiceSortColumn::DisplayName => a
-                .display_name
-                .to_lowercase()
-                .cmp(&b.display_name.to_lowercase()),
+            ServiceSortColumn::DisplayName => a.display_name.to_lowercase().cmp(&b.display_name.to_lowercase()),
             ServiceSortColumn::Name => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
             ServiceSortColumn::State => {
                 let sa = a.state.to_lowercase();
                 let sb = b.state.to_lowercase();
-                sa.cmp(&sb).then_with(|| {
-                    a.display_name
-                        .to_lowercase()
-                        .cmp(&b.display_name.to_lowercase())
-                })
+                sa.cmp(&sb)
+                    .then_with(|| a.display_name.to_lowercase().cmp(&b.display_name.to_lowercase()))
             }
         };
         if ascending {

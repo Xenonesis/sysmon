@@ -5,8 +5,7 @@ use std::path::PathBuf;
 use crate::app::actions::ActionAuditRecord;
 
 fn log_path() -> Option<PathBuf> {
-    directories::ProjectDirs::from("com", "Xenonesis", "SystemMonitor")
-        .map(|dirs| dirs.data_local_dir().join("action-audit.jsonl"))
+    crate::app_paths::action_log_path()
 }
 
 pub(crate) fn append(record: &ActionAuditRecord) -> Result<(), std::io::Error> {
@@ -36,4 +35,23 @@ pub(crate) fn load_recent(limit: usize) -> Vec<ActionAuditRecord> {
         records.drain(0..records.len() - limit);
     }
     records
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn action_log_round_trip_is_hermetic_and_bounded() {
+        let root = std::env::temp_dir().join(format!("sysmon-action-log-test-{}", std::process::id()));
+        crate::app_paths::with_test_data_local_dir(root.clone(), || {
+            append(&ActionAuditRecord::automatic("first", "ok")).unwrap();
+            append(&ActionAuditRecord::automatic("second", "ok")).unwrap();
+            let recent = load_recent(1);
+            assert_eq!(recent.len(), 1);
+            assert_eq!(recent[0].action, "second");
+            assert_eq!(recent[0].initiator, "automatic policy");
+        });
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }

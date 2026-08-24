@@ -807,9 +807,7 @@ pub struct StartupQuarantineRecord {
 }
 
 fn quarantine_root() -> Result<PathBuf, String> {
-    directories::ProjectDirs::from("com", "Xenonesis", "SystemMonitor")
-        .map(|dirs| dirs.data_local_dir().join("startup-quarantine"))
-        .ok_or_else(|| "Application data directory is unavailable".to_string())
+    crate::app_paths::startup_quarantine_dir().ok_or_else(|| "Application data directory is unavailable".to_string())
 }
 
 fn valid_quarantine_id(id: &str) -> bool {
@@ -1770,26 +1768,27 @@ mod tests {
     #[test]
     fn startup_folder_quarantine_round_trip_uses_exact_path() {
         let test_root = std::env::temp_dir().join(format!("sysmon-startup-test-{}", new_quarantine_id()));
-        let enabled = test_root.join("Exact Name.lnk");
-        let disabled = test_root.join("_disabled").join("Exact Name.lnk");
-        std::fs::create_dir_all(&test_root).expect("create disposable startup folder");
-        std::fs::write(&enabled, b"disposable startup shortcut").expect("write disposable startup item");
-        let locator = StartupLocator::StartupFolder {
-            enabled_path: enabled.to_string_lossy().into_owned(),
-            disabled_path: disabled.to_string_lossy().into_owned(),
-            approved_hive: StartupRegistryHive::CurrentUser,
-            approved_path: r"Software\SysMonTests\StartupApproved".into(),
-            approved_name: "Exact Name.lnk".into(),
-        };
+        let data_root = test_root.join("data");
+        crate::app_paths::with_test_data_local_dir(data_root, || {
+            let enabled = test_root.join("Exact Name.lnk");
+            let disabled = test_root.join("_disabled").join("Exact Name.lnk");
+            std::fs::create_dir_all(&test_root).expect("create disposable startup folder");
+            std::fs::write(&enabled, b"disposable startup shortcut").expect("write disposable startup item");
+            let locator = StartupLocator::StartupFolder {
+                enabled_path: enabled.to_string_lossy().into_owned(),
+                disabled_path: disabled.to_string_lossy().into_owned(),
+                approved_hive: StartupRegistryHive::CurrentUser,
+                approved_path: r"Software\SysMonTests\StartupApproved".into(),
+                approved_name: "Exact Name.lnk".into(),
+            };
 
-        let quarantine_id = quarantine_startup("Exact Name", &locator).expect("quarantine disposable startup item");
-        assert!(!enabled.exists());
-        assert!(quarantine_exists(&quarantine_id));
-        restore_startup(&quarantine_id).expect("restore disposable startup item");
-        assert_eq!(std::fs::read(&enabled).unwrap(), b"disposable startup shortcut");
-        assert!(!quarantine_exists(&quarantine_id));
-
-        std::fs::remove_file(&enabled).expect("remove disposable startup item");
+            let quarantine_id = quarantine_startup("Exact Name", &locator).expect("quarantine disposable startup item");
+            assert!(!enabled.exists());
+            assert!(quarantine_exists(&quarantine_id));
+            restore_startup(&quarantine_id).expect("restore disposable startup item");
+            assert_eq!(std::fs::read(&enabled).unwrap(), b"disposable startup shortcut");
+            assert!(!quarantine_exists(&quarantine_id));
+        });
         std::fs::remove_dir_all(&test_root).expect("remove disposable startup folder");
     }
 

@@ -1,0 +1,49 @@
+name: Windows Integration
+
+on:
+  workflow_dispatch:
+    inputs:
+      telemetry_soak_seconds:
+        description: "Hardware telemetry soak duration"
+        required: false
+        default: "60"
+  schedule:
+    - cron: "41 4 * * 2"
+
+permissions:
+  contents: read
+
+jobs:
+  integration:
+    runs-on: windows-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install pinned Rust toolchain
+        uses: dtolnay/rust-toolchain@bc540ba06a4ccee415bb241490e0b25ee8e7d315 # 1.85.0
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
+
+      - name: Run Windows integration and soak gates
+        shell: pwsh
+        env:
+          SOAK_SECONDS: ${{ inputs.telemetry_soak_seconds || '60' }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          .\scripts\Invoke-SysMonWindowsQa.ps1 `
+            -TelemetrySoakSeconds ([int]$env:SOAK_SECONDS) `
+            -ProcessSoakMinutes 2
+
+      - name: Upload soak evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: windows-integration-evidence
+          if-no-files-found: warn
+          path: |
+            artifacts/*.json
+            target/release/system-monitor.exe

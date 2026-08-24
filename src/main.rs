@@ -1,5 +1,6 @@
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 pub(crate) mod app;
+mod app_paths;
 pub(crate) mod ui;
 use crate::ui::components::*;
 use crate::ui::theme::ThemePalette;
@@ -1757,9 +1758,7 @@ fn main() {
     }
 
     // ── 2. Crash Report Directory ───────────────────────────────────────
-    let log_dir = directories::ProjectDirs::from("com", "Xenonesis", "SystemMonitor")
-        .map(|dirs| dirs.data_local_dir().to_path_buf())
-        .unwrap_or_else(|| std::env::temp_dir().join("SystemMonitor"));
+    let log_dir = crate::app_paths::data_local_dir().unwrap_or_else(|| std::env::temp_dir().join("SystemMonitor"));
     let crash_dir = log_dir.join("crash-reports");
     let logs_dir = log_dir.join("logs");
     let _ = std::fs::create_dir_all(&crash_dir);

@@ -11,6 +11,14 @@ cargo test --locked --all-targets
 cargo build --locked --release --bin system-monitor
 ```
 
+Before a release candidate, also run:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Invoke-SysMonWindowsQa.ps1 -TelemetrySoakSeconds 300 -ProcessSoakMinutes 30
+```
+
+Attach the JSON soak report and complete `docs/WINDOWS_QA_MATRIX.md` on representative hardware. System-changing tests must target only disposable processes, services, startup entries, or a disposable VM snapshot.
+
 Provider changes should use normalized metric keys, return structured errors, avoid blocking the UI thread and include a deterministic test. Hardware-only tests should be ignored by default with a clear reason.
 
 Security-sensitive changes to updates, process/service control, release workflows or persistence need failure-path tests. Never weaken update checksum verification or add a bypass around it.

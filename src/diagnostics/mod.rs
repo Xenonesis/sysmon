@@ -1,3 +1,7 @@
+mod baseline;
+
+pub(crate) use baseline::{compare_to_baseline, SignalSample};
+
 use serde::Serialize;
 
 use crate::monitoring::SystemSnapshot;

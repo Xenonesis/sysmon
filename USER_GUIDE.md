@@ -6,13 +6,18 @@ Launch SysMon normally for monitoring. The Overview and sidebar show current CPU
 
 ## Find a slowdown
 
-1. Open **Diagnostics**.
-2. Press **Start recording** just before reproducing the problem.
-3. Reproduce the slowdown, then press **Stop recording**.
-4. Review each finding's severity, evidence, recommendation and confidence.
-5. Use **Processes**, **Storage**, **Services** or **Startup Manager** to inspect the component named by the evidence.
+1. Open **Diagnostics** and choose **Start guided diagnosis**.
+2. Leave the machine in its normal state while SysMon captures 15 baseline samples.
+3. When the card says **Reproduce now**, run the workload that feels slow.
+4. Choose **Finish capture and analyze**.
+5. Review the ranked CPU, memory, disk and network evidence, confidence, and likely process contributor.
+6. Use the evidence button to jump directly to **Processes**, **Storage**, **Network**, or **Timeline**.
 
-Recordings are newline-delimited JSON files in the local SysMon application-data directory. They are never uploaded automatically and may contain process names and hardware details, so review them before sharing.
+SysMon refuses to guess when a recording has fewer than three baseline and three incident samples. Recordings are newline-delimited JSON files in the local SysMon application-data directory. They are never uploaded automatically and may contain process names and hardware details, so review them before sharing.
+
+## Release-candidate validation
+
+Maintainers can run `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Invoke-SysMonWindowsQa.ps1` to execute locked build gates, real-provider smoke and sampling-quality checks, and a bounded process-resource soak. The full Windows 10/11, GPU, battery, DPI, sleep/resume, and disposable privileged-action checklist is in `docs/WINDOWS_QA_MATRIX.md`.
 
 ## Performance history
 

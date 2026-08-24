@@ -20,3 +20,4 @@ docs/downloads/*.spdx.json
 /.superpowers/
 /.inno/
 dist/
+/artifacts/
