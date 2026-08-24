@@ -34,6 +34,30 @@ use std::time::Instant;
 #[cfg(target_os = "windows")]
 use tray_icon::menu::MenuEvent;
 
+impl SystemMonitorApp {
+    fn handle_ui_intent(&mut self, intent: app::commands::UiIntent) {
+        match intent {
+            app::commands::UiIntent::OpenServicesConsole => {
+                #[cfg(target_os = "windows")]
+                if let Err(error) = std::process::Command::new("cmd")
+                    .args(["/c", "start", "services.msc"])
+                    .spawn()
+                {
+                    self.action_status = Some(format!("Could not open services.msc: {error}"));
+                }
+            }
+            app::commands::UiIntent::RelaunchAsAdmin => {
+                if !crate::privilege::relaunch_as_admin() {
+                    self.action_status = Some("Could not request administrator privileges".to_string());
+                }
+            }
+            app::commands::UiIntent::ControlService { name, action } => {
+                self.queue_action(app::commands::ActionCommand::ControlService { name, action });
+            }
+        }
+    }
+}
+
 impl eframe::App for SystemMonitorApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let ctx_clone = ctx.clone();
@@ -1655,7 +1679,9 @@ impl eframe::App for SystemMonitorApp {
                     });
                 });
             });
-        // Main content area
+        // Main content area. Pages emit intents; the application shell owns side effects.
+        let is_elevated = self.selected_tab == Tab::Services && privilege::is_app_elevated();
+        let mut ui_intents = Vec::new();
         egui::CentralPanel::default().show(ctx, |ui| match self.selected_tab {
             Tab::Overview => crate::ui::pages::overview::show(self, ui, &data),
             Tab::Performance => crate::ui::pages::performance::show(self, ui, &data),
@@ -1667,11 +1693,14 @@ impl eframe::App for SystemMonitorApp {
             Tab::Alerts => crate::ui::pages::alerts::show(self, ui, &data),
             Tab::RamCleaner => crate::ui::pages::ram_cleaner::show(self, ui, &data),
             Tab::StartupManager => crate::ui::pages::startup_manager::show(self, ui),
-            Tab::Services => crate::ui::pages::services::show(self, ui, &data),
+            Tab::Services => ui_intents.extend(crate::ui::pages::services::show(self, ui, &data, is_elevated)),
             Tab::Diagnostics => crate::ui::pages::diagnostics::show(self, ui, &data),
             Tab::Timeline => crate::ui::pages::timeline::show(self, ui),
             Tab::About => crate::ui::pages::about::show(self, ui, &data),
         });
+        for intent in ui_intents {
+            self.handle_ui_intent(intent);
+        }
         crate::ui::dialogs::render_action_confirmation(self, ctx);
         crate::ui::dialogs::render_action_history(self, ctx);
     }
@@ -1716,6 +1745,30 @@ mod tests {
         let loaded = crate::persistence::settings::load(&path).unwrap();
         assert_eq!(loaded.refresh_interval, settings.refresh_interval);
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn service_control_intent_keeps_confirmation_boundary() {
+        let mut app = SystemMonitorApp::test_app();
+        app.handle_ui_intent(app::commands::UiIntent::ControlService {
+            name: "BITS".to_string(),
+            action: services::ServiceControlAction::Stop,
+        });
+
+        let plan = app
+            .pending_action_plan
+            .as_ref()
+            .expect("service intent should create an action plan");
+        assert_eq!(plan.title, "Stop service BITS");
+        assert!(plan.requires_admin);
+        assert!(plan.reversible);
+        assert!(matches!(
+            &plan.command,
+            app::commands::ActionCommand::ControlService {
+                name,
+                action: services::ServiceControlAction::Stop,
+            } if name == "BITS"
+        ));
     }
 }
 fn main() {

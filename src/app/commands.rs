@@ -29,3 +29,14 @@ pub(crate) enum ActionCommand {
     QuarantineStartup { item_name: String, locator: StartupLocator },
     RestoreStartup { item_name: String, quarantine_id: String },
 }
+
+/// Side effects requested by presentation code and executed by the app shell.
+///
+/// Keeping these outside page rendering makes headless UI tests deterministic
+/// and prevents page modules from launching processes or calling Windows APIs.
+#[derive(Debug, Clone)]
+pub(crate) enum UiIntent {
+    OpenServicesConsole,
+    RelaunchAsAdmin,
+    ControlService { name: String, action: ServiceControlAction },
+}

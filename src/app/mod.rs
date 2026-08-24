@@ -2,6 +2,7 @@ pub(crate) mod actions;
 pub(crate) mod commands;
 pub(crate) mod events;
 pub mod models;
+pub(crate) mod page_state;
 pub(crate) mod worker;
 pub(crate) use worker::run_action_worker;
 

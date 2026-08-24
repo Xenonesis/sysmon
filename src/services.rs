@@ -40,12 +40,6 @@ pub fn sort_services_refs(services: &mut [&ServiceInfo], column: ServiceSortColu
     });
 }
 
-#[derive(Debug, Clone)]
-pub struct ServiceAction {
-    pub name: String,
-    pub action: ServiceControlAction,
-}
-
 #[derive(Debug, Clone, Copy)]
 pub enum ServiceControlAction {
     Start,
