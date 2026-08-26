@@ -297,6 +297,38 @@ pub fn lookup_details(sys: &System, pid: u32) -> Option<ProcessDetails> {
     })
 }
 
+/// Query the owner PID of whichever top-level or child window resides at screen coordinates (x, y).
+#[cfg(target_os = "windows")]
+pub fn get_process_id_from_screen_point(x: i32, y: i32) -> Option<u32> {
+    use windows_sys::Win32::Foundation::POINT;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetAncestor, GetWindowThreadProcessId, WindowFromPoint, GA_ROOT,
+    };
+
+    let pt = POINT { x, y };
+    unsafe {
+        let hwnd = WindowFromPoint(pt);
+        if hwnd.is_null() {
+            return None;
+        }
+        let root_hwnd = GetAncestor(hwnd, GA_ROOT);
+        let target_hwnd = if root_hwnd.is_null() { hwnd } else { root_hwnd };
+
+        let mut pid: u32 = 0;
+        GetWindowThreadProcessId(target_hwnd, &mut pid);
+        if pid != 0 {
+            Some(pid)
+        } else {
+            None
+        }
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn get_process_id_from_screen_point(_x: i32, _y: i32) -> Option<u32> {
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -479,5 +511,27 @@ mod tests {
             rows.iter().map(|row| row.process.pid).collect::<Vec<_>>(),
             vec![1, 2, 3]
         );
+    }
+}
+
+#[cfg(test)]
+mod window_picker_tests {
+    use super::*;
+
+    #[test]
+    fn test_point_outside_valid_screen_returns_none_or_desktop() {
+        // Offscreen / unreachable coordinates should handle gracefully without crashing or panicking
+        let pid = get_process_id_from_screen_point(-99999, -99999);
+        if let Some(p) = pid {
+            assert!(p < 10000000);
+        }
+    }
+
+    #[test]
+    fn test_point_at_origin_does_not_panic() {
+        let pid = get_process_id_from_screen_point(0, 0);
+        if let Some(p) = pid {
+            assert!(p > 0);
+        }
     }
 }
