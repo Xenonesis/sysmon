@@ -1,4 +1,5 @@
 //! Physical storage disk drive health, S.M.A.R.T. predictive status, and SSD diagnostics.
+pub mod file_locks;
 
 use serde::{Deserialize, Serialize};
 
