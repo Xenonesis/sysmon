@@ -355,6 +355,7 @@ pub fn get_current_cursor_screen_point() -> (i32, i32) {
 /// Query dedicated VRAM usage per process.
 /// Returns a map of PID -> used VRAM bytes.
 #[cfg(target_os = "windows")]
+#[allow(dead_code)]
 pub fn query_process_vram_map() -> HashMap<u32, u64> {
     if let Ok(nvml) = nvml_wrapper::Nvml::init() {
         query_process_vram_from_nvml(&nvml)
