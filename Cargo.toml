@@ -8,6 +8,10 @@ description = "A professional system monitoring application for Windows with GUI
 license = "MIT"
 repository = "https://github.com/Xenonesis/sysmon"
 
+[lib]
+name = "system_monitor"
+path = "src/lib.rs"
+
 [[bin]]
 name = "system-monitor"
 path = "src/main.rs"

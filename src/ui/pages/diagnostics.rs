@@ -317,7 +317,144 @@ pub(crate) fn show(app: &mut SystemMonitorApp, ui: &mut egui::Ui, data: &SystemD
                 ui.add_space(8.0);
             }
         }
+
+        ui.add_space(10.0);
+
+        // ── 3. BSOD & Crash Minidump History ──
+        paint_bsod_history_card(app, ui, is_dark);
     });
+}
+
+fn paint_bsod_history_card(app: &mut SystemMonitorApp, ui: &mut egui::Ui, is_dark: bool) {
+    if app.crash_reports.is_none() {
+        app.crash_reports = Some(crate::diagnostics::minidump::scan_recent_crashes());
+    }
+    let crashes = app.crash_reports.as_deref().unwrap_or(&[]);
+    let mut rescan_requested = false;
+
+    card_frame(is_dark).show(ui, |ui| {
+        ui.horizontal(|ui| {
+            ui.label(
+                egui::RichText::new("BSOD & CRASH MINIDUMP HISTORY")
+                    .size(11.0)
+                    .strong()
+                    .color(ThemePalette::text_secondary(is_dark)),
+            );
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui.small_button("⟳ Scan Dumps").clicked() {
+                    rescan_requested = true;
+                }
+                if crashes.is_empty() {
+                    status_pill(ui, "HEALTHY (0 CRASHES)", ThemePalette::STATUS_HEALTHY, is_dark);
+                } else {
+                    status_pill(
+                        ui,
+                        &format!("{} INCIDENT(S)", crashes.len()),
+                        ThemePalette::STATUS_CRITICAL,
+                        is_dark,
+                    );
+                }
+            });
+        });
+
+        ui.add_space(4.0);
+        ui.label(
+            egui::RichText::new(
+                "Kernel BSOD minidumps (%SystemRoot%\\Minidump) and application crash dumps (%LOCALAPPDATA%\\CrashDumps) decoded via offline diagnostic dictionary.",
+            )
+            .size(12.0)
+            .color(ThemePalette::text_secondary(is_dark)),
+        );
+
+        ui.add_space(8.0);
+        if crashes.is_empty() {
+            ui.group(|ui| {
+                ui.horizontal(|ui| {
+                    status_pill(ui, "HEALTHY", ThemePalette::STATUS_HEALTHY, is_dark);
+                    ui.label(
+                        egui::RichText::new(
+                            "No BSOD or application minidump crash files detected. System crash logs are clear.",
+                        )
+                        .size(12.5)
+                        .color(ThemePalette::text_primary(is_dark)),
+                    );
+                });
+            });
+        } else {
+            for crash in crashes {
+                ui.group(|ui| {
+                    ui.horizontal(|ui| {
+                        status_pill(
+                            ui,
+                            &format!("0x{:08X}", crash.bugcheck_code),
+                            ThemePalette::STATUS_CRITICAL,
+                            is_dark,
+                        );
+                        ui.label(
+                            egui::RichText::new(&crash.bugcheck_name)
+                                .strong()
+                                .size(13.5)
+                                .color(ThemePalette::text_primary(is_dark)),
+                        );
+
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.label(
+                                egui::RichText::new(&crash.timestamp)
+                                    .monospace()
+                                    .size(11.0)
+                                    .color(ThemePalette::text_dimmed(is_dark)),
+                            );
+                        });
+                    });
+
+                    ui.add_space(4.0);
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            egui::RichText::new(format!("Dump File: {}", crash.file_name))
+                                .monospace()
+                                .size(11.0)
+                                .color(ThemePalette::text_secondary(is_dark)),
+                        );
+                        if let Some(module) = &crash.faulting_module {
+                            status_pill(ui, &format!("Faulting: {module}"), ThemePalette::STATUS_WARNING, is_dark);
+                        }
+                    });
+
+                    ui.add_space(6.0);
+                    ui.label(
+                        egui::RichText::new("EXPLANATION")
+                            .size(10.0)
+                            .strong()
+                            .color(ThemePalette::text_secondary(is_dark)),
+                    );
+                    ui.label(
+                        egui::RichText::new(&crash.explanation)
+                            .size(12.0)
+                            .color(ThemePalette::text_primary(is_dark)),
+                    );
+
+                    ui.add_space(4.0);
+                    ui.label(
+                        egui::RichText::new("ACTIONABLE RECOMMENDATION")
+                            .size(10.0)
+                            .strong()
+                            .color(ThemePalette::ACCENT_PRIMARY),
+                    );
+                    ui.label(
+                        egui::RichText::new(&crash.recommendation)
+                            .strong()
+                            .size(12.0)
+                            .color(ThemePalette::text_primary(is_dark)),
+                    );
+                });
+                ui.add_space(6.0);
+            }
+        }
+    });
+
+    if rescan_requested {
+        app.crash_reports = Some(crate::diagnostics::minidump::scan_recent_crashes());
+    }
 }
 
 #[cfg(test)]
@@ -360,5 +497,38 @@ mod tests {
             );
         });
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn test_diagnostics_renders_with_crashes() {
+        let mut app = crate::SystemMonitorApp::test_app();
+        let data = SystemData::default();
+        app.crash_reports = Some(vec![
+            crate::diagnostics::minidump::MinidumpCrashReport {
+                file_name: "MEMORY.DMP".into(),
+                timestamp: "2026-08-27 10:00:00 UTC".into(),
+                bugcheck_code: 0x00000116,
+                bugcheck_name: "VIDEO_TDR_ERROR".into(),
+                explanation: "Display driver timed out".into(),
+                faulting_module: Some("nvlddmkm.sys".into()),
+                recommendation: "Reinstall GPU drivers".into(),
+            },
+            crate::diagnostics::minidump::MinidumpCrashReport {
+                file_name: "CRASH.DMP".into(),
+                timestamp: "2026-08-26 14:00:00 UTC".into(),
+                bugcheck_code: 0x0000003B,
+                bugcheck_name: "SYSTEM_SERVICE_EXCEPTION".into(),
+                explanation: "System service routine error".into(),
+                faulting_module: None,
+                recommendation: "Check driver updates".into(),
+            },
+        ]);
+
+        let ctx = egui::Context::default();
+        let _ = ctx.run(Default::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| show(&mut app, ui, &data));
+        });
+
+        assert_eq!(app.crash_reports.as_ref().unwrap().len(), 2);
     }
 }

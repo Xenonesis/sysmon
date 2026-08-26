@@ -64,6 +64,70 @@ impl ServicePageState {
     }
 }
 
+use crate::storage::file_locks::{find_locking_processes, FileLockResult};
+use crate::storage::reclaimer::{scan_reclaimable_caches, ReclaimCategory};
+use std::collections::HashSet;
+
+#[derive(Debug, Clone)]
+pub(crate) struct StoragePageState {
+    pub(crate) lock_path: String,
+    pub(crate) lock_result: Option<FileLockResult>,
+    pub(crate) lock_status: Option<String>,
+    pub(crate) reclaimer_categories: Vec<ReclaimCategory>,
+    pub(crate) reclaimer_selected: HashSet<String>,
+    pub(crate) reclaimer_scanned: bool,
+    pub(crate) reclaimer_status: Option<String>,
+}
+
+impl Default for StoragePageState {
+    fn default() -> Self {
+        let mut selected = HashSet::new();
+        selected.insert("shader_cache".to_string());
+        selected.insert("user_temp".to_string());
+        selected.insert("crash_dumps".to_string());
+        Self {
+            lock_path: String::new(),
+            lock_result: None,
+            lock_status: None,
+            reclaimer_categories: Vec::new(),
+            reclaimer_selected: selected,
+            reclaimer_scanned: false,
+            reclaimer_status: None,
+        }
+    }
+}
+
+impl StoragePageState {
+    pub(crate) fn scan_caches(&mut self) {
+        self.reclaimer_categories = scan_reclaimable_caches();
+        self.reclaimer_scanned = true;
+    }
+
+    pub(crate) fn inspect_locks(&mut self) {
+        let path = self.lock_path.trim();
+        if path.is_empty() {
+            self.lock_status = Some("Please provide a file, folder, or drive path.".into());
+            self.lock_result = None;
+            return;
+        }
+        let res = find_locking_processes(path);
+        self.lock_status = res.error.clone();
+        self.lock_result = Some(res);
+    }
+
+    pub(crate) fn toggle_category(&mut self, id: &str) {
+        if self.reclaimer_selected.contains(id) {
+            self.reclaimer_selected.remove(id);
+        } else {
+            self.reclaimer_selected.insert(id.to_string());
+        }
+    }
+
+    pub(crate) fn selected_category_ids(&self) -> Vec<String> {
+        self.reclaimer_selected.iter().cloned().collect()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

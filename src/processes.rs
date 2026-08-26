@@ -335,6 +335,23 @@ pub fn get_process_id_from_screen_point(_x: i32, _y: i32) -> Option<u32> {
     None
 }
 
+/// Query the current global screen cursor position (x, y).
+#[cfg(target_os = "windows")]
+pub fn get_current_cursor_screen_point() -> (i32, i32) {
+    use windows_sys::Win32::Foundation::POINT;
+    use windows_sys::Win32::UI::WindowsAndMessaging::GetCursorPos;
+    let mut pt = POINT { x: 0, y: 0 };
+    unsafe {
+        GetCursorPos(&mut pt);
+    }
+    (pt.x, pt.y)
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn get_current_cursor_screen_point() -> (i32, i32) {
+    (0, 0)
+}
+
 /// Query dedicated VRAM usage per process.
 /// Returns a map of PID -> used VRAM bytes.
 #[cfg(target_os = "windows")]

@@ -833,6 +833,9 @@ pub(crate) struct SystemMonitorApp {
     pub(crate) details_pid: Option<u32>,
     pub(crate) kill_tree_pid: Option<u32>,
     pub(crate) service_page: crate::app::page_state::ServicePageState,
+    pub(crate) storage_page: crate::app::page_state::StoragePageState,
+    pub(crate) crash_reports: Option<Vec<crate::diagnostics::minidump::MinidumpCrashReport>>,
+    pub(crate) window_picker_active: bool,
     pub(crate) process_search: String,
     pub(crate) process_sort_column: crate::processes::ProcessSortColumn,
     pub(crate) process_sort_ascending: bool,
@@ -908,7 +911,7 @@ pub(crate) struct SystemMonitorApp {
     pub(crate) start_minimized_applied: bool,
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum Tab {
     Overview,
     Performance,
@@ -1845,6 +1848,9 @@ impl SystemMonitorApp {
             affinity_change: None,
             network_socket_search: String::new(),
             service_page: crate::app::page_state::ServicePageState::default(),
+            storage_page: crate::app::page_state::StoragePageState::default(),
+            crash_reports: None,
+            window_picker_active: false,
             #[cfg(target_os = "windows")]
             tray_icon,
             #[cfg(target_os = "windows")]
@@ -1959,6 +1965,9 @@ impl SystemMonitorApp {
             affinity_change: None,
             network_socket_search: String::new(),
             service_page: crate::app::page_state::ServicePageState::default(),
+            storage_page: crate::app::page_state::StoragePageState::default(),
+            crash_reports: None,
+            window_picker_active: false,
             #[cfg(target_os = "windows")]
             tray_icon: None,
             #[cfg(target_os = "windows")]

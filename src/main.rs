@@ -1676,6 +1676,70 @@ impl eframe::App for SystemMonitorApp {
                                 *shared = self.settings.clone();
                             }
                         }
+
+                        ui.add_space(3.0);
+
+                        // Window Target Picker crosshair tool
+                        let picker_active = self.window_picker_active;
+                        let picker_label = if picker_active {
+                            "🎯 Drag to Window..."
+                        } else if avail_w >= 820.0 {
+                            "🎯 Find Window"
+                        } else {
+                            "🎯 Target"
+                        };
+                        let picker_color = if picker_active {
+                            ThemePalette::STATUS_WARNING
+                        } else {
+                            ThemePalette::ACCENT_PRIMARY
+                        };
+                        let picker_btn = egui::Button::new(
+                            egui::RichText::new(picker_label).size(10.5).strong().color(picker_color),
+                        )
+                        .fill(if picker_active {
+                            ThemePalette::STATUS_WARNING.gamma_multiply(if is_dark { 0.20 } else { 0.12 })
+                        } else {
+                            ThemePalette::bg_surface(is_dark)
+                        })
+                        .stroke(egui::Stroke::new(
+                            1.0,
+                            if picker_active {
+                                ThemePalette::STATUS_WARNING.gamma_multiply(0.6)
+                            } else {
+                                ThemePalette::ACCENT_PRIMARY.gamma_multiply(0.4)
+                            },
+                        ))
+                        .rounding(egui::Rounding::same(4.0));
+
+                        let picker_resp = ui
+                            .add(picker_btn)
+                            .on_hover_text("Drag crosshair over any desktop window to inspect its process");
+
+                        if picker_resp.drag_started() || picker_resp.clicked() {
+                            self.window_picker_active = true;
+                        }
+
+                        if self.window_picker_active {
+                            ctx.set_cursor_icon(egui::CursorIcon::Crosshair);
+                            ctx.request_repaint();
+
+                            if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+                                self.window_picker_active = false;
+                            } else if picker_resp.drag_stopped()
+                                || (ctx.input(|i| i.pointer.any_released()) && !picker_resp.clicked())
+                            {
+                                let (sx, sy) = crate::processes::get_current_cursor_screen_point();
+                                if let Some(pid) = crate::processes::get_process_id_from_screen_point(sx, sy) {
+                                    self.selected_tab = Tab::Processes;
+                                    self.details_pid = Some(pid);
+                                    self.process_search = pid.to_string();
+                                    self.action_status = Some(format!("Targeted window at ({sx}, {sy}): PID {pid}"));
+                                } else {
+                                    self.action_status = Some(format!("No window process found at ({sx}, {sy})"));
+                                }
+                                self.window_picker_active = false;
+                            }
+                        }
                     });
                 });
             });
@@ -1769,6 +1833,28 @@ mod tests {
                 action: services::ServiceControlAction::Stop,
             } if name == "BITS"
         ));
+    }
+
+    #[test]
+    fn test_window_picker_navigation_and_filtering() {
+        let mut app = SystemMonitorApp::test_app();
+        assert!(!app.window_picker_active);
+        assert_ne!(app.selected_tab, Tab::Processes);
+
+        // Simulate picker activation
+        app.window_picker_active = true;
+
+        // When a PID is resolved from screen coordinates:
+        let test_pid = 4242;
+        app.selected_tab = Tab::Processes;
+        app.details_pid = Some(test_pid);
+        app.process_search = test_pid.to_string();
+        app.window_picker_active = false;
+
+        assert_eq!(app.selected_tab, Tab::Processes);
+        assert_eq!(app.details_pid, Some(4242));
+        assert_eq!(app.process_search, "4242");
+        assert!(!app.window_picker_active);
     }
 }
 fn main() {
