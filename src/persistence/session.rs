@@ -435,10 +435,12 @@ mod tests {
 
         let diagnosis = analyze_session_against_baseline(&jsonl_file).unwrap();
         assert_eq!(diagnosis.primary_signal, "CPU");
-        assert!(diagnosis
-            .contributor
-            .as_deref()
-            .is_some_and(|value| value.contains("encoder.exe")));
+        assert!(
+            diagnosis
+                .contributor
+                .as_deref()
+                .is_some_and(|value| value.contains("encoder.exe"))
+        );
         assert_eq!(diagnosis.baseline_samples, 3);
 
         fs::remove_dir_all(temp_dir).unwrap();

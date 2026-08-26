@@ -58,11 +58,7 @@ pub fn filter_processes<'a>(items: &'a [ProcessInfo], query: &str) -> Vec<&'a Pr
 /// In-place sort of references. `Status` falls back to memory (no status ordering defined).
 pub fn sort_processes_refs(items: &mut [&ProcessInfo], column: ProcessSortColumn, ascending: bool) {
     fn ord(o: std::cmp::Ordering, ascending: bool) -> std::cmp::Ordering {
-        if ascending {
-            o
-        } else {
-            o.reverse()
-        }
+        if ascending { o } else { o.reverse() }
     }
 
     items.sort_by(|a, b| match column {
@@ -75,10 +71,7 @@ pub fn sort_processes_refs(items: &mut [&ProcessInfo], column: ProcessSortColumn
             ascending,
         ),
         ProcessSortColumn::Memory => ord(a.memory.cmp(&b.memory), ascending),
-        ProcessSortColumn::Vram => ord(
-            a.vram_bytes.unwrap_or(0).cmp(&b.vram_bytes.unwrap_or(0)),
-            ascending,
-        ),
+        ProcessSortColumn::Vram => ord(a.vram_bytes.unwrap_or(0).cmp(&b.vram_bytes.unwrap_or(0)), ascending),
         ProcessSortColumn::Disk => ord(
             (a.disk_read_bytes + a.disk_written_bytes).cmp(&(b.disk_read_bytes + b.disk_written_bytes)),
             ascending,
@@ -260,7 +253,7 @@ pub fn build_tree_rows(items: &[ProcessInfo], tree: &HashMap<u32, Vec<u32>>, que
 pub fn set_process_affinity(pid: u32, mask: usize) -> Result<(), String> {
     use windows_sys::Win32::Foundation::{CloseHandle, GetLastError};
     use windows_sys::Win32::System::Threading::{
-        OpenProcess, SetProcessAffinityMask, PROCESS_QUERY_INFORMATION, PROCESS_SET_INFORMATION,
+        OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_SET_INFORMATION, SetProcessAffinityMask,
     };
 
     unsafe {
@@ -308,7 +301,7 @@ pub fn lookup_details(sys: &System, pid: u32) -> Option<ProcessDetails> {
 pub fn get_process_id_from_screen_point(x: i32, y: i32) -> Option<u32> {
     use windows_sys::Win32::Foundation::POINT;
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        GetAncestor, GetWindowThreadProcessId, WindowFromPoint, GA_ROOT,
+        GA_ROOT, GetAncestor, GetWindowThreadProcessId, WindowFromPoint,
     };
 
     let pt = POINT { x, y };
@@ -322,11 +315,7 @@ pub fn get_process_id_from_screen_point(x: i32, y: i32) -> Option<u32> {
 
         let mut pid: u32 = 0;
         GetWindowThreadProcessId(target_hwnd, &mut pid);
-        if pid != 0 {
-            Some(pid)
-        } else {
-            None
-        }
+        if pid != 0 { Some(pid) } else { None }
     }
 }
 

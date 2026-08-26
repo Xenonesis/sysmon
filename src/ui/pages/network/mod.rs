@@ -1,9 +1,9 @@
 pub(crate) mod interfaces;
 pub(crate) mod sockets;
 
+use crate::SystemData;
 use crate::ui::components::*;
 use crate::ui::theme::ThemePalette;
-use crate::SystemData;
 use eframe::egui;
 
 /// Coordinator function for rendering the Network Interfaces & Telemetry page.

@@ -1634,11 +1634,7 @@ impl eframe::App for SystemMonitorApp {
                         // Mini-Widget / HUD Toggle button
                         let hud_open = self.widget_open;
                         let hud_label = if hud_open {
-                            if avail_w >= 820.0 {
-                                "◰ HUD ON"
-                            } else {
-                                "◰ ON"
-                            }
+                            if avail_w >= 820.0 { "◰ HUD ON" } else { "◰ ON" }
                         } else {
                             "◰ HUD"
                         };
@@ -1694,7 +1690,10 @@ impl eframe::App for SystemMonitorApp {
                             ThemePalette::ACCENT_PRIMARY
                         };
                         let picker_btn = egui::Button::new(
-                            egui::RichText::new(picker_label).size(10.5).strong().color(picker_color),
+                            egui::RichText::new(picker_label)
+                                .size(10.5)
+                                .strong()
+                                .color(picker_color),
                         )
                         .fill(if picker_active {
                             ThemePalette::STATUS_WARNING.gamma_multiply(if is_dark { 0.20 } else { 0.12 })
@@ -1877,8 +1876,8 @@ fn main() {
 
         const ERROR_ALREADY_EXISTS: u32 = 183;
         if last_error == ERROR_ALREADY_EXISTS {
+            use windows::Win32::UI::WindowsAndMessaging::{MB_ICONINFORMATION, MB_OK, MessageBoxW};
             use windows::core::PCWSTR;
-            use windows::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_ICONINFORMATION, MB_OK};
 
             let title: Vec<u16> = "System Monitor\0".encode_utf16().collect();
             let msg: Vec<u16> = "System Monitor is already running.\n\nCheck your system tray or taskbar.\0"
@@ -1948,8 +1947,8 @@ fn main() {
         // Show a MessageBox on Windows so the user sees feedback instead of silent crash
         #[cfg(target_os = "windows")]
         {
+            use windows::Win32::UI::WindowsAndMessaging::{MB_ICONERROR, MB_OK, MessageBoxW};
             use windows::core::PCWSTR;
-            use windows::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_ICONERROR, MB_OK};
 
             let title: Vec<u16> = "System Monitor — Unexpected Error\0".encode_utf16().collect();
             let msg_text = format!(
@@ -2019,8 +2018,8 @@ fn main() {
 
             #[cfg(target_os = "windows")]
             {
+                use windows::Win32::UI::WindowsAndMessaging::{MB_ICONERROR, MB_OK, MessageBoxW};
                 use windows::core::PCWSTR;
-                use windows::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_ICONERROR, MB_OK};
 
                 let title: Vec<u16> = "System Monitor — Startup Error\0".encode_utf16().collect();
                 let msg_text = format!(

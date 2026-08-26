@@ -309,10 +309,7 @@ mod tests {
 
     #[test]
     fn test_parse_ipv6_formatting() {
-        let raw_bytes: [u8; 16] = [
-            0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0x01,
-        ];
+        let raw_bytes: [u8; 16] = [0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x01];
         let formatted = parse_ipv6_addr(&raw_bytes, 443u32.to_be() << 16);
         assert!(formatted.contains("[2001:db8::1]"));
         // port 443 in network byte order in lower 16 bits

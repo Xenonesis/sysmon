@@ -1,4 +1,4 @@
-use crate::timeline::{analyze_window, TimelineEventKind, TimelineQuery, TimelineRange};
+use crate::timeline::{TimelineEventKind, TimelineQuery, TimelineRange, analyze_window};
 use crate::ui::components::*;
 use crate::ui::theme::ThemePalette;
 use eframe::egui;

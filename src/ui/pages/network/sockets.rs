@@ -1,6 +1,6 @@
+use crate::SystemData;
 use crate::ui::components::*;
 use crate::ui::theme::ThemePalette;
-use crate::SystemData;
 use eframe::egui;
 
 /// Renders the active TCP/UDP sockets and process connections table with search filter toolbar.

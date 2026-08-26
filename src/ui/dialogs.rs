@@ -1,7 +1,7 @@
 //! Global modal dialogs: action confirmations, action history, keyboard shortcuts.
 
 use crate::ui::theme::ThemePalette;
-use crate::{app, SystemMonitorApp};
+use crate::{SystemMonitorApp, app};
 use eframe::egui;
 
 pub(crate) fn render_action_confirmation(app: &mut SystemMonitorApp, ctx: &egui::Context) {

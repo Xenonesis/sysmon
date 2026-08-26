@@ -79,11 +79,7 @@ pub(crate) fn filter_and_sort_indices(app: &crate::SystemMonitorApp) -> Vec<usiz
                 pa.cmp(&pb)
             }
         };
-        if ascending {
-            cmp
-        } else {
-            cmp.reverse()
-        }
+        if ascending { cmp } else { cmp.reverse() }
     });
 
     filtered_indices

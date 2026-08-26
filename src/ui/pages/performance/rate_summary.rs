@@ -1,6 +1,6 @@
+use crate::SystemData;
 use crate::ui::components::*;
 use crate::ui::theme::ThemePalette;
-use crate::SystemData;
 use eframe::egui;
 
 /// Renders the statistical summary card covering sample intervals (60s, 5m, 30m, 1h).

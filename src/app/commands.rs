@@ -1,4 +1,4 @@
-use crate::{services::ServiceControlAction, startup::StartupLocator, AppSettings};
+use crate::{AppSettings, services::ServiceControlAction, startup::StartupLocator};
 
 #[derive(Debug, Clone)]
 pub(crate) enum MonitoringCommand {

@@ -1,4 +1,4 @@
-use crate::persistence::session::{analyze_session_against_baseline, SessionDiagnosis};
+use crate::persistence::session::{SessionDiagnosis, analyze_session_against_baseline};
 use crate::ui::components::{card_frame, paint_progress_bar, status_pill};
 use crate::ui::theme::ThemePalette;
 use crate::{SystemMonitorApp, Tab};

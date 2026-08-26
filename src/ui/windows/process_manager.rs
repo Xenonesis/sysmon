@@ -99,11 +99,7 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ctx: &egui::Context, data:
                 let header_btn =
                     |ui: &mut egui::Ui, label: &str, width: f32, col: ProcessSortColumn| -> egui::Response {
                         let arrow = if col == sort_col {
-                            if sort_asc {
-                                " ▲"
-                            } else {
-                                " ▼"
-                            }
+                            if sort_asc { " ▲" } else { " ▼" }
                         } else {
                             ""
                         };
@@ -267,10 +263,7 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ctx: &egui::Context, data:
                                     ui.add_sized(
                                         [70.0, row_height],
                                         egui::Label::new(
-                                            egui::RichText::new(vram_str)
-                                                .monospace()
-                                                .size(11.5)
-                                                .color(text_color),
+                                            egui::RichText::new(vram_str).monospace().size(11.5).color(text_color),
                                         ),
                                     );
 

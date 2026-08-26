@@ -251,7 +251,11 @@ mod tests {
         assert!(result.error.is_none());
         let current_pid = std::process::id();
         let has_current_proc = result.processes.iter().any(|p| p.pid == current_pid);
-        assert!(has_current_proc, "Expected current process (PID {}) to be detected locking {:?}, found: {:?}", current_pid, test_file, result.processes);
+        assert!(
+            has_current_proc,
+            "Expected current process (PID {}) to be detected locking {:?}, found: {:?}",
+            current_pid, test_file, result.processes
+        );
 
         drop(f);
         let _ = std::fs::remove_file(test_file);

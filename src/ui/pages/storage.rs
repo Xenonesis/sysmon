@@ -582,19 +582,17 @@ fn paint_reclaimer_card(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, is
             );
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let clean_btn = egui::Button::new(
-                    egui::RichText::new("Clean Selected Caches")
-                        .size(12.0)
-                        .strong()
-                        .color(if selected_bytes > 0 {
+                let clean_btn =
+                    egui::Button::new(egui::RichText::new("Clean Selected Caches").size(12.0).strong().color(
+                        if selected_bytes > 0 {
                             ThemePalette::STATUS_WARNING
                         } else {
                             ThemePalette::text_dimmed(is_dark)
-                        }),
-                )
-                .fill(ThemePalette::STATUS_WARNING.gamma_multiply(if is_dark { 0.18 } else { 0.12 }))
-                .stroke(egui::Stroke::new(1.0, ThemePalette::STATUS_WARNING.gamma_multiply(0.5)))
-                .rounding(egui::Rounding::same(4.0));
+                        },
+                    ))
+                    .fill(ThemePalette::STATUS_WARNING.gamma_multiply(if is_dark { 0.18 } else { 0.12 }))
+                    .stroke(egui::Stroke::new(1.0, ThemePalette::STATUS_WARNING.gamma_multiply(0.5)))
+                    .rounding(egui::Rounding::same(4.0));
 
                 let has_selection = !app.storage_page.reclaimer_selected.is_empty();
                 ui.add_enabled_ui(has_selection, |ui| {

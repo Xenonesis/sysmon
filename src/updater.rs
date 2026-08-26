@@ -200,8 +200,8 @@ impl Updater {
         }
         #[cfg(target_os = "windows")]
         {
-            use winreg::enums::*;
             use winreg::RegKey;
+            use winreg::enums::*;
             let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
             let key = format!(
                 r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{}_is1",
@@ -363,10 +363,12 @@ mod tests {
 
     #[test]
     fn accepts_expected_release_asset() {
-        assert!(validate_asset_url(
-            "https://github.com/Xenonesis/sysmon/releases/download/v2.6.0/SystemMonitor-2.6.0-setup.exe"
-        )
-        .is_ok());
+        assert!(
+            validate_asset_url(
+                "https://github.com/Xenonesis/sysmon/releases/download/v2.6.0/SystemMonitor-2.6.0-setup.exe"
+            )
+            .is_ok()
+        );
     }
 
     #[test]
@@ -383,10 +385,12 @@ mod tests {
 
     #[test]
     fn accepts_expected_checksum_asset() {
-        assert!(validate_checksum_url(
-            "https://github.com/Xenonesis/sysmon/releases/download/v3.7.6/SystemMonitor-3.7.6-setup.exe.sha256"
-        )
-        .is_ok());
+        assert!(
+            validate_checksum_url(
+                "https://github.com/Xenonesis/sysmon/releases/download/v3.7.6/SystemMonitor-3.7.6-setup.exe.sha256"
+            )
+            .is_ok()
+        );
     }
 
     #[test]
@@ -396,11 +400,13 @@ mod tests {
             validate_release_pair(installer, &format!("{installer}.sha256")).unwrap(),
             "SystemMonitor-3.8.0-setup.exe"
         );
-        assert!(validate_release_pair(
-            installer,
-            "https://github.com/Xenonesis/sysmon/releases/download/v3.7.7/SystemMonitor-3.7.7-setup.exe.sha256"
-        )
-        .is_err());
+        assert!(
+            validate_release_pair(
+                installer,
+                "https://github.com/Xenonesis/sysmon/releases/download/v3.7.7/SystemMonitor-3.7.7-setup.exe.sha256"
+            )
+            .is_err()
+        );
     }
 
     #[test]

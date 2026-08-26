@@ -1393,8 +1393,8 @@ pub fn restore_startup(_id: &str) -> Result<StartupQuarantineRecord, String> {
 #[cfg(any())]
 #[allow(dead_code)]
 pub fn remove_startup_item(name: &str, source: &str) -> bool {
-    use winreg::enums::*;
     use winreg::RegKey;
+    use winreg::enums::*;
 
     if source.contains("HKCU") {
         let hkcu = RegKey::predef(HKEY_CURRENT_USER);
@@ -1476,8 +1476,8 @@ pub fn remove_startup_item(name: &str, source: &str) -> bool {
 #[cfg(any())]
 #[allow(dead_code)]
 pub fn disable_startup_item(name: &str, source: &str, _command: &str) -> bool {
-    use winreg::enums::*;
     use winreg::RegKey;
+    use winreg::enums::*;
 
     let disabled_bytes: [u8; 12] = [0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
 
@@ -1561,8 +1561,8 @@ pub fn disable_startup_item(name: &str, source: &str, _command: &str) -> bool {
 #[cfg(any())]
 #[allow(dead_code)]
 pub fn reenable_startup_item(name: &str, source: &str) -> bool {
-    use winreg::enums::*;
     use winreg::RegKey;
+    use winreg::enums::*;
 
     let enabled_bytes: [u8; 12] = [0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
 
@@ -1674,7 +1674,7 @@ pub fn search_online(name: &str) {
 }
 
 fn urlenccode(s: &str) -> String {
-    use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
+    use percent_encoding::{NON_ALPHANUMERIC, utf8_percent_encode};
     utf8_percent_encode(s, NON_ALPHANUMERIC).to_string()
 }
 

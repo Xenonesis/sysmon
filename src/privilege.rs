@@ -4,7 +4,7 @@
 pub fn is_app_elevated() -> bool {
     use std::mem;
     use windows::Win32::Foundation::CloseHandle;
-    use windows::Win32::Security::{GetTokenInformation, TokenElevation, TOKEN_ELEVATION, TOKEN_QUERY};
+    use windows::Win32::Security::{GetTokenInformation, TOKEN_ELEVATION, TOKEN_QUERY, TokenElevation};
     use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 
     struct HandleGuard(windows::Win32::Foundation::HANDLE);
@@ -41,8 +41,8 @@ pub fn is_app_elevated() -> bool {
 pub fn relaunch_as_admin() -> bool {
     use std::ffi::OsStr;
     use std::os::windows::ffi::OsStrExt;
-    use windows::Win32::UI::Shell::ShellExecuteExW;
     use windows::Win32::UI::Shell::SHELLEXECUTEINFOW;
+    use windows::Win32::UI::Shell::ShellExecuteExW;
     use windows::Win32::UI::WindowsAndMessaging::SW_SHOW;
 
     if let Ok(path) = std::env::current_exe() {

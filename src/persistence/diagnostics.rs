@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::{app::models::AppTheme, monitoring::SystemSnapshot, AppSettings};
+use crate::{AppSettings, app::models::AppTheme, monitoring::SystemSnapshot};
 use serde::Serialize;
 
 #[derive(Serialize)]

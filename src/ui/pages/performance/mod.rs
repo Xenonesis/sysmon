@@ -1,9 +1,9 @@
 pub(crate) mod plots;
 pub(crate) mod rate_summary;
 
+use crate::SystemData;
 use crate::ui::components::*;
 use crate::ui::theme::ThemePalette;
-use crate::SystemData;
 use eframe::egui;
 
 /// Coordinator function for rendering the Performance page.

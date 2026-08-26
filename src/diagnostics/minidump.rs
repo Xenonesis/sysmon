@@ -1,7 +1,7 @@
 //! Native Windows Minidump (.dmp) parser and crash explanation dictionary.
 
 use serde::{Deserialize, Serialize};
-use std::fs::{read_dir, File};
+use std::fs::{File, read_dir};
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
@@ -93,7 +93,8 @@ pub fn lookup_bugcheck_info(code: u32, module: Option<&str>) -> (&'static str, &
         _ => {
             if let Some(m) = module {
                 let lower = m.to_ascii_lowercase();
-                if lower.contains("nvld") || lower.contains("amdk") || lower.contains("atik") || lower.contains("igdk") {
+                if lower.contains("nvld") || lower.contains("amdk") || lower.contains("atik") || lower.contains("igdk")
+                {
                     (
                         "GPU_KERNEL_CRASH",
                         "A crash occurred inside the graphics card kernel-mode driver.",
@@ -172,12 +173,9 @@ pub fn parse_minidump_file(path: &Path) -> Result<MinidumpCrashReport, String> {
                     // First pass: locate ExceptionStream (StreamType = 6)
                     for i in 0..num_streams as usize {
                         let offset = i * 12;
-                        let stream_type =
-                            u32::from_le_bytes(dir_entries[offset..offset + 4].try_into().unwrap());
-                        let data_size =
-                            u32::from_le_bytes(dir_entries[offset + 4..offset + 8].try_into().unwrap());
-                        let rva =
-                            u32::from_le_bytes(dir_entries[offset + 8..offset + 12].try_into().unwrap());
+                        let stream_type = u32::from_le_bytes(dir_entries[offset..offset + 4].try_into().unwrap());
+                        let data_size = u32::from_le_bytes(dir_entries[offset + 4..offset + 8].try_into().unwrap());
+                        let rva = u32::from_le_bytes(dir_entries[offset + 8..offset + 12].try_into().unwrap());
 
                         if stream_type == 6 && data_size >= 12 {
                             let read_len = (data_size as usize).min(1024);
@@ -186,13 +184,11 @@ pub fn parse_minidump_file(path: &Path) -> Result<MinidumpCrashReport, String> {
                                     let mut exc_buf = vec![0u8; read_len];
                                     if f.read_exact(&mut exc_buf).is_ok() {
                                         // ExceptionCode is at offset 8 in MINIDUMP_EXCEPTION_STREAM
-                                        bugcheck_code =
-                                            u32::from_le_bytes(exc_buf[8..12].try_into().unwrap());
+                                        bugcheck_code = u32::from_le_bytes(exc_buf[8..12].try_into().unwrap());
                                         // ExceptionAddress is at offset 24 (u64)
                                         if exc_buf.len() >= 32 {
-                                            exception_address = Some(u64::from_le_bytes(
-                                                exc_buf[24..32].try_into().unwrap(),
-                                            ));
+                                            exception_address =
+                                                Some(u64::from_le_bytes(exc_buf[24..32].try_into().unwrap()));
                                         }
                                     }
                                 }
@@ -204,12 +200,9 @@ pub fn parse_minidump_file(path: &Path) -> Result<MinidumpCrashReport, String> {
                     if let Some(exc_addr) = exception_address {
                         for i in 0..num_streams as usize {
                             let offset = i * 12;
-                            let stream_type =
-                                u32::from_le_bytes(dir_entries[offset..offset + 4].try_into().unwrap());
-                            let data_size =
-                                u32::from_le_bytes(dir_entries[offset + 4..offset + 8].try_into().unwrap());
-                            let rva =
-                                u32::from_le_bytes(dir_entries[offset + 8..offset + 12].try_into().unwrap());
+                            let stream_type = u32::from_le_bytes(dir_entries[offset..offset + 4].try_into().unwrap());
+                            let data_size = u32::from_le_bytes(dir_entries[offset + 4..offset + 8].try_into().unwrap());
+                            let rva = u32::from_le_bytes(dir_entries[offset + 8..offset + 12].try_into().unwrap());
 
                             if stream_type == 4 && data_size >= 4 {
                                 if (rva as u64).saturating_add(4) <= file_len {
@@ -225,72 +218,44 @@ pub fn parse_minidump_file(path: &Path) -> Result<MinidumpCrashReport, String> {
                                                 if f.seek(SeekFrom::Start(mod_offset)).is_ok() {
                                                     let mut mod_buf = [0u8; 108];
                                                     if f.read_exact(&mut mod_buf).is_ok() {
-                                                        let base = u64::from_le_bytes(
-                                                            mod_buf[0..8].try_into().unwrap(),
-                                                        );
-                                                        let size = u32::from_le_bytes(
-                                                            mod_buf[8..12].try_into().unwrap(),
-                                                        );
-                                                        let name_rva = u32::from_le_bytes(
-                                                            mod_buf[20..24].try_into().unwrap(),
-                                                        );
+                                                        let base =
+                                                            u64::from_le_bytes(mod_buf[0..8].try_into().unwrap());
+                                                        let size =
+                                                            u32::from_le_bytes(mod_buf[8..12].try_into().unwrap());
+                                                        let name_rva =
+                                                            u32::from_le_bytes(mod_buf[20..24].try_into().unwrap());
 
                                                         if exc_addr >= base
                                                             && exc_addr < base.saturating_add(size as u64)
                                                         {
                                                             // Read MINIDUMP_STRING at name_rva
-                                                            if (name_rva as u64).saturating_add(4)
-                                                                <= file_len
-                                                            {
-                                                                if f.seek(SeekFrom::Start(
-                                                                    name_rva as u64,
-                                                                ))
-                                                                .is_ok()
-                                                                {
+                                                            if (name_rva as u64).saturating_add(4) <= file_len {
+                                                                if f.seek(SeekFrom::Start(name_rva as u64)).is_ok() {
                                                                     let mut str_hdr = [0u8; 4];
-                                                                    if f.read_exact(&mut str_hdr).is_ok()
-                                                                    {
-                                                                        let str_len = u32::from_le_bytes(
-                                                                            str_hdr,
-                                                                        )
-                                                                        .min(512);
-                                                                        if (name_rva as u64)
-                                                                            + 4
-                                                                            + (str_len as u64)
+                                                                    if f.read_exact(&mut str_hdr).is_ok() {
+                                                                        let str_len =
+                                                                            u32::from_le_bytes(str_hdr).min(512);
+                                                                        if (name_rva as u64) + 4 + (str_len as u64)
                                                                             <= file_len
                                                                         {
                                                                             let mut str_bytes =
                                                                                 vec![0u8; str_len as usize];
-                                                                            if f.read_exact(&mut str_bytes)
-                                                                                .is_ok()
-                                                                            {
-                                                                                let u16_chars: Vec<u16> =
-                                                                                    str_bytes
-                                                                                        .chunks_exact(2)
-                                                                                        .map(|c| {
-                                                                                            u16::from_le_bytes(
-                                                                                                [
-                                                                                                    c[0],
-                                                                                                    c[1],
-                                                                                                ],
-                                                                                            )
-                                                                                        })
-                                                                                        .collect();
-                                                                                let full_str =
-                                                                                    String::from_utf16_lossy(
-                                                                                        &u16_chars,
-                                                                                    );
-                                                                                let file_part = Path::new(
-                                                                                    &full_str,
-                                                                                )
-                                                                                .file_name()
-                                                                                .and_then(|n| {
-                                                                                    n.to_str()
-                                                                                })
-                                                                                .unwrap_or(&full_str);
-                                                                                faulting_module = Some(
-                                                                                    file_part.to_string(),
+                                                                            if f.read_exact(&mut str_bytes).is_ok() {
+                                                                                let u16_chars: Vec<u16> = str_bytes
+                                                                                    .chunks_exact(2)
+                                                                                    .map(|c| {
+                                                                                        u16::from_le_bytes([c[0], c[1]])
+                                                                                    })
+                                                                                    .collect();
+                                                                                let full_str = String::from_utf16_lossy(
+                                                                                    &u16_chars,
                                                                                 );
+                                                                                let file_part = Path::new(&full_str)
+                                                                                    .file_name()
+                                                                                    .and_then(|n| n.to_str())
+                                                                                    .unwrap_or(&full_str);
+                                                                                faulting_module =
+                                                                                    Some(file_part.to_string());
                                                                                 break;
                                                                             }
                                                                         }

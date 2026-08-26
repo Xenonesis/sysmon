@@ -12,8 +12,8 @@ use tracing::{info, warn};
 use nvml_wrapper::Nvml;
 #[cfg(target_os = "windows")]
 use tray_icon::{
-    menu::{CheckMenuItem, Menu, MenuItem, Submenu},
     TrayIconBuilder,
+    menu::{CheckMenuItem, Menu, MenuItem, Submenu},
 };
 
 impl SystemMonitor {
@@ -346,7 +346,7 @@ impl SystemMonitor {
     #[cfg(target_os = "windows")]
     pub(crate) fn set_process_priority(pid: u32, priority: &str) -> bool {
         use windows::Win32::Foundation::CloseHandle;
-        use windows::Win32::System::Threading::{OpenProcess, SetPriorityClass, PROCESS_CREATION_FLAGS};
+        use windows::Win32::System::Threading::{OpenProcess, PROCESS_CREATION_FLAGS, SetPriorityClass};
 
         let priority_class: PROCESS_CREATION_FLAGS = match priority {
             "Realtime" => windows::Win32::System::Threading::REALTIME_PRIORITY_CLASS,
@@ -543,11 +543,7 @@ impl SystemMonitor {
             });
         }
 
-        if gpus.is_empty() {
-            None
-        } else {
-            Some(gpus)
-        }
+        if gpus.is_empty() { None } else { Some(gpus) }
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -616,13 +612,8 @@ impl SystemMonitor {
                 _ => None,
             })
         };
-        let motherboard = one("SELECT Manufacturer, Product FROM Win32_BaseBoard", "Manufacturer").map(|m| {
-            if m.trim().is_empty() {
-                "N/A".to_string()
-            } else {
-                m
-            }
-        });
+        let motherboard = one("SELECT Manufacturer, Product FROM Win32_BaseBoard", "Manufacturer")
+            .map(|m| if m.trim().is_empty() { "N/A".to_string() } else { m });
         let bios_version = one("SELECT SMBIOSBIOSVersion FROM Win32_BIOS", "SMBIOSBIOSVersion");
         let gpu_driver = one("SELECT DriverVersion FROM Win32_VideoController", "DriverVersion");
         let os_build = one("SELECT BuildNumber FROM Win32_OperatingSystem", "BuildNumber");

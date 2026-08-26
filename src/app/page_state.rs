@@ -64,8 +64,8 @@ impl ServicePageState {
     }
 }
 
-use crate::storage::file_locks::{find_locking_processes, FileLockResult};
-use crate::storage::reclaimer::{scan_reclaimable_caches, ReclaimCategory};
+use crate::storage::file_locks::{FileLockResult, find_locking_processes};
+use crate::storage::reclaimer::{ReclaimCategory, scan_reclaimable_caches};
 use std::collections::HashSet;
 
 #[derive(Debug, Clone)]

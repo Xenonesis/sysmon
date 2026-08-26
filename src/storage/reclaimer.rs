@@ -164,8 +164,7 @@ pub fn scan_reclaimable_caches() -> Vec<ReclaimCategory> {
 }
 
 pub fn clean_reclaimable_category(id: &str) -> Result<(u64, usize), String> {
-    let paths = resolve_category_paths(id)
-        .ok_or_else(|| format!("Unknown reclaim category '{id}'"))?;
+    let paths = resolve_category_paths(id).ok_or_else(|| format!("Unknown reclaim category '{id}'"))?;
 
     let mut reclaimed_bytes = 0u64;
     let mut deleted_count = 0usize;
@@ -216,7 +215,7 @@ fn clean_dir_contents(dir: &Path, reclaimed_bytes: &mut u64, deleted_count: &mut
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs::{create_dir_all, File};
+    use std::fs::{File, create_dir_all};
     use std::io::Write;
 
     #[test]
@@ -282,7 +281,10 @@ mod tests {
         assert_eq!(reclaimed_bytes, 1000);
         assert_eq!(deleted_count, 1);
         assert!(!unlocked_file.exists(), "unlocked file should have been deleted");
-        assert!(locked_file.exists(), "locked file should still exist and be gracefully skipped");
+        assert!(
+            locked_file.exists(),
+            "locked file should still exist and be gracefully skipped"
+        );
 
         drop(_held_file);
         let _ = std::fs::remove_dir_all(&temp_dir);
@@ -357,7 +359,10 @@ mod tests {
             clean_dir_contents(&clean_root, &mut reclaimed_bytes, &mut deleted_count);
 
             // Target file in target_dir MUST still exist!
-            assert!(target_file.exists(), "Target file in target_dir was deleted through symlink recursion!");
+            assert!(
+                target_file.exists(),
+                "Target file in target_dir was deleted through symlink recursion!"
+            );
         }
 
         let _ = std::fs::remove_dir_all(&temp_dir);

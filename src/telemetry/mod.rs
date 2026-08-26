@@ -13,7 +13,7 @@ use crate::providers::TelemetryProvider;
 use ring_buffer::{MetricStats, MultiResolutionHistory};
 use scheduler::PollingScheduler;
 use std::collections::HashMap;
-use std::sync::{mpsc, Arc, RwLock};
+use std::sync::{Arc, RwLock, mpsc};
 use std::time::Duration;
 
 #[derive(Clone, Debug, Default)]

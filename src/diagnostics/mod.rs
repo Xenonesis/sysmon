@@ -2,7 +2,7 @@ pub mod minidump;
 
 mod baseline;
 
-pub(crate) use baseline::{compare_to_baseline, SignalSample};
+pub(crate) use baseline::{SignalSample, compare_to_baseline};
 
 use serde::Serialize;
 

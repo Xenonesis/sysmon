@@ -32,11 +32,7 @@ pub fn sort_services_refs(services: &mut [&ServiceInfo], column: ServiceSortColu
                     .then_with(|| a.display_name.to_lowercase().cmp(&b.display_name.to_lowercase()))
             }
         };
-        if ascending {
-            cmp
-        } else {
-            cmp.reverse()
-        }
+        if ascending { cmp } else { cmp.reverse() }
     });
 }
 

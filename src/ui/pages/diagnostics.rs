@@ -3,7 +3,7 @@ mod guided;
 use crate::diagnostics::{self, Severity};
 use crate::ui::components::{card_frame, paint_progress_bar, paint_section_header, status_pill};
 use crate::ui::theme::ThemePalette;
-use crate::{snapshot_from_data, SystemData, SystemMonitorApp};
+use crate::{SystemData, SystemMonitorApp, snapshot_from_data};
 use eframe::egui;
 
 pub(crate) fn show(app: &mut SystemMonitorApp, ui: &mut egui::Ui, data: &SystemData) {

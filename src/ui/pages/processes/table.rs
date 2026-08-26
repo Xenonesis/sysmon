@@ -79,7 +79,6 @@ pub(super) fn paint_process_table(
                 }
             }
 
-
             if header_button(ui, "VRAM", vram_w, ProcessSortColumn::Vram, sort_col, sort_asc).clicked() {
                 if app.process_sort_column == ProcessSortColumn::Vram {
                     app.process_sort_ascending = !app.process_sort_ascending;
@@ -289,10 +288,7 @@ pub(super) fn paint_process_table(
                             ui.add_sized(
                                 [vram_w, row_height],
                                 egui::Label::new(
-                                    egui::RichText::new(vram_label)
-                                        .monospace()
-                                        .size(11.5)
-                                        .color(vram_color),
+                                    egui::RichText::new(vram_label).monospace().size(11.5).color(vram_color),
                                 ),
                             );
 

@@ -499,8 +499,8 @@ impl Default for AppSettings {
 impl AppSettings {
     #[cfg(target_os = "windows")]
     pub fn set_auto_start(&self, enable: bool) -> Result<(), Box<dyn std::error::Error>> {
-        use winreg::enums::*;
         use winreg::RegKey;
+        use winreg::enums::*;
 
         let hkcu = RegKey::predef(HKEY_CURRENT_USER);
         let path = r"Software\Microsoft\Windows\CurrentVersion\Run";

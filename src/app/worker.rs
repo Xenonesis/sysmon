@@ -192,14 +192,20 @@ mod tests {
         });
 
         cmd_tx
-            .send(commands::ActionCommand::ReclaimStorageCaches(vec!["invalid_category_xyz".into()]))
+            .send(commands::ActionCommand::ReclaimStorageCaches(vec![
+                "invalid_category_xyz".into(),
+            ]))
             .expect("send command");
 
         let event = evt_rx.recv().expect("receive event");
         match event {
             events::AppEvent::ActionFailed { record, .. } => {
                 assert!(!record.succeeded);
-                assert!(record.message.contains("Unknown reclaim category 'invalid_category_xyz'"));
+                assert!(
+                    record
+                        .message
+                        .contains("Unknown reclaim category 'invalid_category_xyz'")
+                );
             }
             events::AppEvent::ActionCompleted { .. } => {
                 panic!("Action should have failed on invalid category");
