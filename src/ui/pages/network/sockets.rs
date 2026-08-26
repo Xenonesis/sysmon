@@ -43,7 +43,7 @@ pub(crate) fn paint_socket_connections(
             );
             ui.add(
                 egui::TextEdit::singleline(&mut app.network_socket_search)
-                    .hint_text("Filter by PID, Port, Remote IP, Process...")
+                    .hint_text("Filter by PID, Port, Remote IP, Process, IPv6...")
                     .desired_width(280.0),
             );
             if !app.network_socket_search.is_empty() && ui.small_button("×").clicked() {
@@ -65,7 +65,7 @@ pub(crate) fn paint_socket_connections(
             ui.add_space(12.0);
         } else {
             // Contained Responsive Socket Table
-            egui::ScrollArea::vertical()
+            egui::ScrollArea::both()
                 .max_height(340.0)
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
@@ -107,7 +107,7 @@ pub(crate) fn paint_socket_connections(
                             ui.end_row();
 
                             for conn in filtered_conns.iter().take(200) {
-                                let proto_color = if conn.protocol == "TCP" {
+                                let proto_color = if conn.protocol.starts_with("TCP") {
                                     ThemePalette::ACCENT_PRIMARY
                                 } else {
                                     ThemePalette::STATUS_WARNING

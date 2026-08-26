@@ -143,4 +143,43 @@ mod tests {
             });
         });
     }
+
+    #[test]
+    fn test_network_page_ipv6_sockets_render() {
+        let mut app = crate::SystemMonitorApp::test_app();
+        let mut data = SystemData::default();
+        data.socket_connections = vec![
+            crate::network::SocketConnection {
+                protocol: "TCPv6",
+                local_addr: "[::1]:8080".to_string(),
+                remote_addr: "[2001:db8::1]:443".to_string(),
+                state: "ESTABLISHED",
+                pid: 1234,
+                process_name: Some("test_ipv6.exe".to_string()),
+            },
+            crate::network::SocketConnection {
+                protocol: "UDPv6",
+                local_addr: "[::]:5353".to_string(),
+                remote_addr: "[::]:*".to_string(),
+                state: "LISTEN",
+                pid: 5678,
+                process_name: Some("mdns.exe".to_string()),
+            },
+        ];
+
+        let ctx = egui::Context::default();
+        let _ = ctx.run(Default::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                sockets::paint_socket_connections(&mut app, ui, &data, true);
+            });
+        });
+
+        // Also test filtering by IPv6 bracketed address
+        app.network_socket_search = "2001:db8".to_string();
+        let _ = ctx.run(Default::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                sockets::paint_socket_connections(&mut app, ui, &data, false);
+            });
+        });
+    }
 }

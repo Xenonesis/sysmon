@@ -1,7 +1,7 @@
 //! Active TCP and UDP socket connection monitoring with process PID resolution.
 
 use std::collections::HashMap;
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, Ipv6Addr};
 
 #[derive(Debug, Clone, serde::Serialize, PartialEq)]
 pub struct SocketConnection {
@@ -13,6 +13,13 @@ pub struct SocketConnection {
     pub process_name: Option<String>,
 }
 
+/// Parse an IPv6 address from a 16-byte array and a port in network byte order in lower 16 bits.
+pub fn parse_ipv6_addr(bytes: &[u8; 16], port_raw: u32) -> String {
+    let ip = Ipv6Addr::from(*bytes);
+    let port = u16::from_be((port_raw & 0xFFFF) as u16);
+    format!("[{ip}]:{port}")
+}
+
 #[cfg(target_os = "windows")]
 mod windows_impl {
     use super::*;
@@ -20,6 +27,7 @@ mod windows_impl {
     const AF_INET: u32 = 2;
     const TCP_TABLE_OWNER_PID_ALL: u32 = 5;
     const UDP_TABLE_OWNER_PID: u32 = 1;
+    const AF_INET6: u32 = 23;
 
     #[repr(C)]
     #[derive(Copy, Clone)]
@@ -36,6 +44,28 @@ mod windows_impl {
     #[derive(Copy, Clone)]
     struct MIB_UDPROW_OWNER_PID {
         dw_local_addr: u32,
+        dw_local_port: u32,
+        dw_owning_pid: u32,
+    }
+
+    #[repr(C)]
+    #[derive(Copy, Clone)]
+    struct MIB_TCP6ROW_OWNER_PID {
+        uc_local_addr: [u8; 16],
+        dw_local_scope_id: u32,
+        dw_local_port: u32,
+        uc_remote_addr: [u8; 16],
+        dw_remote_scope_id: u32,
+        dw_remote_port: u32,
+        dw_state: u32,
+        dw_owning_pid: u32,
+    }
+
+    #[repr(C)]
+    #[derive(Copy, Clone)]
+    struct MIB_UDP6ROW_OWNER_PID {
+        uc_local_addr: [u8; 16],
+        dw_local_scope_id: u32,
         dw_local_port: u32,
         dw_owning_pid: u32,
     }
@@ -146,6 +176,63 @@ mod windows_impl {
             }
         }
 
+        // 3. Fetch IPv6 TCP Table
+        unsafe {
+            let mut size: u32 = 0;
+            let _ = GetExtendedTcpTable(std::ptr::null_mut(), &mut size, 0, AF_INET6, TCP_TABLE_OWNER_PID_ALL, 0);
+            if size > 0 {
+                let mut buffer = vec![0u8; size as usize];
+                if GetExtendedTcpTable(buffer.as_mut_ptr(), &mut size, 0, AF_INET6, TCP_TABLE_OWNER_PID_ALL, 0) == 0 {
+                    let num_entries = *(buffer.as_ptr() as *const u32) as usize;
+                    let table_ptr = buffer.as_ptr().add(std::mem::size_of::<u32>()) as *const MIB_TCP6ROW_OWNER_PID;
+                    for i in 0..num_entries {
+                        let row = *table_ptr.add(i);
+                        let local = parse_ipv6_addr(&row.uc_local_addr, row.dw_local_port);
+                        let remote = if row.uc_remote_addr == [0u8; 16] {
+                            "[::]:*".to_string()
+                        } else {
+                            parse_ipv6_addr(&row.uc_remote_addr, row.dw_remote_port)
+                        };
+
+                        connections.push(SocketConnection {
+                            protocol: "TCPv6",
+                            local_addr: local,
+                            remote_addr: remote,
+                            state: tcp_state_str(row.dw_state),
+                            pid: row.dw_owning_pid,
+                            process_name: None,
+                        });
+                    }
+                }
+            }
+        }
+
+        // 4. Fetch IPv6 UDP Table
+        unsafe {
+            let mut size: u32 = 0;
+            let _ = GetExtendedUdpTable(std::ptr::null_mut(), &mut size, 0, AF_INET6, UDP_TABLE_OWNER_PID, 0);
+            if size > 0 {
+                let mut buffer = vec![0u8; size as usize];
+                if GetExtendedUdpTable(buffer.as_mut_ptr(), &mut size, 0, AF_INET6, UDP_TABLE_OWNER_PID, 0) == 0 {
+                    let num_entries = *(buffer.as_ptr() as *const u32) as usize;
+                    let table_ptr = buffer.as_ptr().add(std::mem::size_of::<u32>()) as *const MIB_UDP6ROW_OWNER_PID;
+                    for i in 0..num_entries {
+                        let row = *table_ptr.add(i);
+                        let local = parse_ipv6_addr(&row.uc_local_addr, row.dw_local_port);
+
+                        connections.push(SocketConnection {
+                            protocol: "UDPv6",
+                            local_addr: local,
+                            remote_addr: "[::]:*".to_string(),
+                            state: "LISTEN",
+                            pid: row.dw_owning_pid,
+                            process_name: None,
+                        });
+                    }
+                }
+            }
+        }
+
         connections
     }
 }
@@ -218,5 +305,23 @@ mod tests {
         assert_eq!(filter_connections(&items, "server").len(), 1);
         assert_eq!(filter_connections(&items, "UDP").len(), 1);
         assert_eq!(filter_connections(&items, "").len(), 2);
+    }
+
+    #[test]
+    fn test_parse_ipv6_formatting() {
+        let raw_bytes: [u8; 16] = [
+            0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0x01,
+        ];
+        let formatted = parse_ipv6_addr(&raw_bytes, 443u32.to_be() << 16);
+        assert!(formatted.contains("[2001:db8::1]"));
+        // port 443 in network byte order in lower 16 bits
+        let formatted_direct = parse_ipv6_addr(&raw_bytes, 443);
+        assert!(formatted_direct.contains("[2001:db8::1]"));
+
+        // Test loopback IPv6 and port 80 in network byte order
+        let loopback = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
+        let port_80_nbo = 80u16.to_be() as u32;
+        assert_eq!(parse_ipv6_addr(&loopback, port_80_nbo), "[::1]:80");
     }
 }
