@@ -82,7 +82,7 @@ pub fn find_locking_processes(path: &str) -> FileLockResult {
     }
 
     #[link(name = "rstrtmgr")]
-    extern "system" {
+    unsafe extern "system" {
         fn RmStartSession(pSessionHandle: *mut u32, dwSessionFlags: u32, strSessionKey: *mut u16) -> u32;
         fn RmRegisterResources(
             dwSessionHandle: u32,

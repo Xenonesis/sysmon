@@ -53,7 +53,7 @@ pub(crate) fn get_battery_info(wmi_con: &wmi::WMIConnection) -> Option<BatteryIn
 }
 
 #[cfg(target_os = "windows")]
-extern "system" {
+unsafe extern "system" {
     fn MessageBeep(u_type: u32) -> i32;
 }
 

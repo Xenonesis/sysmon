@@ -1862,7 +1862,7 @@ fn main() {
     // Prevent multiple copies from running simultaneously using a Windows named mutex.
     #[cfg(target_os = "windows")]
     {
-        extern "system" {
+        unsafe extern "system" {
             fn CreateMutexW(
                 lp_mutex_attributes: *const std::ffi::c_void,
                 b_initial_owner: i32,

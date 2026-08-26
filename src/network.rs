@@ -71,7 +71,7 @@ mod windows_impl {
     }
 
     #[link(name = "iphlpapi")]
-    extern "system" {
+    unsafe extern "system" {
         fn GetExtendedTcpTable(
             pTcpTable: *mut u8,
             pdwSize: *mut u32,
