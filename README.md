@@ -253,7 +253,7 @@ Provider changes must use normalized metric keys, return structured errors, avoi
 
 ## Technology stack
 
-- **Language:** Rust 2021 edition, 1.85+, MSVC toolchain, with `Cargo.lock` committed for reproducible builds.
+- **Language:** Rust 2024 edition, 1.85+, MSVC toolchain, with `Cargo.lock` committed for reproducible builds.
 - **GUI:** egui / eframe with hardware-accelerated rendering, dark and light themes.
 - **Telemetry sources:** `sysinfo`, NVML bindings, the `wmi` crate and native Windows GPU performance counters.
 - **Concurrency:** plain OS threads with `parking_lot` mutexes; no async runtime.
