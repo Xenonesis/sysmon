@@ -331,16 +331,28 @@ fn paint_lock_inspector_card(app: &mut crate::SystemMonitorApp, ui: &mut egui::U
         ui.add_space(8.0);
         ui.horizontal(|ui| {
             let avail_w = ui.available_width();
-            let input_w = (avail_w - 210.0).max(160.0);
+            let input_w = (avail_w - 270.0).max(140.0);
             let path_input = egui::TextEdit::singleline(&mut app.storage_page.lock_path)
                 .hint_text("Enter file path or drive letter (e.g. D:\\ or C:\\file.ext)...")
                 .desired_width(input_w);
             ui.add(path_input);
 
-            if ui.button(egui::RichText::new("Browse...").size(12.0)).clicked() {
+            if ui
+                .button(egui::RichText::new("📁 File...").size(12.0))
+                .on_hover_text("Browse for a file to inspect")
+                .clicked()
+            {
                 if let Some(file_path) = rfd::FileDialog::new().pick_file() {
                     app.storage_page.lock_path = file_path.to_string_lossy().to_string();
-                } else if let Some(folder_path) = rfd::FileDialog::new().pick_folder() {
+                }
+            }
+
+            if ui
+                .button(egui::RichText::new("📂 Folder...").size(12.0))
+                .on_hover_text("Browse for a folder or drive to inspect")
+                .clicked()
+            {
+                if let Some(folder_path) = rfd::FileDialog::new().pick_folder() {
                     app.storage_page.lock_path = folder_path.to_string_lossy().to_string();
                 }
             }
