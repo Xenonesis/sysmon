@@ -87,6 +87,7 @@ mod tests {
                 name: "browser.exe".to_string(),
                 cpu_usage: 5.0,
                 memory: 500 * 1024 * 1024,
+                vram_bytes: None,
                 disk_read_bytes: 0,
                 disk_written_bytes: 0,
                 status: "Running".to_string(),

@@ -110,6 +110,15 @@ impl SystemMonitor {
     }
 
     fn get_top_processes(&self, count: usize) -> Vec<crate::processes::ProcessInfo> {
+        #[cfg(target_os = "windows")]
+        let vram_map = if let Some(nvml) = &self.nvml {
+            crate::processes::query_process_vram_from_nvml(nvml)
+        } else {
+            crate::processes::query_process_vram_map()
+        };
+        #[cfg(not(target_os = "windows"))]
+        let vram_map = crate::processes::query_process_vram_map();
+
         let cpu_count = self.sys.cpus().len().max(1) as f32;
         let mut processes: Vec<_> = self
             .sys
@@ -133,6 +142,7 @@ impl SystemMonitor {
                     parent_pid: process.parent().map(|p| p.as_u32()),
                     cpu_usage: process.cpu_usage() / cpu_count,
                     memory: process.memory(),
+                    vram_bytes: vram_map.get(&pid.as_u32()).copied(),
                     status: format!("{:?}", process.status()),
                     disk_read_bytes: process.disk_usage().read_bytes,
                     disk_written_bytes: process.disk_usage().written_bytes,
@@ -2034,12 +2044,17 @@ impl SystemMonitorApp {
 
         // Top processes header
         wtr.write_record(["", "", ""])?; // Empty line
-        wtr.write_record(["Process PID", "Name", "Memory MB", "CPU %"])?;
+        wtr.write_record(["Process PID", "Name", "Memory MB", "VRAM MB", "CPU %"])?;
         for proc in &data.top_processes {
+            let vram_str = proc
+                .vram_bytes
+                .map(|b| format!("{:.2}", crate::ui::components::bytes_to_mb(b)))
+                .unwrap_or_else(|| "-".to_string());
             wtr.write_record([
                 &proc.pid.to_string(),
                 &proc.name,
                 &format!("{:.2}", crate::ui::components::bytes_to_mb(proc.memory)),
+                &vram_str,
                 &format!("{:.2}", proc.cpu_usage),
             ])?;
         }

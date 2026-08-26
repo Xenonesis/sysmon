@@ -14,16 +14,18 @@ pub struct ProcessInfo {
     pub parent_pid: Option<u32>,
     pub cpu_usage: f32,
     pub memory: u64,
+    pub vram_bytes: Option<u64>,
     pub status: String,
     pub disk_read_bytes: u64,
     pub disk_written_bytes: u64,
 }
 
-#[derive(PartialEq, Clone, Copy)]
+#[derive(PartialEq, Clone, Copy, Debug)]
 pub enum ProcessSortColumn {
     Pid,
     Name,
     Memory,
+    Vram,
     Cpu,
     Disk,
 }
@@ -73,6 +75,10 @@ pub fn sort_processes_refs(items: &mut [&ProcessInfo], column: ProcessSortColumn
             ascending,
         ),
         ProcessSortColumn::Memory => ord(a.memory.cmp(&b.memory), ascending),
+        ProcessSortColumn::Vram => ord(
+            a.vram_bytes.unwrap_or(0).cmp(&b.vram_bytes.unwrap_or(0)),
+            ascending,
+        ),
         ProcessSortColumn::Disk => ord(
             (a.disk_read_bytes + a.disk_written_bytes).cmp(&(b.disk_read_bytes + b.disk_written_bytes)),
             ascending,
@@ -329,6 +335,49 @@ pub fn get_process_id_from_screen_point(_x: i32, _y: i32) -> Option<u32> {
     None
 }
 
+/// Query dedicated VRAM usage per process.
+/// Returns a map of PID -> used VRAM bytes.
+#[cfg(target_os = "windows")]
+pub fn query_process_vram_map() -> HashMap<u32, u64> {
+    if let Ok(nvml) = nvml_wrapper::Nvml::init() {
+        query_process_vram_from_nvml(&nvml)
+    } else {
+        HashMap::new()
+    }
+}
+
+/// Query dedicated VRAM usage per process given an existing NVML instance.
+#[cfg(target_os = "windows")]
+pub fn query_process_vram_from_nvml(nvml: &nvml_wrapper::Nvml) -> HashMap<u32, u64> {
+    let mut map = HashMap::new();
+    if let Ok(device_count) = nvml.device_count() {
+        for i in 0..device_count {
+            if let Ok(device) = nvml.device_by_index(i) {
+                if let Ok(processes) = device.running_graphics_processes() {
+                    for proc_info in processes {
+                        if let nvml_wrapper::enums::device::UsedGpuMemory::Used(bytes) = proc_info.used_gpu_memory {
+                            *map.entry(proc_info.pid).or_insert(0) += bytes;
+                        }
+                    }
+                }
+                if let Ok(processes) = device.running_compute_processes() {
+                    for proc_info in processes {
+                        if let nvml_wrapper::enums::device::UsedGpuMemory::Used(bytes) = proc_info.used_gpu_memory {
+                            *map.entry(proc_info.pid).or_insert(0) += bytes;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    map
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn query_process_vram_map() -> HashMap<u32, u64> {
+    HashMap::new()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -341,6 +390,7 @@ mod tests {
             parent_pid: None,
             cpu_usage: cpu,
             memory: mem,
+            vram_bytes: None,
             status: status.to_string(),
             disk_read_bytes: 0,
             disk_written_bytes: 0,
@@ -426,6 +476,102 @@ mod tests {
         sort_processes_refs(&mut refs, ProcessSortColumn::Disk, false);
         let pids: Vec<u32> = refs.iter().map(|x| x.pid).collect();
         assert_eq!(pids, vec![2, 1, 3]);
+    }
+
+    #[test]
+    fn test_process_sort_by_vram() {
+        let p1 = ProcessInfo {
+            pid: 100,
+            start_time: 0,
+            name: "Game.exe".into(),
+            parent_pid: None,
+            cpu_usage: 5.0,
+            memory: 1000,
+            vram_bytes: Some(4 * 1024 * 1024 * 1024), // 4 GB
+            status: "Running".into(),
+            disk_read_bytes: 0,
+            disk_written_bytes: 0,
+        };
+        let p2 = ProcessInfo {
+            pid: 200,
+            start_time: 0,
+            name: "Browser.exe".into(),
+            parent_pid: None,
+            cpu_usage: 1.0,
+            memory: 500,
+            vram_bytes: Some(512 * 1024 * 1024), // 512 MB
+            status: "Running".into(),
+            disk_read_bytes: 0,
+            disk_written_bytes: 0,
+        };
+
+        let mut items = vec![&p2, &p1];
+        sort_processes_refs(&mut items, ProcessSortColumn::Vram, false);
+        // Descending sort by VRAM: Game.exe (4GB) should come first
+        assert_eq!(items[0].pid, 100);
+    }
+
+    #[test]
+    fn test_process_sort_by_vram_ascending_and_none() {
+        let p1 = ProcessInfo {
+            pid: 100,
+            start_time: 0,
+            name: "Game.exe".into(),
+            parent_pid: None,
+            cpu_usage: 5.0,
+            memory: 1000,
+            vram_bytes: Some(4 * 1024 * 1024 * 1024),
+            status: "Running".into(),
+            disk_read_bytes: 0,
+            disk_written_bytes: 0,
+        };
+        let p2 = ProcessInfo {
+            pid: 200,
+            start_time: 0,
+            name: "Browser.exe".into(),
+            parent_pid: None,
+            cpu_usage: 1.0,
+            memory: 500,
+            vram_bytes: Some(512 * 1024 * 1024),
+            status: "Running".into(),
+            disk_read_bytes: 0,
+            disk_written_bytes: 0,
+        };
+        let p3 = ProcessInfo {
+            pid: 300,
+            start_time: 0,
+            name: "Idle.exe".into(),
+            parent_pid: None,
+            cpu_usage: 0.0,
+            memory: 100,
+            vram_bytes: None,
+            status: "Running".into(),
+            disk_read_bytes: 0,
+            disk_written_bytes: 0,
+        };
+
+        let mut items = vec![&p1, &p2, &p3];
+        sort_processes_refs(&mut items, ProcessSortColumn::Vram, true);
+        // Ascending: None (0), 512MB, 4GB
+        assert_eq!(items[0].pid, 300);
+        assert_eq!(items[1].pid, 200);
+        assert_eq!(items[2].pid, 100);
+
+        sort_processes_refs(&mut items, ProcessSortColumn::Vram, false);
+        // Descending: 4GB, 512MB, None (0)
+        assert_eq!(items[0].pid, 100);
+        assert_eq!(items[1].pid, 200);
+        assert_eq!(items[2].pid, 300);
+    }
+
+    #[test]
+    fn test_query_process_vram_map_execution() {
+        // Validates query_process_vram_map runs safely without panicking
+        let map = query_process_vram_map();
+        for (&pid, &bytes) in &map {
+            assert!(pid > 0);
+            assert!(bytes > 0);
+        }
     }
 
     #[test]

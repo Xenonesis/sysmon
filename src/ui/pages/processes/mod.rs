@@ -60,6 +60,10 @@ mod tests {
             sort_header_label("Memory", ProcessSortColumn::Memory, ProcessSortColumn::Memory, false),
             "Memory ▼"
         );
+        assert_eq!(
+            sort_header_label("VRAM", ProcessSortColumn::Vram, ProcessSortColumn::Vram, false),
+            "VRAM ▼"
+        );
     }
 
     #[test]
@@ -84,6 +88,7 @@ mod tests {
                 name: "system_service.exe".to_string(),
                 cpu_usage: 25.0,
                 memory: 600 * 1024 * 1024,
+                vram_bytes: Some(512 * 1024 * 1024),
                 disk_read_bytes: 5_000_000,
                 disk_written_bytes: 2_500_000,
                 status: "Running".to_string(),
@@ -95,6 +100,7 @@ mod tests {
                 name: "browser_worker.exe".to_string(),
                 cpu_usage: 12.0,
                 memory: 300 * 1024 * 1024,
+                vram_bytes: Some(3 * 1024 * 1024 * 1024),
                 disk_read_bytes: 1_000_000,
                 disk_written_bytes: 500_000,
                 status: "Running".to_string(),
@@ -106,6 +112,7 @@ mod tests {
                 name: "background_daemon.exe".to_string(),
                 cpu_usage: 1.5,
                 memory: 50 * 1024 * 1024,
+                vram_bytes: None,
                 disk_read_bytes: 100_000,
                 disk_written_bytes: 50_000,
                 status: "Running".to_string(),
@@ -182,6 +189,7 @@ mod tests {
                 name: "test_very_long_process_name_exceeding_thirty_six_characters_limit.exe".to_string(),
                 cpu_usage: 5.0,
                 memory: 100 * 1024 * 1024,
+                vram_bytes: None,
                 disk_read_bytes: 0,
                 disk_written_bytes: 0,
                 status: "Running".to_string(),

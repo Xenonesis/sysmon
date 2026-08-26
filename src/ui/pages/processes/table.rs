@@ -16,12 +16,13 @@ pub(super) fn paint_process_table(
         let spacing = 8.0;
         let pid_w = 60.0;
         let mem_w = 85.0;
+        let vram_w = 75.0;
         let cpu_w = 70.0;
         let disk_read_w = 85.0;
         let disk_write_w = 85.0;
         let action_w = 175.0;
 
-        let fixed_w = pid_w + mem_w + cpu_w + disk_read_w + disk_write_w + action_w + (6.0 * spacing);
+        let fixed_w = pid_w + mem_w + vram_w + cpu_w + disk_read_w + disk_write_w + action_w + (7.0 * spacing);
         let name_w = (total_w - fixed_w).max(180.0);
 
         // Sticky Header with sortable columns
@@ -78,6 +79,15 @@ pub(super) fn paint_process_table(
                 }
             }
 
+
+            if header_button(ui, "VRAM", vram_w, ProcessSortColumn::Vram, sort_col, sort_asc).clicked() {
+                if app.process_sort_column == ProcessSortColumn::Vram {
+                    app.process_sort_ascending = !app.process_sort_ascending;
+                } else {
+                    app.process_sort_column = ProcessSortColumn::Vram;
+                    app.process_sort_ascending = false;
+                }
+            }
             if header_button(ui, "CPU %", cpu_w, ProcessSortColumn::Cpu, sort_col, sort_asc).clicked() {
                 if app.process_sort_column == ProcessSortColumn::Cpu {
                     app.process_sort_ascending = !app.process_sort_ascending;
@@ -257,6 +267,34 @@ pub(super) fn paint_process_table(
                             } else {
                                 ThemePalette::text_dimmed(is_dark)
                             };
+
+                            // VRAM
+                            let (vram_label, vram_color) = match process.vram_bytes {
+                                Some(bytes) => {
+                                    let vram_mb = bytes_to_mb(bytes);
+                                    let color = if vram_mb > 2048.0 {
+                                        ThemePalette::STATUS_CRITICAL
+                                    } else if vram_mb > 512.0 {
+                                        ThemePalette::STATUS_WARNING
+                                    } else if vram_mb > 0.0 {
+                                        ThemePalette::text_primary(is_dark)
+                                    } else {
+                                        ThemePalette::text_dimmed(is_dark)
+                                    };
+                                    (format!("{:.1} MB", vram_mb), color)
+                                }
+                                None => ("-".to_string(), ThemePalette::text_dimmed(is_dark)),
+                            };
+
+                            ui.add_sized(
+                                [vram_w, row_height],
+                                egui::Label::new(
+                                    egui::RichText::new(vram_label)
+                                        .monospace()
+                                        .size(11.5)
+                                        .color(vram_color),
+                                ),
+                            );
 
                             ui.add_sized(
                                 [cpu_w, row_height],

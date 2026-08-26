@@ -175,6 +175,7 @@ mod tests {
             name: "sysmon.exe".to_string(),
             cpu_usage: 1.2,
             memory: 128 * 1024 * 1024,
+            vram_bytes: None,
             disk_read_bytes: 1000,
             disk_written_bytes: 2000,
             status: "Running".to_string(),
