@@ -114,10 +114,10 @@ impl SystemMonitor {
         let vram_map = if let Some(nvml) = &self.nvml {
             crate::processes::query_process_vram_from_nvml(nvml)
         } else {
-            crate::processes::query_process_vram_map()
+            std::collections::HashMap::new()
         };
         #[cfg(not(target_os = "windows"))]
-        let vram_map = crate::processes::query_process_vram_map();
+        let vram_map = std::collections::HashMap::new();
 
         let cpu_count = self.sys.cpus().len().max(1) as f32;
         let mut processes: Vec<_> = self

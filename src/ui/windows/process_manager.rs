@@ -145,6 +145,14 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ctx: &egui::Context, data:
                             app.process_sort_ascending = false;
                         }
                     }
+                    if header_btn(ui, "VRAM", 70.0, ProcessSortColumn::Vram).clicked() {
+                        if app.process_sort_column == ProcessSortColumn::Vram {
+                            app.process_sort_ascending = !app.process_sort_ascending;
+                        } else {
+                            app.process_sort_column = ProcessSortColumn::Vram;
+                            app.process_sort_ascending = false;
+                        }
+                    }
                     if header_btn(ui, "CPU %", 65.0, ProcessSortColumn::Cpu).clicked() {
                         if app.process_sort_column == ProcessSortColumn::Cpu {
                             app.process_sort_ascending = !app.process_sort_ascending;
@@ -194,7 +202,7 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ctx: &egui::Context, data:
                             }
 
                             let (row_rect, _) = ui.allocate_exact_size(
-                                egui::vec2(ui.available_width().max(660.0), row_height),
+                                egui::vec2(ui.available_width().max(730.0), row_height),
                                 egui::Sense::hover(),
                             );
 
@@ -245,6 +253,21 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ctx: &egui::Context, data:
                                         [80.0, row_height],
                                         egui::Label::new(
                                             egui::RichText::new(format!("{:.1} MB", memory_mb))
+                                                .monospace()
+                                                .size(11.5)
+                                                .color(text_color),
+                                        ),
+                                    );
+
+                                    // VRAM
+                                    let vram_str = match process.vram_bytes {
+                                        Some(bytes) => format!("{:.1} MB", bytes_to_mb(bytes)),
+                                        None => "—".to_string(),
+                                    };
+                                    ui.add_sized(
+                                        [70.0, row_height],
+                                        egui::Label::new(
+                                            egui::RichText::new(vram_str)
                                                 .monospace()
                                                 .size(11.5)
                                                 .color(text_color),
