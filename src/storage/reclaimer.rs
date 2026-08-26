@@ -195,6 +195,8 @@ fn clean_dir_contents(dir: &Path, reclaimed_bytes: &mut u64, deleted_count: &mut
                         let len = meta.len();
                         let mut permissions = meta.permissions();
                         if permissions.readonly() {
+                            // Windows: must clear read-only flag before deletion.
+                            #[allow(clippy::permissions_set_readonly_false)]
                             permissions.set_readonly(false);
                             let _ = std::fs::set_permissions(&p, permissions);
                         }

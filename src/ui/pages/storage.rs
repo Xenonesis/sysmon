@@ -341,21 +341,17 @@ fn paint_lock_inspector_card(app: &mut crate::SystemMonitorApp, ui: &mut egui::U
                 .button(egui::RichText::new("📁 File...").size(12.0))
                 .on_hover_text("Browse for a file to inspect")
                 .clicked()
-            {
-                if let Some(file_path) = rfd::FileDialog::new().pick_file() {
+                && let Some(file_path) = rfd::FileDialog::new().pick_file() {
                     app.storage_page.lock_path = file_path.to_string_lossy().to_string();
                 }
-            }
 
             if ui
                 .button(egui::RichText::new("📂 Folder...").size(12.0))
                 .on_hover_text("Browse for a folder or drive to inspect")
                 .clicked()
-            {
-                if let Some(folder_path) = rfd::FileDialog::new().pick_folder() {
+                && let Some(folder_path) = rfd::FileDialog::new().pick_folder() {
                     app.storage_page.lock_path = folder_path.to_string_lossy().to_string();
                 }
-            }
 
             let inspect_btn = egui::Button::new(
                 egui::RichText::new("Inspect Locks")

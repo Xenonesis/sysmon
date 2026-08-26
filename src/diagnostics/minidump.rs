@@ -166,101 +166,86 @@ pub fn parse_minidump_file(path: &Path) -> Result<MinidumpCrashReport, String> {
     const MAX_STREAMS: u32 = 1024;
     if num_streams > 0 && num_streams <= MAX_STREAMS {
         let dir_bytes = (num_streams as u64) * 12;
-        if (stream_rva as u64).saturating_add(dir_bytes) <= file_len {
-            if f.seek(SeekFrom::Start(stream_rva as u64)).is_ok() {
-                let mut dir_entries = vec![0u8; dir_bytes as usize];
-                if f.read_exact(&mut dir_entries).is_ok() {
-                    // First pass: locate ExceptionStream (StreamType = 6)
+        if (stream_rva as u64).saturating_add(dir_bytes) <= file_len
+            && f.seek(SeekFrom::Start(stream_rva as u64)).is_ok()
+        {
+            let mut dir_entries = vec![0u8; dir_bytes as usize];
+            if f.read_exact(&mut dir_entries).is_ok() {
+                // First pass: locate ExceptionStream (StreamType = 6)
+                for i in 0..num_streams as usize {
+                    let offset = i * 12;
+                    let stream_type = u32::from_le_bytes(dir_entries[offset..offset + 4].try_into().unwrap());
+                    let data_size = u32::from_le_bytes(dir_entries[offset + 4..offset + 8].try_into().unwrap());
+                    let rva = u32::from_le_bytes(dir_entries[offset + 8..offset + 12].try_into().unwrap());
+
+                    if stream_type == 6 && data_size >= 12 {
+                        let read_len = (data_size as usize).min(1024);
+                        if (rva as u64).saturating_add(read_len as u64) <= file_len
+                            && f.seek(SeekFrom::Start(rva as u64)).is_ok()
+                        {
+                            let mut exc_buf = vec![0u8; read_len];
+                            if f.read_exact(&mut exc_buf).is_ok() {
+                                // ExceptionCode is at offset 8 in MINIDUMP_EXCEPTION_STREAM
+                                bugcheck_code = u32::from_le_bytes(exc_buf[8..12].try_into().unwrap());
+                                // ExceptionAddress is at offset 24 (u64)
+                                if exc_buf.len() >= 32 {
+                                    exception_address = Some(u64::from_le_bytes(exc_buf[24..32].try_into().unwrap()));
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Second pass: if we have an exception address, search ModuleListStream (StreamType = 4)
+                if let Some(exc_addr) = exception_address {
                     for i in 0..num_streams as usize {
                         let offset = i * 12;
                         let stream_type = u32::from_le_bytes(dir_entries[offset..offset + 4].try_into().unwrap());
                         let data_size = u32::from_le_bytes(dir_entries[offset + 4..offset + 8].try_into().unwrap());
                         let rva = u32::from_le_bytes(dir_entries[offset + 8..offset + 12].try_into().unwrap());
 
-                        if stream_type == 6 && data_size >= 12 {
-                            let read_len = (data_size as usize).min(1024);
-                            if (rva as u64).saturating_add(read_len as u64) <= file_len {
-                                if f.seek(SeekFrom::Start(rva as u64)).is_ok() {
-                                    let mut exc_buf = vec![0u8; read_len];
-                                    if f.read_exact(&mut exc_buf).is_ok() {
-                                        // ExceptionCode is at offset 8 in MINIDUMP_EXCEPTION_STREAM
-                                        bugcheck_code = u32::from_le_bytes(exc_buf[8..12].try_into().unwrap());
-                                        // ExceptionAddress is at offset 24 (u64)
-                                        if exc_buf.len() >= 32 {
-                                            exception_address =
-                                                Some(u64::from_le_bytes(exc_buf[24..32].try_into().unwrap()));
-                                        }
+                        if stream_type == 4
+                            && data_size >= 4
+                            && (rva as u64).saturating_add(4) <= file_len
+                            && f.seek(SeekFrom::Start(rva as u64)).is_ok()
+                        {
+                            let mut count_buf = [0u8; 4];
+                            if f.read_exact(&mut count_buf).is_ok() {
+                                let num_modules = u32::from_le_bytes(count_buf).min(512);
+                                for m in 0..num_modules as usize {
+                                    let mod_offset = (rva as u64) + 4 + (m as u64) * 108;
+                                    if mod_offset.saturating_add(108) > file_len {
+                                        break;
                                     }
-                                }
-                            }
-                        }
-                    }
+                                    if f.seek(SeekFrom::Start(mod_offset)).is_ok() {
+                                        let mut mod_buf = [0u8; 108];
+                                        if f.read_exact(&mut mod_buf).is_ok() {
+                                            let base = u64::from_le_bytes(mod_buf[0..8].try_into().unwrap());
+                                            let size = u32::from_le_bytes(mod_buf[8..12].try_into().unwrap());
+                                            let name_rva = u32::from_le_bytes(mod_buf[20..24].try_into().unwrap());
 
-                    // Second pass: if we have an exception address, search ModuleListStream (StreamType = 4)
-                    if let Some(exc_addr) = exception_address {
-                        for i in 0..num_streams as usize {
-                            let offset = i * 12;
-                            let stream_type = u32::from_le_bytes(dir_entries[offset..offset + 4].try_into().unwrap());
-                            let data_size = u32::from_le_bytes(dir_entries[offset + 4..offset + 8].try_into().unwrap());
-                            let rva = u32::from_le_bytes(dir_entries[offset + 8..offset + 12].try_into().unwrap());
-
-                            if stream_type == 4 && data_size >= 4 {
-                                if (rva as u64).saturating_add(4) <= file_len {
-                                    if f.seek(SeekFrom::Start(rva as u64)).is_ok() {
-                                        let mut count_buf = [0u8; 4];
-                                        if f.read_exact(&mut count_buf).is_ok() {
-                                            let num_modules = u32::from_le_bytes(count_buf).min(512);
-                                            for m in 0..num_modules as usize {
-                                                let mod_offset = (rva as u64) + 4 + (m as u64) * 108;
-                                                if mod_offset.saturating_add(108) > file_len {
-                                                    break;
-                                                }
-                                                if f.seek(SeekFrom::Start(mod_offset)).is_ok() {
-                                                    let mut mod_buf = [0u8; 108];
-                                                    if f.read_exact(&mut mod_buf).is_ok() {
-                                                        let base =
-                                                            u64::from_le_bytes(mod_buf[0..8].try_into().unwrap());
-                                                        let size =
-                                                            u32::from_le_bytes(mod_buf[8..12].try_into().unwrap());
-                                                        let name_rva =
-                                                            u32::from_le_bytes(mod_buf[20..24].try_into().unwrap());
-
-                                                        if exc_addr >= base
-                                                            && exc_addr < base.saturating_add(size as u64)
-                                                        {
-                                                            // Read MINIDUMP_STRING at name_rva
-                                                            if (name_rva as u64).saturating_add(4) <= file_len {
-                                                                if f.seek(SeekFrom::Start(name_rva as u64)).is_ok() {
-                                                                    let mut str_hdr = [0u8; 4];
-                                                                    if f.read_exact(&mut str_hdr).is_ok() {
-                                                                        let str_len =
-                                                                            u32::from_le_bytes(str_hdr).min(512);
-                                                                        if (name_rva as u64) + 4 + (str_len as u64)
-                                                                            <= file_len
-                                                                        {
-                                                                            let mut str_bytes =
-                                                                                vec![0u8; str_len as usize];
-                                                                            if f.read_exact(&mut str_bytes).is_ok() {
-                                                                                let u16_chars: Vec<u16> = str_bytes
-                                                                                    .chunks_exact(2)
-                                                                                    .map(|c| {
-                                                                                        u16::from_le_bytes([c[0], c[1]])
-                                                                                    })
-                                                                                    .collect();
-                                                                                let full_str = String::from_utf16_lossy(
-                                                                                    &u16_chars,
-                                                                                );
-                                                                                let file_part = Path::new(&full_str)
-                                                                                    .file_name()
-                                                                                    .and_then(|n| n.to_str())
-                                                                                    .unwrap_or(&full_str);
-                                                                                faulting_module =
-                                                                                    Some(file_part.to_string());
-                                                                                break;
-                                                                            }
-                                                                        }
-                                                                    }
-                                                                }
+                                            if exc_addr >= base && exc_addr < base.saturating_add(size as u64) {
+                                                // Read MINIDUMP_STRING at name_rva
+                                                if (name_rva as u64).saturating_add(4) <= file_len
+                                                    && f.seek(SeekFrom::Start(name_rva as u64)).is_ok()
+                                                {
+                                                    let mut str_hdr = [0u8; 4];
+                                                    if f.read_exact(&mut str_hdr).is_ok() {
+                                                        let str_len = u32::from_le_bytes(str_hdr).min(512);
+                                                        if (name_rva as u64) + 4 + (str_len as u64) <= file_len {
+                                                            let mut str_bytes = vec![0u8; str_len as usize];
+                                                            if f.read_exact(&mut str_bytes).is_ok() {
+                                                                let u16_chars: Vec<u16> = str_bytes
+                                                                    .chunks_exact(2)
+                                                                    .map(|c| u16::from_le_bytes([c[0], c[1]]))
+                                                                    .collect();
+                                                                let full_str = String::from_utf16_lossy(&u16_chars);
+                                                                let file_part = Path::new(&full_str)
+                                                                    .file_name()
+                                                                    .and_then(|n| n.to_str())
+                                                                    .unwrap_or(&full_str);
+                                                                faulting_module = Some(file_part.to_string());
+                                                                break;
                                                             }
                                                         }
                                                     }
@@ -301,10 +286,11 @@ pub fn scan_crash_dumps_in_dir(dir: &Path) -> Vec<MinidumpCrashReport> {
     if let Ok(entries) = read_dir(dir) {
         for entry in entries.flatten() {
             let p = entry.path();
-            if p.is_file() && p.extension().map_or(false, |ext| ext.eq_ignore_ascii_case("dmp")) {
-                if let Ok(rep) = parse_minidump_file(&p) {
-                    reports.push(rep);
-                }
+            if p.is_file()
+                && p.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("dmp"))
+                && let Ok(rep) = parse_minidump_file(&p)
+            {
+                reports.push(rep);
             }
         }
     }
@@ -463,7 +449,7 @@ mod tests {
         let bad_sig_path = temp_dir.join("bad_sig.dmp");
         let mut bad_header = [0u8; 32];
         bad_header[0..4].copy_from_slice(b"BAD!");
-        std::fs::write(&bad_sig_path, &bad_header).unwrap();
+        std::fs::write(&bad_sig_path, bad_header).unwrap();
         let res = parse_minidump_file(&bad_sig_path);
         assert!(res.is_err());
         assert!(res.unwrap_err().contains("signature"));
@@ -474,7 +460,7 @@ mod tests {
         oom_header[0..4].copy_from_slice(&0x504d444du32.to_le_bytes());
         oom_header[8..12].copy_from_slice(&0xFFFFFFFFu32.to_le_bytes()); // 4 billion streams
         oom_header[12..16].copy_from_slice(&32u32.to_le_bytes());
-        std::fs::write(&oom_path, &oom_header).unwrap();
+        std::fs::write(&oom_path, oom_header).unwrap();
         let res = parse_minidump_file(&oom_path);
         assert!(res.is_ok()); // Successfully produces a safe fallback report without panicking or OOM
 
@@ -484,7 +470,7 @@ mod tests {
         oob_header[0..4].copy_from_slice(&0x504d444du32.to_le_bytes());
         oob_header[8..12].copy_from_slice(&2u32.to_le_bytes());
         oob_header[12..16].copy_from_slice(&0xFFFF0000u32.to_le_bytes()); // StreamDirectoryRva far past EOF
-        std::fs::write(&oob_path, &oob_header).unwrap();
+        std::fs::write(&oob_path, oob_header).unwrap();
         let res = parse_minidump_file(&oob_path);
         assert!(res.is_ok()); // Safely skips invalid stream directory without panicking
 
@@ -539,7 +525,7 @@ mod tests {
             if let Ok(entries) = read_dir(&crash_dir) {
                 for entry in entries.flatten() {
                     let path = entry.path();
-                    if path.is_file() && path.extension().map_or(false, |ext| ext.eq_ignore_ascii_case("dmp")) {
+                    if path.is_file() && path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("dmp")) {
                         // Should either succeed or return a clean Err; must never panic
                         if let Ok(rep) = parse_minidump_file(&path) {
                             assert!(!rep.file_name.is_empty());

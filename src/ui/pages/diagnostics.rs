@@ -205,10 +205,10 @@ pub(crate) fn show(app: &mut SystemMonitorApp, ui: &mut egui::Ui, data: &SystemD
                             }
                         }
 
-                        if ui.button("📁 Open Sessions Folder").clicked() {
-                            if let Some(parent) = latest.parent() {
-                                let _ = std::process::Command::new("explorer").arg(parent).spawn();
-                            }
+                        if ui.button("📁 Open Sessions Folder").clicked()
+                            && let Some(parent) = latest.parent()
+                        {
+                            let _ = std::process::Command::new("explorer").arg(parent).spawn();
                         }
                     });
                 }

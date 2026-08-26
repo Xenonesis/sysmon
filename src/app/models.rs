@@ -37,17 +37,17 @@ fn battery_status_label(status: u16) -> Option<&'static str> {
 pub(crate) fn get_battery_info(wmi_con: &wmi::WMIConnection) -> Option<BatteryInfo> {
     let results: Result<Vec<Win32Battery>, _> =
         wmi_con.raw_query("SELECT DesignCapacity, FullChargeCapacity, BatteryStatus, DischargeRate FROM Win32_Battery");
-    if let Ok(mut bats) = results {
-        if let Some(bat) = bats.pop() {
-            let discharge_state = bat.battery_status.and_then(battery_status_label).map(|s| s.to_string());
-            return Some(BatteryInfo {
-                design_capacity: bat.design_capacity.unwrap_or(0),
-                full_charge_capacity: bat.full_charge_capacity.unwrap_or(0),
-                status: bat.battery_status.unwrap_or(0),
-                discharge_state,
-                present: true,
-            });
-        }
+    if let Ok(mut bats) = results
+        && let Some(bat) = bats.pop()
+    {
+        let discharge_state = bat.battery_status.and_then(battery_status_label).map(|s| s.to_string());
+        return Some(BatteryInfo {
+            design_capacity: bat.design_capacity.unwrap_or(0),
+            full_charge_capacity: bat.full_charge_capacity.unwrap_or(0),
+            status: bat.battery_status.unwrap_or(0),
+            discharge_state,
+            present: true,
+        });
     }
     None
 }

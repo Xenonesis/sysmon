@@ -42,16 +42,16 @@ pub(crate) fn filter_and_sort_indices(app: &crate::SystemMonitorApp) -> Vec<usiz
                 }
             }
             // Impact filter
-            if let Some(filter) = &app.startup_filter_impact {
-                if item.impact_tier != *filter {
-                    return false;
-                }
+            if let Some(filter) = &app.startup_filter_impact
+                && item.impact_tier != *filter
+            {
+                return false;
             }
             // Signed filter
-            if let Some(filter_signed) = app.startup_filter_signed {
-                if item.is_signed != Some(filter_signed) {
-                    return false;
-                }
+            if let Some(filter_signed) = app.startup_filter_signed
+                && item.is_signed != Some(filter_signed)
+            {
+                return false;
             }
             // Broken filter
             if app.startup_filter_broken && item.exe_exists {
@@ -138,11 +138,11 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui) {
             }
         };
 
-        if let Some(diag) = &*app.boot_diagnostics_share.lock() {
-            if !app.boot_diagnostics_loaded {
-                app.boot_diagnostics = Some(diag.clone());
-                app.boot_diagnostics_loaded = true;
-            }
+        if let Some(diag) = &*app.boot_diagnostics_share.lock()
+            && !app.boot_diagnostics_loaded
+        {
+            app.boot_diagnostics = Some(diag.clone());
+            app.boot_diagnostics_loaded = true;
         }
         if is_loading {
             ui.add_space(20.0);

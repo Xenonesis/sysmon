@@ -16,6 +16,12 @@ use tray_icon::{
     menu::{CheckMenuItem, Menu, MenuItem, Submenu},
 };
 
+impl Default for SystemMonitor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SystemMonitor {
     pub fn new() -> Self {
         let mut sys = System::new_all();
@@ -34,33 +40,32 @@ impl SystemMonitor {
             let com = crate::providers::init_com().ok().map(std::rc::Rc::new);
             let mut engine_class = None;
             let mut memory_class = None;
-            if let Some(com_lib) = com.as_ref() {
-                if let Ok(wmi) = wmi::WMIConnection::new(com_lib.clone()) {
-                    for prefix in &["GPUPerformanceCounters", "GPUPerformanceMonitors"] {
-                        if engine_class.is_none() {
-                            let q = format!(
-                                "SELECT UtilizationPercentage FROM Win32_PerfFormattedData_{}_GPUEngine",
-                                prefix
-                            );
-                            if wmi
-                                .raw_query::<std::collections::HashMap<String, wmi::Variant>>(&q)
-                                .is_ok()
-                            {
-                                engine_class = Some(format!("Win32_PerfFormattedData_{}_GPUEngine", prefix));
-                            }
+            if let Some(com_lib) = com.as_ref()
+                && let Ok(wmi) = wmi::WMIConnection::new(com_lib.clone())
+            {
+                for prefix in &["GPUPerformanceCounters", "GPUPerformanceMonitors"] {
+                    if engine_class.is_none() {
+                        let q = format!(
+                            "SELECT UtilizationPercentage FROM Win32_PerfFormattedData_{}_GPUEngine",
+                            prefix
+                        );
+                        if wmi
+                            .raw_query::<std::collections::HashMap<String, wmi::Variant>>(&q)
+                            .is_ok()
+                        {
+                            engine_class = Some(format!("Win32_PerfFormattedData_{}_GPUEngine", prefix));
                         }
-                        if memory_class.is_none() {
-                            let q = format!(
-                                "SELECT LocalUsage FROM Win32_PerfFormattedData_{}_GPULocalAdapterMemory",
-                                prefix
-                            );
-                            if wmi
-                                .raw_query::<std::collections::HashMap<String, wmi::Variant>>(&q)
-                                .is_ok()
-                            {
-                                memory_class =
-                                    Some(format!("Win32_PerfFormattedData_{}_GPULocalAdapterMemory", prefix));
-                            }
+                    }
+                    if memory_class.is_none() {
+                        let q = format!(
+                            "SELECT LocalUsage FROM Win32_PerfFormattedData_{}_GPULocalAdapterMemory",
+                            prefix
+                        );
+                        if wmi
+                            .raw_query::<std::collections::HashMap<String, wmi::Variant>>(&q)
+                            .is_ok()
+                        {
+                            memory_class = Some(format!("Win32_PerfFormattedData_{}_GPULocalAdapterMemory", prefix));
                         }
                     }
                 }
@@ -127,12 +132,11 @@ impl SystemMonitor {
             .map(|(pid, process)| {
                 // Try to use the exe path's file name if `name()` is empty or not helpful
                 let mut name_str = process.name().to_string();
-                if name_str.is_empty() {
-                    if let Some(exe_path) = process.exe() {
-                        if let Some(file_name) = exe_path.file_name() {
-                            name_str = file_name.to_string_lossy().into_owned();
-                        }
-                    }
+                if name_str.is_empty()
+                    && let Some(exe_path) = process.exe()
+                    && let Some(file_name) = exe_path.file_name()
+                {
+                    name_str = file_name.to_string_lossy().into_owned();
                 }
 
                 crate::processes::ProcessInfo {
@@ -384,49 +388,47 @@ impl SystemMonitor {
         let mut nvml_names: Vec<String> = Vec::new();
 
         // Collect all NVML (NVIDIA) GPUs
-        if let Some(ref nvml) = self.nvml {
-            if let Ok(device_count) = nvml.device_count() {
-                for i in 0..device_count {
-                    if let Ok(device) = nvml.device_by_index(i) {
-                        let name = device.name().unwrap_or_else(|_| "Unknown GPU".to_string());
-                        let utilization = device.utilization_rates().map(|u| u.gpu).unwrap_or(0);
-                        let memory = device.memory_info().ok();
-                        let temperature = device
-                            .temperature(nvml_wrapper::enum_wrappers::device::TemperatureSensor::Gpu)
-                            .ok();
-                        let clock_mhz = device
-                            .clock_info(nvml_wrapper::enum_wrappers::device::Clock::Graphics)
-                            .ok();
-                        let power_watts = device.power_usage().ok().map(|mw| mw as f32 / 1000.0);
-                        let fan_percent = device.fan_speed(0).ok();
+        if let Some(ref nvml) = self.nvml
+            && let Ok(device_count) = nvml.device_count()
+        {
+            for i in 0..device_count {
+                if let Ok(device) = nvml.device_by_index(i) {
+                    let name = device.name().unwrap_or_else(|_| "Unknown GPU".to_string());
+                    let utilization = device.utilization_rates().map(|u| u.gpu).unwrap_or(0);
+                    let memory = device.memory_info().ok();
+                    let temperature = device
+                        .temperature(nvml_wrapper::enum_wrappers::device::TemperatureSensor::Gpu)
+                        .ok();
+                    let clock_mhz = device
+                        .clock_info(nvml_wrapper::enum_wrappers::device::Clock::Graphics)
+                        .ok();
+                    let power_watts = device.power_usage().ok().map(|mw| mw as f32 / 1000.0);
+                    let fan_percent = device.fan_speed(0).ok();
 
-                        nvml_names.push(name.clone());
-                        gpus.push(GpuInfo {
-                            name,
-                            utilization: utilization as f32,
-                            memory_used: memory.as_ref().map(|m| m.used),
-                            memory_total: memory.as_ref().map(|m| m.total),
-                            temperature,
-                            clock_mhz,
-                            power_watts,
-                            fan_percent,
-                        });
-                    }
+                    nvml_names.push(name.clone());
+                    gpus.push(GpuInfo {
+                        name,
+                        utilization: utilization as f32,
+                        memory_used: memory.as_ref().map(|m| m.used),
+                        memory_total: memory.as_ref().map(|m| m.total),
+                        temperature,
+                        clock_mhz,
+                        power_watts,
+                        fan_percent,
+                    });
                 }
             }
         }
 
         // Also collect WMI GPUs (AMD/Intel) — skip any already covered by NVML
-        if include_wmi {
-            if let Some(wmi_gpus) = self.get_gpu_info_wmi() {
-                for wmi_gpu in wmi_gpus {
-                    let dominated = nvml_names.iter().any(|n| {
-                        n.to_lowercase().contains(&wmi_gpu.name.to_lowercase())
-                            || wmi_gpu.name.to_lowercase().contains(&n.to_lowercase())
-                    });
-                    if !dominated {
-                        gpus.push(wmi_gpu);
-                    }
+        if include_wmi && let Some(wmi_gpus) = self.get_gpu_info_wmi() {
+            for wmi_gpu in wmi_gpus {
+                let dominated = nvml_names.iter().any(|n| {
+                    n.to_lowercase().contains(&wmi_gpu.name.to_lowercase())
+                        || wmi_gpu.name.to_lowercase().contains(&n.to_lowercase())
+                });
+                if !dominated {
+                    gpus.push(wmi_gpu);
                 }
             }
         }
@@ -701,19 +703,19 @@ impl SystemMonitor {
 
         // GPU temperature alert
         for (index, gpu) in data.gpu_info.iter().enumerate() {
-            if let Some(temp) = gpu.temperature {
-                if temp > settings.notification_temp_threshold {
-                    alerts.push(AlertInfo {
-                        timestamp: timestamp.clone(),
-                        alert_type: AlertType::GpuTempHigh,
-                        source: AlertSource::Gpu {
-                            index,
-                            name: gpu.name.clone(),
-                        },
-                        message: format!("GPU temperature is high: {}°C ({})", temp, gpu.name),
-                        value: temp as f32,
-                    });
-                }
+            if let Some(temp) = gpu.temperature
+                && temp > settings.notification_temp_threshold
+            {
+                alerts.push(AlertInfo {
+                    timestamp: timestamp.clone(),
+                    alert_type: AlertType::GpuTempHigh,
+                    source: AlertSource::Gpu {
+                        index,
+                        name: gpu.name.clone(),
+                    },
+                    message: format!("GPU temperature is high: {}°C ({})", temp, gpu.name),
+                    value: temp as f32,
+                });
             }
         }
 
@@ -1286,7 +1288,7 @@ impl SystemMonitorApp {
                         Vec::new()
                     };
 
-                    let cpu_temperature = if need_cpu_temp && temperature_check_counter % 10 == 0 {
+                    let cpu_temperature = if need_cpu_temp && temperature_check_counter.is_multiple_of(10) {
                         monitor.get_cpu_temperature_wmi()
                     } else {
                         None
@@ -1366,7 +1368,7 @@ impl SystemMonitorApp {
                     let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
 
                     // Get battery info every 15 ticks (~7.5s) — retain previous value if unavailable
-                    if battery_check_counter % 15 == 0 {
+                    if battery_check_counter.is_multiple_of(15) {
                         let mut bi = None;
                         if let Some(wmi_con) = monitor.get_battery_wmi() {
                             bi = get_battery_info(&wmi_con);
@@ -1382,7 +1384,7 @@ impl SystemMonitorApp {
                     if !is_hidden && selected_tab == Tab::Services {
                         let services_list = if last_selected_tab != Tab::Services
                             || data_clone.read().services.is_empty()
-                            || service_check_counter % 60 == 0
+                            || service_check_counter.is_multiple_of(60)
                         {
                             if let Some(ref com) = monitor.wmi_com {
                                 services::get_services_with_com(Some(com))
@@ -1402,7 +1404,7 @@ impl SystemMonitorApp {
                     // Poll physical disk SMART health in background (~every 30s or when entering tab)
                     if !is_hidden
                         && (selected_tab == Tab::Storage || selected_tab == Tab::Overview)
-                        && (disk_smart_check_counter % 60 == 0 || data_clone.read().physical_disks.is_empty())
+                        && (disk_smart_check_counter.is_multiple_of(60) || data_clone.read().physical_disks.is_empty())
                     {
                         let drives = crate::storage::get_physical_disks();
                         if !drives.is_empty() {
@@ -1415,7 +1417,7 @@ impl SystemMonitorApp {
                     // Poll active socket connections in background (~every 2s on Network tab)
                     if !is_hidden
                         && selected_tab == Tab::Network
-                        && (sockets_check_counter % 4 == 0 || data_clone.read().socket_connections.is_empty())
+                        && (sockets_check_counter.is_multiple_of(4) || data_clone.read().socket_connections.is_empty())
                     {
                         let process_map: std::collections::HashMap<u32, String> = monitor
                             .sys
@@ -1432,7 +1434,7 @@ impl SystemMonitorApp {
                     // Poll power plans & battery health in background (~every 10s on SystemInfo tab or startup)
                     if !is_hidden
                         && (selected_tab == Tab::SystemInfo || selected_tab == Tab::Overview)
-                        && (power_plans_check_counter % 20 == 0 || data_clone.read().power_plans.is_empty())
+                        && (power_plans_check_counter.is_multiple_of(20) || data_clone.read().power_plans.is_empty())
                     {
                         let plans = crate::power::get_power_plans();
                         let bat_health = crate::power::get_battery_health();
@@ -1628,11 +1630,11 @@ impl SystemMonitorApp {
                             let d = data_clone.read();
                             d.selected_process_details.as_ref().map(|(p, _)| *p)
                         };
-                        if cached != Some(pid) {
-                            if let Some(details) = processes::lookup_details(&monitor.sys, pid) {
-                                let mut d = data_clone.write();
-                                d.selected_process_details = Some((pid, details));
-                            }
+                        if cached != Some(pid)
+                            && let Some(details) = processes::lookup_details(&monitor.sys, pid)
+                        {
+                            let mut d = data_clone.write();
+                            d.selected_process_details = Some((pid, details));
                         }
                     }
 

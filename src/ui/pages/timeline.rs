@@ -63,11 +63,10 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui) {
             if ui
                 .add_enabled(!app.timeline.export_in_flight(), egui::Button::new("Export Incident"))
                 .clicked()
+                && let Some(folder) = rfd::FileDialog::new().pick_folder()
             {
-                if let Some(folder) = rfd::FileDialog::new().pick_folder() {
-                    app.timeline
-                        .request_export(TimelineQuery::latest(app.timeline_ui.range), folder);
-                }
+                app.timeline
+                    .request_export(TimelineQuery::latest(app.timeline_ui.range), folder);
             }
         });
         let status = app.timeline.status();

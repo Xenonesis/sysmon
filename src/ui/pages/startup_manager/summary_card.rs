@@ -32,19 +32,19 @@ pub(crate) fn paint_summary_card(app: &mut crate::SystemMonitorApp, ui: &mut egu
             let high = startup::high_impact_count(&app.startup_items);
 
             let mut boot_shown = false;
-            if let Some(bd) = &app.boot_diagnostics {
-                if let Some(ms) = bd.boot_duration_ms {
-                    let secs = ms as f64 / 1000.0;
-                    let c = if secs < 30.0 {
-                        ThemePalette::STATUS_HEALTHY
-                    } else if secs < 60.0 {
-                        ThemePalette::STATUS_WARNING
-                    } else {
-                        ThemePalette::STATUS_CRITICAL
-                    };
-                    status_pill(ui, &format!("BOOT: {:.1}s", secs), c, is_dark);
-                    boot_shown = true;
-                }
+            if let Some(bd) = &app.boot_diagnostics
+                && let Some(ms) = bd.boot_duration_ms
+            {
+                let secs = ms as f64 / 1000.0;
+                let c = if secs < 30.0 {
+                    ThemePalette::STATUS_HEALTHY
+                } else if secs < 60.0 {
+                    ThemePalette::STATUS_WARNING
+                } else {
+                    ThemePalette::STATUS_CRITICAL
+                };
+                status_pill(ui, &format!("BOOT: {:.1}s", secs), c, is_dark);
+                boot_shown = true;
             }
             if !boot_shown {
                 if privilege::is_app_elevated() {

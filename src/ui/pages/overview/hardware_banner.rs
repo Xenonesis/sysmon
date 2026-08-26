@@ -91,17 +91,17 @@ pub(super) fn paint_hardware_banner(ui: &mut egui::Ui, data: &SystemData, is_dar
                         )
                         .on_hover_text(&gpu_full);
 
-                        if let Some(gpu) = data.gpu_info.first() {
-                            if let Some(temp) = gpu.temperature {
-                                let tc = get_usage_color(temp as f32);
-                                ui.label(
-                                    egui::RichText::new(format!("{}°C", temp))
-                                        .size(10.5)
-                                        .monospace()
-                                        .strong()
-                                        .color(tc),
-                                );
-                            }
+                        if let Some(gpu) = data.gpu_info.first()
+                            && let Some(temp) = gpu.temperature
+                        {
+                            let tc = get_usage_color(temp as f32);
+                            ui.label(
+                                egui::RichText::new(format!("{}°C", temp))
+                                    .size(10.5)
+                                    .monospace()
+                                    .strong()
+                                    .color(tc),
+                            );
                         }
                     },
                 );
@@ -177,17 +177,17 @@ pub(super) fn paint_hardware_banner(ui: &mut egui::Ui, data: &SystemData, is_dar
                             .monospace()
                             .color(ThemePalette::text_primary(is_dark)),
                     );
-                    if let Some(gpu) = data.gpu_info.first() {
-                        if let Some(temp) = gpu.temperature {
-                            let tc = get_usage_color(temp as f32);
-                            ui.label(
-                                egui::RichText::new(format!("{}°C", temp))
-                                    .size(10.5)
-                                    .monospace()
-                                    .strong()
-                                    .color(tc),
-                            );
-                        }
+                    if let Some(gpu) = data.gpu_info.first()
+                        && let Some(temp) = gpu.temperature
+                    {
+                        let tc = get_usage_color(temp as f32);
+                        ui.label(
+                            egui::RichText::new(format!("{}°C", temp))
+                                .size(10.5)
+                                .monospace()
+                                .strong()
+                                .color(tc),
+                        );
                     }
                 });
 

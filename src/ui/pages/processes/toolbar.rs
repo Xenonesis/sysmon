@@ -71,10 +71,8 @@ pub(super) fn paint_process_toolbar(
                                 app.process_sort_ascending = !app.process_sort_ascending;
                             } else {
                                 app.process_sort_column = col;
-                                app.process_sort_ascending = match col {
-                                    ProcessSortColumn::Pid | ProcessSortColumn::Name => true,
-                                    _ => false,
-                                };
+                                app.process_sort_ascending =
+                                    matches!(col, ProcessSortColumn::Pid | ProcessSortColumn::Name);
                             }
                         }
                     }

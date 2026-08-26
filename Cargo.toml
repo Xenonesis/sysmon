@@ -2,7 +2,7 @@
 name = "system-monitor"
 version = "3.8.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.88"
 authors = ["System Monitor Contributors"]
 description = "A professional system monitoring application for Windows with GUI"
 license = "MIT"

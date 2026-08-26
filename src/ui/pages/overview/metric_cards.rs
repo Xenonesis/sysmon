@@ -129,13 +129,12 @@ pub(super) fn build_overview_cards(data: &SystemData, is_dark: bool) -> [MetricC
         } else if let Some(mhz) = gpu.clock_mhz {
             format!("{} MHz", mhz)
         } else {
-            let name = if gpu.name.chars().count() > 20 {
+            if gpu.name.chars().count() > 20 {
                 let truncated: String = gpu.name.chars().take(18).collect();
                 format!("{}…", truncated)
             } else {
                 gpu.name.clone()
-            };
-            name
+            }
         };
         (sub, (gpu.utilization / 100.0).clamp(0.0, 1.0), c)
     } else {

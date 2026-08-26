@@ -170,16 +170,16 @@ pub(crate) fn paint_startup_item_card(
             }
 
             // Open location
-            if let Some(path) = &item.exe_path {
-                if item.exe_exists {
-                    let path_clone = path.clone();
-                    if ui
-                        .button(egui::RichText::new("Open").small())
-                        .on_hover_text("Open file location in Explorer")
-                        .clicked()
-                    {
-                        startup::open_file_location(&path_clone);
-                    }
+            if let Some(path) = &item.exe_path
+                && item.exe_exists
+            {
+                let path_clone = path.clone();
+                if ui
+                    .button(egui::RichText::new("Open").small())
+                    .on_hover_text("Open file location in Explorer")
+                    .clicked()
+                {
+                    startup::open_file_location(&path_clone);
                 }
             }
 

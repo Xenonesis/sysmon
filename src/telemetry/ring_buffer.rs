@@ -55,10 +55,10 @@ impl MetricHistory {
         let now = Instant::now();
 
         // Evict oldest if at capacity
-        if self.buffer.len() >= self.capacity {
-            if let Some(old) = self.buffer.pop_front() {
-                self.sum -= old.value;
-            }
+        if self.buffer.len() >= self.capacity
+            && let Some(old) = self.buffer.pop_front()
+        {
+            self.sum -= old.value;
         }
 
         self.buffer.push_back(MetricPoint { timestamp: now, value });

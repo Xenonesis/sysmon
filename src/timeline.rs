@@ -493,10 +493,8 @@ fn run_worker(
     let mut previous_paused: Option<bool> = None;
     let mut previous_power: Option<String> = None;
 
-    if enabled {
-        if let Err(error) = ensure_connection(&mut connection, &path, true) {
-            status.lock().last_error = Some(error);
-        }
+    if enabled && let Err(error) = ensure_connection(&mut connection, &path, true) {
+        status.lock().last_error = Some(error);
     }
 
     while let Ok(command) = receiver.recv() {
@@ -804,58 +802,58 @@ fn record_derived_events(
     previous_power: &mut Option<String>,
 ) -> Result<(), String> {
     for (name, provider) in &snapshot.provider_status {
-        if let Some(previous) = previous_providers.insert(name.clone(), provider.available) {
-            if previous != provider.available {
-                insert_event(
-                    conn,
-                    &TimelineEvent {
-                        id: None,
-                        timestamp_ms: system_time_ms(snapshot.sampled_at),
-                        kind: if provider.available {
-                            TimelineEventKind::ProviderRecovered
-                        } else {
-                            TimelineEventKind::ProviderUnavailable
-                        },
-                        source: sanitize_text(name.clone(), 128),
-                        severity: if provider.available { "info" } else { "warning" }.into(),
-                        summary: if provider.available {
-                            format!("{name} telemetry recovered")
-                        } else {
-                            format!("{name} telemetry became unavailable")
-                        },
-                        evidence: provider
-                            .error
-                            .clone()
-                            .unwrap_or_else(|| "Provider availability changed".into()),
-                    },
-                )?;
-            }
-        }
-    }
-
-    if let Some(previous) = previous_paused.replace(snapshot.paused) {
-        if previous != snapshot.paused {
+        if let Some(previous) = previous_providers.insert(name.clone(), provider.available)
+            && previous != provider.available
+        {
             insert_event(
                 conn,
                 &TimelineEvent {
                     id: None,
                     timestamp_ms: system_time_ms(snapshot.sampled_at),
-                    kind: if snapshot.paused {
-                        TimelineEventKind::MonitoringPaused
+                    kind: if provider.available {
+                        TimelineEventKind::ProviderRecovered
                     } else {
-                        TimelineEventKind::MonitoringResumed
+                        TimelineEventKind::ProviderUnavailable
                     },
-                    source: "monitoring".into(),
-                    severity: "info".into(),
-                    summary: if snapshot.paused {
-                        "Monitoring paused".into()
+                    source: sanitize_text(name.clone(), 128),
+                    severity: if provider.available { "info" } else { "warning" }.into(),
+                    summary: if provider.available {
+                        format!("{name} telemetry recovered")
                     } else {
-                        "Monitoring resumed".into()
+                        format!("{name} telemetry became unavailable")
                     },
-                    evidence: "User-visible monitoring state changed".into(),
+                    evidence: provider
+                        .error
+                        .clone()
+                        .unwrap_or_else(|| "Provider availability changed".into()),
                 },
             )?;
         }
+    }
+
+    if let Some(previous) = previous_paused.replace(snapshot.paused)
+        && previous != snapshot.paused
+    {
+        insert_event(
+            conn,
+            &TimelineEvent {
+                id: None,
+                timestamp_ms: system_time_ms(snapshot.sampled_at),
+                kind: if snapshot.paused {
+                    TimelineEventKind::MonitoringPaused
+                } else {
+                    TimelineEventKind::MonitoringResumed
+                },
+                source: "monitoring".into(),
+                severity: "info".into(),
+                summary: if snapshot.paused {
+                    "Monitoring paused".into()
+                } else {
+                    "Monitoring resumed".into()
+                },
+                evidence: "User-visible monitoring state changed".into(),
+            },
+        )?;
     }
 
     let power = snapshot.battery.as_ref().map(|battery| {
@@ -865,21 +863,21 @@ fn record_derived_events(
             battery.discharge_state.as_deref().unwrap_or("unknown")
         )
     });
-    if let (Some(previous), Some(current)) = (previous_power.as_ref(), power.as_ref()) {
-        if previous != current {
-            insert_event(
-                conn,
-                &TimelineEvent {
-                    id: None,
-                    timestamp_ms: system_time_ms(snapshot.sampled_at),
-                    kind: TimelineEventKind::PowerChanged,
-                    source: "power".into(),
-                    severity: "info".into(),
-                    summary: "Power state changed".into(),
-                    evidence: format!("Battery status changed from {previous} to {current}"),
-                },
-            )?;
-        }
+    if let (Some(previous), Some(current)) = (previous_power.as_ref(), power.as_ref())
+        && previous != current
+    {
+        insert_event(
+            conn,
+            &TimelineEvent {
+                id: None,
+                timestamp_ms: system_time_ms(snapshot.sampled_at),
+                kind: TimelineEventKind::PowerChanged,
+                source: "power".into(),
+                severity: "info".into(),
+                summary: "Power state changed".into(),
+                evidence: format!("Battery status changed from {previous} to {current}"),
+            },
+        )?;
     }
     if power.is_some() {
         *previous_power = power;

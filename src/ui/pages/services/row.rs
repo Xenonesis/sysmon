@@ -65,7 +65,7 @@ fn paint_background(
             egui::Color32::from_rgba_unmultiplied(0, 0, 0, 8)
         };
         ui.painter().rect_filled(rect, egui::Rounding::same(3.0), fill);
-    } else if index % 2 == 0 {
+    } else if index.is_multiple_of(2) {
         let fill = if is_dark {
             egui::Color32::from_rgba_unmultiplied(255, 255, 255, 3)
         } else {

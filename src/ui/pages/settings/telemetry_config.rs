@@ -61,13 +61,13 @@ pub(super) fn paint_telemetry_settings(
             if ui.button("Export to JSON").clicked() {
                 app.show_export = true;
             }
-            if ui.button("Export Diagnostics Package").clicked() {
-                if let Some(folder) = rfd::FileDialog::new().pick_folder() {
-                    app.action_status = Some(match app.export_diagnostics(&folder) {
-                        Ok(path) => format!("Diagnostics saved to {}", path.display()),
-                        Err(error) => format!("Diagnostics export failed: {error}"),
-                    });
-                }
+            if ui.button("Export Diagnostics Package").clicked()
+                && let Some(folder) = rfd::FileDialog::new().pick_folder()
+            {
+                app.action_status = Some(match app.export_diagnostics(&folder) {
+                    Ok(path) => format!("Diagnostics saved to {}", path.display()),
+                    Err(error) => format!("Diagnostics export failed: {error}"),
+                });
             }
         });
 

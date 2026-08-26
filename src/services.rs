@@ -266,18 +266,18 @@ pub fn get_services_with_com(com: Option<&std::rc::Rc<wmi::COMLibrary>>) -> Vec<
                 }
             }
         }
-    } else if let Ok(com_lib) = crate::providers::init_com() {
-        if let Ok(wmi_con) = WMIConnection::new(std::rc::Rc::new(com_lib)) {
-            let results: Result<Vec<Win32_Service>, _> =
-                wmi_con.raw_query("SELECT Name, DisplayName, State FROM Win32_Service");
-            if let Ok(services) = results {
-                for svc in services {
-                    result.push(ServiceInfo {
-                        name: svc.name,
-                        display_name: svc.display_name.unwrap_or_default(),
-                        state: svc.state,
-                    });
-                }
+    } else if let Ok(com_lib) = crate::providers::init_com()
+        && let Ok(wmi_con) = WMIConnection::new(std::rc::Rc::new(com_lib))
+    {
+        let results: Result<Vec<Win32_Service>, _> =
+            wmi_con.raw_query("SELECT Name, DisplayName, State FROM Win32_Service");
+        if let Ok(services) = results {
+            for svc in services {
+                result.push(ServiceInfo {
+                    name: svc.name,
+                    display_name: svc.display_name.unwrap_or_default(),
+                    state: svc.state,
+                });
             }
         }
     }

@@ -125,10 +125,10 @@ pub fn is_windows_dark_mode() -> bool {
     use winreg::RegKey;
     use winreg::enums::*;
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-    if let Ok(key) = hkcu.open_subkey(r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize") {
-        if let Ok(val) = key.get_value::<u32, _>("AppsUseLightTheme") {
-            return val == 0;
-        }
+    if let Ok(key) = hkcu.open_subkey(r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize")
+        && let Ok(val) = key.get_value::<u32, _>("AppsUseLightTheme")
+    {
+        return val == 0;
     }
     true // default to dark if unreadable
 }

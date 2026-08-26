@@ -312,12 +312,11 @@ impl eframe::App for SystemMonitorApp {
 
         #[cfg(target_os = "windows")]
         {
-            if let Ok(event) = global_hotkey::GlobalHotKeyEvent::receiver().try_recv() {
-                if let Some(hk) = &self.clean_ram_hotkey {
-                    if event.id == hk.id() {
-                        self.queue_action(app::commands::ActionCommand::CleanRam);
-                    }
-                }
+            if let Ok(event) = global_hotkey::GlobalHotKeyEvent::receiver().try_recv()
+                && let Some(hk) = &self.clean_ram_hotkey
+                && event.id == hk.id()
+            {
+                self.queue_action(app::commands::ActionCommand::CleanRam);
             }
         }
 
@@ -427,64 +426,65 @@ impl eframe::App for SystemMonitorApp {
 
         // Show update notification banner
         let update_info_opt = self.update_info_share.lock().clone();
-        if let Some(update_info) = update_info_opt {
-            if update_info.update_available && self.show_update_notification {
-                let mut frame = egui::Frame::none().fill(ThemePalette::BG_SURFACE);
-                frame.inner_margin = egui::Margin::symmetric(16.0, 12.0);
+        if let Some(update_info) = update_info_opt
+            && update_info.update_available
+            && self.show_update_notification
+        {
+            let mut frame = egui::Frame::none().fill(ThemePalette::BG_SURFACE);
+            frame.inner_margin = egui::Margin::symmetric(16.0, 12.0);
 
-                egui::TopBottomPanel::top("update_notification")
-                    .frame(frame)
-                    .show(ctx, |ui| {
-                        ui.horizontal(|ui| {
-                            ui.colored_label(
-                                ThemePalette::ACCENT_PRIMARY,
-                                egui::RichText::new("UPDATE AVAILABLE").strong(),
-                            );
+            egui::TopBottomPanel::top("update_notification")
+                .frame(frame)
+                .show(ctx, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.colored_label(
+                            ThemePalette::ACCENT_PRIMARY,
+                            egui::RichText::new("UPDATE AVAILABLE").strong(),
+                        );
+                        ui.add_space(8.0);
+                        ui.label(format!(
+                            "Version {} is ready. You are currently on v{}.",
+                            update_info.latest_version, update_info.current_version
+                        ));
+
+                        // Show inline error message if the last attempt failed.
+                        if let Some(err) = &self.update_error {
                             ui.add_space(8.0);
-                            ui.label(format!(
-                                "Version {} is ready. You are currently on v{}.",
-                                update_info.latest_version, update_info.current_version
-                            ));
+                            ui.colored_label(egui::Color32::from_rgb(220, 80, 70), format!("⚠ {}", err));
+                        }
 
-                            // Show inline error message if the last attempt failed.
-                            if let Some(err) = &self.update_error {
-                                ui.add_space(8.0);
-                                ui.colored_label(egui::Color32::from_rgb(220, 80, 70), format!("⚠ {}", err));
-                            }
-
-                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                if !self.update_downloading {
-                                    if ui.button("Dismiss").clicked() {
-                                        self.show_update_notification = false;
-                                        self.update_error = None;
-                                    }
-                                    ui.add_space(8.0);
-                                }
-                                if self.update_downloading {
-                                    ui.add_enabled(
-                                        false,
-                                        egui::Button::new(egui::RichText::new("⏳ Downloading…").strong()),
-                                    );
-                                } else if ui.button(egui::RichText::new("Install Update").strong()).clicked() {
-                                    let download_url = update_info.download_url.clone();
-                                    let checksum_url = update_info.checksum_url.clone();
-                                    let result_share = self.update_result_share.clone();
-                                    self.update_downloading = true;
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if !self.update_downloading {
+                                if ui.button("Dismiss").clicked() {
+                                    self.show_update_notification = false;
                                     self.update_error = None;
-                                    thread::Builder::new()
-                                        .name("updater_downloader".to_string())
-                                        .stack_size(8 * 1024 * 1024)
-                                        .spawn(move || {
-                                            let result = updater::Updater::new()
-                                                .download_and_install_update(&download_url, &checksum_url);
-                                            *result_share.lock() = Some(result);
-                                        })
-                                        .expect("failed to spawn updater downloader thread");
                                 }
-                            });
+                                ui.add_space(8.0);
+                            }
+                            if self.update_downloading {
+                                ui.add_enabled(
+                                    false,
+                                    egui::Button::new(egui::RichText::new("⏳ Downloading…").strong()),
+                                );
+                            } else if ui.button(egui::RichText::new("Install Update").strong()).clicked() {
+                                let download_url = update_info.download_url.clone();
+                                let checksum_url = update_info.checksum_url.clone();
+                                let result_share = self.update_result_share.clone();
+                                self.update_downloading = true;
+                                self.update_error = None;
+                                thread::Builder::new()
+                                    .name("updater_downloader".to_string())
+                                    .stack_size(8 * 1024 * 1024)
+                                    .spawn(move || {
+                                        let result = updater::Updater::new()
+                                            .download_and_install_update(&download_url, &checksum_url);
+                                        *result_share.lock() = Some(result);
+                                    })
+                                    .expect("failed to spawn updater downloader thread");
+                            }
                         });
                     });
-            }
+                });
         }
 
         // Keyboard shortcuts
@@ -531,10 +531,10 @@ impl eframe::App for SystemMonitorApp {
                     new_tab = Some(Tab::StartupManager);
                 }
 
-                if let Some(tab) = new_tab {
-                    if tab != Tab::CpuCores || self.settings.show_cpu_cores {
-                        self.selected_tab = tab;
-                    }
+                if let Some(tab) = new_tab
+                    && (tab != Tab::CpuCores || self.settings.show_cpu_cores)
+                {
+                    self.selected_tab = tab;
                 }
             }
             if i.modifiers.ctrl && i.key_pressed(egui::Key::E) {
@@ -746,11 +746,10 @@ impl eframe::App for SystemMonitorApp {
                                         .set_file_name(format!("sysmon_export_{}.csv", date_str))
                                         .add_filter("CSV File", &["csv"])
                                         .save_file()
+                                        && std::fs::write(&path, &csv_data).is_ok()
                                     {
-                                        if std::fs::write(&path, &csv_data).is_ok() {
-                                            #[cfg(target_os = "windows")]
-                                            play_success_sound();
-                                        }
+                                        #[cfg(target_os = "windows")]
+                                        play_success_sound();
                                     }
                                 }
                             });
@@ -798,11 +797,10 @@ impl eframe::App for SystemMonitorApp {
                                         .set_file_name(format!("sysmon_export_{}.json", date_str))
                                         .add_filter("JSON File", &["json"])
                                         .save_file()
+                                        && std::fs::write(&path, &json_data).is_ok()
                                     {
-                                        if std::fs::write(&path, &json_data).is_ok() {
-                                            #[cfg(target_os = "windows")]
-                                            play_success_sound();
-                                        }
+                                        #[cfg(target_os = "windows")]
+                                        play_success_sound();
                                     }
                                 }
                             });

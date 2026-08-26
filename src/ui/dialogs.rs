@@ -94,10 +94,10 @@ pub(crate) fn render_action_history(app: &mut SystemMonitorApp, ctx: &egui::Cont
                         ui.small(&entry.record.timestamp);
                         ui.small(format!("Initiated by {}", entry.record.initiator));
                         ui.label(&entry.record.message);
-                        if let Some(command) = &entry.undo {
-                            if ui.button("Undo this action").clicked() {
-                                undo = Some(command.clone());
-                            }
+                        if let Some(command) = &entry.undo
+                            && ui.button("Undo this action").clicked()
+                        {
+                            undo = Some(command.clone());
                         }
                     });
                 }

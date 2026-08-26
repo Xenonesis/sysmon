@@ -180,12 +180,12 @@ pub fn parse_exe_from_command(cmd: &str) -> Option<String> {
     }
 
     // 1. Quoted string: "C:\path\app.exe" ...
-    if let Some(stripped) = t.strip_prefix('"') {
-        if let Some(end) = stripped.find('"') {
-            let p = &stripped[..end];
-            if !p.is_empty() {
-                return Some(p.to_string());
-            }
+    if let Some(stripped) = t.strip_prefix('"')
+        && let Some(end) = stripped.find('"')
+    {
+        let p = &stripped[..end];
+        if !p.is_empty() {
+            return Some(p.to_string());
         }
     }
 
@@ -212,23 +212,18 @@ pub fn parse_exe_from_command(cmd: &str) -> Option<String> {
     // 3. Search for known executable extensions safely using char_indices
     for ext in &[".exe", ".cmd", ".bat", ".vbs", ".ps1"] {
         for (idx, _) in t.char_indices() {
-            if let Some(slice) = t.get(idx..) {
-                if slice.to_ascii_lowercase().starts_with(ext) {
-                    let end_pos = idx + ext.len();
-                    let is_end = match t.get(end_pos..) {
-                        None | Some("") => true,
-                        Some(rest) => {
-                            rest.starts_with(' ')
-                                || rest.starts_with('"')
-                                || rest.starts_with('/')
-                                || rest.starts_with(',')
-                        }
-                    };
-                    if is_end {
-                        if let Some(matched) = t.get(..end_pos) {
-                            return Some(matched.trim_matches('"').to_string());
-                        }
+            if let Some(slice) = t.get(idx..)
+                && slice.to_ascii_lowercase().starts_with(ext)
+            {
+                let end_pos = idx + ext.len();
+                let is_end = match t.get(end_pos..) {
+                    None | Some("") => true,
+                    Some(rest) => {
+                        rest.starts_with(' ') || rest.starts_with('"') || rest.starts_with('/') || rest.starts_with(',')
                     }
+                };
+                if is_end && let Some(matched) = t.get(..end_pos) {
+                    return Some(matched.trim_matches('"').to_string());
                 }
             }
         }
@@ -386,37 +381,37 @@ fn collect_folder_items(
     if let Ok(entries) = std::fs::read_dir(folder_path) {
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.is_file() {
-                if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
-                    if file_name.eq_ignore_ascii_case("desktop.ini") {
-                        continue;
-                    }
-                    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or(file_name);
-                    let cmd = path.to_string_lossy().to_string();
-                    let enabled = if is_disabled_folder {
-                        false
-                    } else {
-                        approved_map
-                            .get(&file_name.to_lowercase())
-                            .or_else(|| approved_map.get(&stem.to_lowercase()))
-                            .copied()
-                            .unwrap_or(true)
-                    };
-                    let (enabled_path, disabled_path) = if is_disabled_folder {
-                        let enabled_path = folder_path.parent().unwrap_or(folder_path).join(file_name);
-                        (enabled_path, path.clone())
-                    } else {
-                        (path.clone(), folder_path.join("_disabled").join(file_name))
-                    };
-                    let locator = StartupLocator::StartupFolder {
-                        enabled_path: enabled_path.to_string_lossy().into_owned(),
-                        disabled_path: disabled_path.to_string_lossy().into_owned(),
-                        approved_hive: approved_hive.clone(),
-                        approved_path: approved_path.to_string(),
-                        approved_name: file_name.to_string(),
-                    };
-                    items.push(new_item(stem.to_string(), cmd, enabled, source.to_string(), locator));
+            if path.is_file()
+                && let Some(file_name) = path.file_name().and_then(|n| n.to_str())
+            {
+                if file_name.eq_ignore_ascii_case("desktop.ini") {
+                    continue;
                 }
+                let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or(file_name);
+                let cmd = path.to_string_lossy().to_string();
+                let enabled = if is_disabled_folder {
+                    false
+                } else {
+                    approved_map
+                        .get(&file_name.to_lowercase())
+                        .or_else(|| approved_map.get(&stem.to_lowercase()))
+                        .copied()
+                        .unwrap_or(true)
+                };
+                let (enabled_path, disabled_path) = if is_disabled_folder {
+                    let enabled_path = folder_path.parent().unwrap_or(folder_path).join(file_name);
+                    (enabled_path, path.clone())
+                } else {
+                    (path.clone(), folder_path.join("_disabled").join(file_name))
+                };
+                let locator = StartupLocator::StartupFolder {
+                    enabled_path: enabled_path.to_string_lossy().into_owned(),
+                    disabled_path: disabled_path.to_string_lossy().into_owned(),
+                    approved_hive: approved_hive.clone(),
+                    approved_path: approved_path.to_string(),
+                    approved_name: file_name.to_string(),
+                };
+                items.push(new_item(stem.to_string(), cmd, enabled, source.to_string(), locator));
             }
         }
     }
@@ -613,12 +608,11 @@ fn enrich_startup_items(items: &mut [StartupItem]) {
     // 2. Collect unique existing executable paths for batch lookup
     let mut unique_paths: Vec<String> = Vec::new();
     for item in items.iter() {
-        if item.exe_exists {
-            if let Some(p) = &item.exe_path {
-                if !unique_paths.iter().any(|up| up.eq_ignore_ascii_case(p)) {
-                    unique_paths.push(p.clone());
-                }
-            }
+        if item.exe_exists
+            && let Some(p) = &item.exe_path
+            && !unique_paths.iter().any(|up| up.eq_ignore_ascii_case(p))
+        {
+            unique_paths.push(p.clone());
         }
     }
 
@@ -656,17 +650,17 @@ foreach ($p in $paths) {
                 let signed_status = parts[2].trim();
 
                 for item in items.iter_mut() {
-                    if let Some(ip) = &item.exe_path {
-                        if ip.eq_ignore_ascii_case(path) {
-                            if pub_name != "Unknown" && !pub_name.is_empty() {
-                                item.publisher = Some(pub_name.to_string());
-                            }
-                            item.is_signed = match signed_status {
-                                "Signed" => Some(true),
-                                "Unsigned" => Some(false),
-                                _ => None,
-                            };
+                    if let Some(ip) = &item.exe_path
+                        && ip.eq_ignore_ascii_case(path)
+                    {
+                        if pub_name != "Unknown" && !pub_name.is_empty() {
+                            item.publisher = Some(pub_name.to_string());
                         }
+                        item.is_signed = match signed_status {
+                            "Signed" => Some(true),
+                            "Unsigned" => Some(false),
+                            _ => None,
+                        };
                     }
                 }
             }
