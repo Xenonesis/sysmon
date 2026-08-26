@@ -27,6 +27,26 @@ pub fn find_locking_processes(path: &str) -> FileLockResult {
 }
 
 #[cfg(target_os = "windows")]
+fn decode_utf16_null_terminated(slice: &[u16]) -> String {
+    let len = slice.iter().position(|&c| c == 0).unwrap_or(slice.len());
+    String::from_utf16_lossy(&slice[..len])
+}
+
+#[cfg(target_os = "windows")]
+fn map_rm_app_type(app_type: u32) -> (&'static str, bool) {
+    match app_type {
+        0 => ("Unknown Application", false),
+        1 => ("Desktop App", false),
+        2 => ("Background Window", false),
+        3 => ("Windows Service", true),
+        4 => ("Windows Explorer", false),
+        5 => ("Console App", false),
+        1000 => ("Critical System Service", true),
+        _ => ("Application", false),
+    }
+}
+
+#[cfg(target_os = "windows")]
 pub fn find_locking_processes(path: &str) -> FileLockResult {
     use std::ffi::OsStr;
     use std::os::windows::ffi::OsStrExt;
@@ -83,6 +103,16 @@ pub fn find_locking_processes(path: &str) -> FileLockResult {
         fn RmEndSession(dwSessionHandle: u32) -> u32;
     }
 
+    struct RmSession(u32);
+
+    impl Drop for RmSession {
+        fn drop(&mut self) {
+            unsafe {
+                RmEndSession(self.0);
+            }
+        }
+    }
+
     let mut session_handle: u32 = 0;
     let mut session_key = [0u16; CCH_RM_SESSION_KEY + 1];
 
@@ -95,12 +125,14 @@ pub fn find_locking_processes(path: &str) -> FileLockResult {
         };
     }
 
+    let session = RmSession(session_handle);
+
     let wide_path: Vec<u16> = OsStr::new(path).encode_wide().chain(std::iter::once(0)).collect();
     let file_ptrs = [wide_path.as_ptr()];
 
     let reg_res = unsafe {
         RmRegisterResources(
-            session_handle,
+            session.0,
             1,
             file_ptrs.as_ptr(),
             0,
@@ -111,7 +143,6 @@ pub fn find_locking_processes(path: &str) -> FileLockResult {
     };
 
     if reg_res != 0 {
-        unsafe { RmEndSession(session_handle); }
         return FileLockResult {
             path: path.to_string(),
             processes: Vec::new(),
@@ -125,7 +156,7 @@ pub fn find_locking_processes(path: &str) -> FileLockResult {
 
     let get_res = unsafe {
         RmGetList(
-            session_handle,
+            session.0,
             &mut n_proc_needed,
             &mut n_proc,
             std::ptr::null_mut(),
@@ -134,6 +165,7 @@ pub fn find_locking_processes(path: &str) -> FileLockResult {
     };
 
     let mut processes = Vec::new();
+    let mut error = None;
 
     if get_res == ERROR_MORE_DATA || (get_res == 0 && n_proc_needed > 0) {
         let count = n_proc_needed as usize;
@@ -142,7 +174,7 @@ pub fn find_locking_processes(path: &str) -> FileLockResult {
 
         let get_list_res = unsafe {
             RmGetList(
-                session_handle,
+                session.0,
                 &mut n_proc_needed,
                 &mut n_proc,
                 proc_info.as_mut_ptr(),
@@ -152,34 +184,35 @@ pub fn find_locking_processes(path: &str) -> FileLockResult {
 
         if get_list_res == 0 {
             for info in proc_info.iter().take(n_proc as usize) {
-                let name = String::from_utf16_lossy(&info.str_app_name)
-                    .trim_matches(char::from(0))
-                    .to_string();
-                let app_type_str = match info.application_type {
-                    1 => "Desktop App",
-                    2 => "Windows Service",
-                    3 => "Windows Explorer",
-                    4 => "Console App",
-                    5 => "Critical System Service",
-                    _ => "Application",
-                };
-                let is_service = info.application_type == 2 || info.application_type == 5;
+                let mut name = decode_utf16_null_terminated(&info.str_app_name);
+                if name.is_empty() {
+                    name = decode_utf16_null_terminated(&info.str_service_short_name);
+                }
+                if name.is_empty() {
+                    name = format!("PID {}", info.process.dw_process_id);
+                }
+
+                let (app_type_str, is_service) = map_rm_app_type(info.application_type);
                 processes.push(LockingProcess {
                     pid: info.process.dw_process_id,
-                    name: if name.is_empty() { format!("PID {}", info.process.dw_process_id) } else { name },
+                    name,
                     app_type: app_type_str.to_string(),
                     is_service,
                 });
             }
+        } else {
+            error = Some(format!(
+                "RmGetList failed to retrieve process list with error code {get_list_res}"
+            ));
         }
+    } else if get_res != 0 {
+        error = Some(format!("RmGetList failed with error code {get_res}"));
     }
-
-    unsafe { RmEndSession(session_handle); }
 
     FileLockResult {
         path: path.to_string(),
         processes,
-        error: None,
+        error,
     }
 }
 
@@ -240,5 +273,31 @@ mod tests {
         let json = serde_json::to_string(&result).expect("serialize FileLockResult");
         let deserialized: FileLockResult = serde_json::from_str(&json).expect("deserialize FileLockResult");
         assert_eq!(result, deserialized);
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn test_decode_utf16_null_terminated() {
+        let buffer = [b'H' as u16, b'i' as u16, 0, b'X' as u16];
+        assert_eq!(decode_utf16_null_terminated(&buffer), "Hi");
+
+        let buffer_no_null = [b'A' as u16, b'B' as u16];
+        assert_eq!(decode_utf16_null_terminated(&buffer_no_null), "AB");
+
+        let buffer_empty: [u16; 0] = [];
+        assert_eq!(decode_utf16_null_terminated(&buffer_empty), "");
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn test_map_rm_app_type_enum() {
+        assert_eq!(map_rm_app_type(0), ("Unknown Application", false));
+        assert_eq!(map_rm_app_type(1), ("Desktop App", false));
+        assert_eq!(map_rm_app_type(2), ("Background Window", false));
+        assert_eq!(map_rm_app_type(3), ("Windows Service", true));
+        assert_eq!(map_rm_app_type(4), ("Windows Explorer", false));
+        assert_eq!(map_rm_app_type(5), ("Console App", false));
+        assert_eq!(map_rm_app_type(1000), ("Critical System Service", true));
+        assert_eq!(map_rm_app_type(9999), ("Application", false));
     }
 }
