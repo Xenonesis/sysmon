@@ -100,16 +100,27 @@ pub(crate) fn run_action_worker(commands: Receiver<commands::ActionCommand>, eve
             commands::ActionCommand::ReclaimStorageCaches(ids) => {
                 let mut total_bytes = 0u64;
                 let mut total_files = 0usize;
+                let mut failure = None;
                 for id in &ids {
-                    if let Ok((bytes, files)) = crate::storage::reclaimer::clean_reclaimable_category(id) {
-                        total_bytes += bytes;
-                        total_files += files;
+                    match crate::storage::reclaimer::clean_reclaimable_category(id) {
+                        Ok((bytes, files)) => {
+                            total_bytes += bytes;
+                            total_files += files;
+                        }
+                        Err(e) => {
+                            failure = Some(e);
+                            break;
+                        }
                     }
                 }
-                Ok(format!(
-                    "Reclaimed {total_bytes} bytes across {total_files} files ({})",
-                    ids.join(", ")
-                ))
+                if let Some(e) = failure {
+                    Err(ActionError::Failed(e))
+                } else {
+                    Ok(format!(
+                        "Reclaimed {total_bytes} bytes across {total_files} files ({})",
+                        ids.join(", ")
+                    ))
+                }
             }
         };
         let audit_result = result.map_err(|error| error.to_string());
@@ -163,6 +174,35 @@ mod tests {
             }
             events::AppEvent::ActionFailed { .. } => {
                 panic!("Action should have succeeded");
+            }
+            _ => panic!("Unexpected event"),
+        }
+
+        drop(cmd_tx);
+        let _ = handle.join();
+    }
+
+    #[test]
+    fn test_action_worker_handles_reclaim_storage_caches_error_on_unknown_category() {
+        let (cmd_tx, cmd_rx) = mpsc::channel();
+        let (evt_tx, evt_rx) = mpsc::channel();
+
+        let handle = thread::spawn(move || {
+            run_action_worker(cmd_rx, evt_tx);
+        });
+
+        cmd_tx
+            .send(commands::ActionCommand::ReclaimStorageCaches(vec!["invalid_category_xyz".into()]))
+            .expect("send command");
+
+        let event = evt_rx.recv().expect("receive event");
+        match event {
+            events::AppEvent::ActionFailed { record, .. } => {
+                assert!(!record.succeeded);
+                assert!(record.message.contains("Unknown reclaim category 'invalid_category_xyz'"));
+            }
+            events::AppEvent::ActionCompleted { .. } => {
+                panic!("Action should have failed on invalid category");
             }
             _ => panic!("Unexpected event"),
         }
