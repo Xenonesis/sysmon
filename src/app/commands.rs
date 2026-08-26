@@ -28,6 +28,25 @@ pub(crate) enum ActionCommand {
     EnableStartup { item_name: String, locator: StartupLocator },
     QuarantineStartup { item_name: String, locator: StartupLocator },
     RestoreStartup { item_name: String, quarantine_id: String },
+    ReclaimStorageCaches(Vec<String>),
+}
+
+impl ActionCommand {
+    #[allow(dead_code)]
+    pub fn requires_elevation(&self) -> bool {
+        match self {
+            Self::ReclaimStorageCaches(ids) => ids.iter().any(|id| id == "windows_update"),
+            _ => false,
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn summary(&self) -> String {
+        match self {
+            Self::ReclaimStorageCaches(ids) => format!("Reclaim storage caches: {}", ids.join(", ")),
+            _ => format!("{:?}", self),
+        }
+    }
 }
 
 /// Side effects requested by presentation code and executed by the app shell.
@@ -39,4 +58,20 @@ pub(crate) enum UiIntent {
     OpenServicesConsole,
     RelaunchAsAdmin,
     ControlService { name: String, action: ServiceControlAction },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_reclaim_storage_caches_command_properties() {
+        let cmd_user = ActionCommand::ReclaimStorageCaches(vec!["user_temp".into(), "shader_cache".into()]);
+        assert!(!cmd_user.requires_elevation());
+        assert_eq!(cmd_user.summary(), "Reclaim storage caches: user_temp, shader_cache");
+
+        let cmd_admin = ActionCommand::ReclaimStorageCaches(vec!["windows_update".into()]);
+        assert!(cmd_admin.requires_elevation());
+        assert_eq!(cmd_admin.summary(), "Reclaim storage caches: windows_update");
+    }
 }

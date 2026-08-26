@@ -97,6 +97,20 @@ pub(crate) fn run_action_worker(commands: Receiver<commands::ActionCommand>, eve
             } => startup::restore_startup(&quarantine_id)
                 .map(|_| format!("Startup item {item_name} restored"))
                 .map_err(ActionError::Failed),
+            commands::ActionCommand::ReclaimStorageCaches(ids) => {
+                let mut total_bytes = 0u64;
+                let mut total_files = 0usize;
+                for id in &ids {
+                    if let Ok((bytes, files)) = crate::storage::reclaimer::clean_reclaimable_category(id) {
+                        total_bytes += bytes;
+                        total_files += files;
+                    }
+                }
+                Ok(format!(
+                    "Reclaimed {total_bytes} bytes across {total_files} files ({})",
+                    ids.join(", ")
+                ))
+            }
         };
         let audit_result = result.map_err(|error| error.to_string());
         let mut record = actions::ActionAuditRecord::from_result(&plan, &audit_result);
@@ -119,5 +133,41 @@ pub(crate) fn run_action_worker(commands: Receiver<commands::ActionCommand>, eve
             },
         };
         let _ = events.send(event);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::mpsc;
+    use std::thread;
+
+    #[test]
+    fn test_action_worker_handles_reclaim_storage_caches() {
+        let (cmd_tx, cmd_rx) = mpsc::channel();
+        let (evt_tx, evt_rx) = mpsc::channel();
+
+        let handle = thread::spawn(move || {
+            run_action_worker(cmd_rx, evt_tx);
+        });
+
+        cmd_tx
+            .send(commands::ActionCommand::ReclaimStorageCaches(vec![]))
+            .expect("send command");
+
+        let event = evt_rx.recv().expect("receive event");
+        match event {
+            events::AppEvent::ActionCompleted { record, .. } => {
+                assert!(record.succeeded);
+                assert!(record.message.contains("Reclaimed 0 bytes across 0 files"));
+            }
+            events::AppEvent::ActionFailed { .. } => {
+                panic!("Action should have succeeded");
+            }
+            _ => panic!("Unexpected event"),
+        }
+
+        drop(cmd_tx);
+        let _ = handle.join();
     }
 }

@@ -172,6 +172,17 @@ impl ActionPlan {
                 true,
                 None,
             ),
+            ActionCommand::ReclaimStorageCaches(ids) => {
+                let requires_admin = ids.iter().any(|id| id == "windows_update");
+                Self::new(
+                    command.clone(),
+                    format!("Reclaim storage caches: {}", ids.join(", ")),
+                    "Temporary files, shader caches, and diagnostic dumps will be safely removed.",
+                    RiskLevel::Low,
+                    requires_admin,
+                    None,
+                )
+            }
         }
     }
 
@@ -316,6 +327,18 @@ mod tests {
                 RiskLevel::Medium,
                 true,
                 true,
+            ),
+            (
+                ActionCommand::ReclaimStorageCaches(vec!["shader_cache".into()]),
+                RiskLevel::Low,
+                false,
+                false,
+            ),
+            (
+                ActionCommand::ReclaimStorageCaches(vec!["windows_update".into()]),
+                RiskLevel::Low,
+                true,
+                false,
             ),
         ];
 
