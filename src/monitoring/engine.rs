@@ -290,7 +290,7 @@ impl SystemMonitor {
             unsafe {
                 use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId};
                 let hwnd = GetForegroundWindow();
-                if hwnd.0 != 0 {
+                if !hwnd.0.is_null() {
                     GetWindowThreadProcessId(hwnd, Some(&mut foreground_pid));
                 }
             }

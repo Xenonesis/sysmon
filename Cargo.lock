@@ -4431,7 +4431,7 @@ dependencies = [
  "tray-icon",
  "ureq",
  "widestring",
- "windows 0.52.0",
+ "windows 0.62.2",
  "windows-service",
  "windows-sys 0.61.2",
  "winit",
