@@ -1,17 +1,9 @@
-use std::rc::Rc;
-use wmi::{COMLibrary, WMIConnection};
+use wmi::WMIConnection;
 
 fn main() {
     // Note: MSAcpi_ThermalZoneTemperature lives in ROOT\WMI and typically
     // requires an elevated (administrator) prompt; access denied otherwise.
-    let com = match COMLibrary::new() {
-        Ok(lib) => lib,
-        Err(e) => {
-            eprintln!("Error: COM init failed: {:?}", e);
-            std::process::exit(1);
-        }
-    };
-    let wmi = match WMIConnection::with_namespace_path("ROOT\\WMI", Rc::new(com)) {
+    let wmi = match WMIConnection::with_namespace_path("ROOT\\WMI") {
         Ok(con) => con,
         Err(e) => {
             eprintln!("Error: WMI init failed: {:?}", e);

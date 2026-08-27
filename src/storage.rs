@@ -19,7 +19,6 @@ pub struct PhysicalDiskHealth {
 #[cfg(target_os = "windows")]
 mod windows_impl {
     use super::*;
-    use crate::providers::init_com;
     use wmi::WMIConnection;
 
     #[derive(Deserialize, Debug)]
@@ -34,11 +33,7 @@ mod windows_impl {
     }
 
     pub fn get_physical_disks_internal() -> Vec<PhysicalDiskHealth> {
-        let com = match init_com() {
-            Ok(c) => c,
-            Err(_) => return Vec::new(),
-        };
-        let wmi_con = match WMIConnection::new(com.into()) {
+        let wmi_con = match WMIConnection::new() {
             Ok(con) => con,
             Err(_) => return Vec::new(),
         };

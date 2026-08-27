@@ -246,29 +246,9 @@ pub fn send_service_control(
 }
 
 pub fn get_services() -> Vec<ServiceInfo> {
-    get_services_with_com(None)
-}
-
-pub fn get_services_with_com(com: Option<&std::rc::Rc<wmi::COMLibrary>>) -> Vec<ServiceInfo> {
     let mut result = Vec::new();
 
-    if let Some(com_lib) = com {
-        if let Ok(wmi_con) = WMIConnection::new(com_lib.clone()) {
-            let results: Result<Vec<Win32_Service>, _> =
-                wmi_con.raw_query("SELECT Name, DisplayName, State FROM Win32_Service");
-            if let Ok(services) = results {
-                for svc in services {
-                    result.push(ServiceInfo {
-                        name: svc.name,
-                        display_name: svc.display_name.unwrap_or_default(),
-                        state: svc.state,
-                    });
-                }
-            }
-        }
-    } else if let Ok(com_lib) = crate::providers::init_com()
-        && let Ok(wmi_con) = WMIConnection::new(std::rc::Rc::new(com_lib))
-    {
+    if let Ok(wmi_con) = WMIConnection::new() {
         let results: Result<Vec<Win32_Service>, _> =
             wmi_con.raw_query("SELECT Name, DisplayName, State FROM Win32_Service");
         if let Ok(services) = results {

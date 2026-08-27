@@ -56,9 +56,7 @@ impl TelemetryProvider for WindowsGpuProvider {
             use std::collections::HashMap;
             use wmi::{Variant, WMIConnection};
 
-            let com = super::init_com().map_err(|error| ProviderError::InitFailed(error.to_string()))?;
-            let connection =
-                WMIConnection::new(com.into()).map_err(|error| ProviderError::InitFailed(error.to_string()))?;
+            let connection = WMIConnection::new().map_err(|error| ProviderError::InitFailed(error.to_string()))?;
 
             if self.engine_class.is_none() || self.memory_class.is_none() {
                 for prefix in ["GPUPerformanceCounters", "GPUPerformanceMonitors"] {

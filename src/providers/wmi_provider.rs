@@ -27,9 +27,8 @@ impl WmiProvider {
         {
             use wmi::{Variant, WMIConnection};
 
-            let com = super::init_com().map_err(|e| ProviderError::InitFailed(format!("COM init: {}", e)))?;
-            let wmi_con = WMIConnection::new(com.into())
-                .map_err(|e| ProviderError::InitFailed(format!("WMI connection: {}", e)))?;
+            let wmi_con =
+                WMIConnection::new().map_err(|e| ProviderError::InitFailed(format!("WMI connection: {}", e)))?;
 
             // Motherboard
             let board_query: Result<Vec<HashMap<String, Variant>>, _> =

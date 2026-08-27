@@ -442,8 +442,6 @@ pub struct SystemMonitor {
     #[cfg(target_os = "windows")]
     pub(crate) nvml: Option<Nvml>,
     #[cfg(target_os = "windows")]
-    pub(crate) wmi_com: Option<std::rc::Rc<wmi::COMLibrary>>,
-    #[cfg(target_os = "windows")]
     pub(crate) wmi_thermal: Option<wmi::WMIConnection>,
     #[cfg(target_os = "windows")]
     pub(crate) wmi_gpu_engine_class: Option<String>,

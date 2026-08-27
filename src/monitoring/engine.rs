@@ -36,13 +36,10 @@ impl SystemMonitor {
         // Probe which WMI GPU performance counter class name is available on this system.
         // Windows versions differ: some use "GPUPerformanceMonitors", others use "GPUPerformanceCounters".
         #[cfg(target_os = "windows")]
-        let (wmi_com, wmi_gpu_engine_class, wmi_gpu_memory_class) = {
-            let com = crate::providers::init_com().ok().map(std::rc::Rc::new);
+        let (wmi_gpu_engine_class, wmi_gpu_memory_class) = {
             let mut engine_class = None;
             let mut memory_class = None;
-            if let Some(com_lib) = com.as_ref()
-                && let Ok(wmi) = wmi::WMIConnection::new(com_lib.clone())
-            {
+            if let Ok(wmi) = wmi::WMIConnection::new() {
                 for prefix in &["GPUPerformanceCounters", "GPUPerformanceMonitors"] {
                     if engine_class.is_none() {
                         let q = format!(
@@ -70,13 +67,11 @@ impl SystemMonitor {
                     }
                 }
             }
-            (com, engine_class, memory_class)
+            (engine_class, memory_class)
         };
 
         #[cfg(target_os = "windows")]
-        let wmi_thermal = wmi_com
-            .as_ref()
-            .and_then(|com| wmi::WMIConnection::with_namespace_path("ROOT\\WMI", com.clone()).ok());
+        let wmi_thermal = wmi::WMIConnection::with_namespace_path("ROOT\\WMI").ok();
 
         SystemMonitor {
             sys,
@@ -84,8 +79,6 @@ impl SystemMonitor {
             networks,
             #[cfg(target_os = "windows")]
             nvml,
-            #[cfg(target_os = "windows")]
-            wmi_com,
             #[cfg(target_os = "windows")]
             wmi_thermal,
             #[cfg(target_os = "windows")]
@@ -438,14 +431,12 @@ impl SystemMonitor {
 
     #[cfg(target_os = "windows")]
     fn get_battery_wmi(&self) -> Option<wmi::WMIConnection> {
-        let com = self.wmi_com.as_ref()?;
-        wmi::WMIConnection::new(com.clone()).ok()
+        wmi::WMIConnection::new().ok()
     }
 
     #[cfg(target_os = "windows")]
     fn get_gpu_info_wmi(&self) -> Option<Vec<GpuInfo>> {
-        let com = self.wmi_com.as_ref()?;
-        let wmi = wmi::WMIConnection::new(com.clone()).ok()?;
+        let wmi = wmi::WMIConnection::new().ok()?;
 
         let results: Vec<std::collections::HashMap<String, wmi::Variant>> = wmi
             .raw_query("SELECT Name, DriverVersion, VideoProcessor, AdapterRAM FROM Win32_VideoController")
@@ -597,13 +588,8 @@ impl SystemMonitor {
     /// One-time WMI queries for motherboard/BIOS/GPU-driver/OS-build details.
     /// Any failure returns `None` for the failed fields; WMI init failure returns all `None`.
     fn get_wmi_system_details() -> (Option<String>, Option<String>, Option<String>, Option<String>) {
-        use std::rc::Rc;
         use wmi::{Variant, WMIConnection};
-        let com = match crate::providers::init_com() {
-            Ok(c) => Rc::new(c),
-            Err(_) => return (None, None, None, None),
-        };
-        let wmi = match WMIConnection::new(com) {
+        let wmi = match WMIConnection::new() {
             Ok(w) => w,
             Err(_) => return (None, None, None, None),
         };
@@ -1386,11 +1372,7 @@ impl SystemMonitorApp {
                             || data_clone.read().services.is_empty()
                             || service_check_counter.is_multiple_of(60)
                         {
-                            if let Some(ref com) = monitor.wmi_com {
-                                services::get_services_with_com(Some(com))
-                            } else {
-                                services::get_services()
-                            }
+                            services::get_services()
                         } else {
                             Vec::new()
                         };
