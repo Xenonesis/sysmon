@@ -284,10 +284,15 @@ pub fn lookup_details(sys: &System, pid: u32) -> Option<ProcessDetails> {
     let parent_name = process
         .parent()
         .and_then(|pp| sys.process(pp))
-        .map(|pp| pp.name().to_string());
+        .map(|pp| pp.name().to_string_lossy().into_owned());
     Some(ProcessDetails {
         exe_path: process.exe().map(|p| p.to_string_lossy().to_string()),
-        command_line: process.cmd().join(" "),
+        command_line: process
+            .cmd()
+            .iter()
+            .map(|arg| arg.to_string_lossy())
+            .collect::<Vec<_>>()
+            .join(" "),
         cwd: process.cwd().map(|p| p.to_string_lossy().to_string()),
         start_time: process.start_time(),
         run_time: process.run_time(),

@@ -63,7 +63,7 @@ pub(crate) fn run_action_worker(commands: Receiver<commands::ActionCommand>, eve
                 .map(|_| format!("Process {pid} affinity set to {mask:#x}"))
                 .map_err(ActionError::Failed),
             commands::ActionCommand::KillProcessTree(root) => {
-                monitor.sys.refresh_processes();
+                monitor.sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
                 let tree = processes::build_process_tree(&monitor.sys);
                 let order = processes::kill_order(&tree, root);
                 let total = order.len();

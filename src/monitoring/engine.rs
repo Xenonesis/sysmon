@@ -104,7 +104,7 @@ impl SystemMonitor {
     }
 
     fn get_cpu_usage(&mut self) -> f32 {
-        self.sys.global_cpu_info().cpu_usage()
+        self.sys.global_cpu_usage()
     }
 
     fn get_top_processes(&self, count: usize) -> Vec<crate::processes::ProcessInfo> {
@@ -124,7 +124,7 @@ impl SystemMonitor {
             .iter()
             .map(|(pid, process)| {
                 // Try to use the exe path's file name if `name()` is empty or not helpful
-                let mut name_str = process.name().to_string();
+                let mut name_str = process.name().to_string_lossy().into_owned();
                 if name_str.is_empty()
                     && let Some(exe_path) = process.exe()
                     && let Some(file_name) = exe_path.file_name()
@@ -188,7 +188,7 @@ impl SystemMonitor {
     }
 
     pub(crate) fn kill_process(&mut self, pid: u32) -> bool {
-        self.sys.refresh_processes();
+        self.sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
         if let Some(process) = self.sys.process(Pid::from_u32(pid)) {
             let result = process.kill();
             if result {
@@ -298,7 +298,7 @@ impl SystemMonitor {
 
         unsafe {
             for (pid, process) in self.sys.processes() {
-                if is_excluded(process.name(), exclusions) {
+                if is_excluded(&process.name().to_string_lossy(), exclusions) {
                     continue;
                 }
                 let pid_u32 = pid.as_u32();
@@ -1211,9 +1211,9 @@ impl SystemMonitorApp {
                     // Rich process, disk and network details still use sysinfo's
                     // native structures; core CPU/RAM/GPU values come from the hub.
                     if !is_hidden {
-                        monitor.sys.refresh_processes();
-                        monitor.disks.refresh();
-                        monitor.networks.refresh();
+                        monitor.sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+                        monitor.disks.refresh(true);
+                        monitor.networks.refresh(true);
                     }
 
                     let fallback_memory = monitor.get_memory_info();
@@ -1405,7 +1405,7 @@ impl SystemMonitorApp {
                             .sys
                             .processes()
                             .iter()
-                            .map(|(pid, p)| (pid.as_u32(), p.name().to_string()))
+                            .map(|(pid, p)| (pid.as_u32(), p.name().to_string_lossy().into_owned()))
                             .collect();
                         let conns = crate::network::get_active_connections(&process_map);
                         let mut data = data_clone.write();

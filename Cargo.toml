@@ -17,7 +17,7 @@ name = "system-monitor"
 path = "src/main.rs"
 
 [dependencies]
-sysinfo = "0.30"
+sysinfo = "0.39"
 nvml-wrapper = "0.12"
 chrono = "0.4"
 eframe = { version = "0.36", default-features = false, features = ["accesskit", "default_fonts", "glow", "links"] }
