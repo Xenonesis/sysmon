@@ -10,11 +10,12 @@ const MAX_RELEASE_METADATA_BYTES: u64 = 1024 * 1024;
 const MAX_CHECKSUM_BYTES: u64 = 4 * 1024;
 
 fn http_agent() -> ureq::Agent {
-    ureq::AgentBuilder::new()
-        .timeout_connect(std::time::Duration::from_secs(10))
-        .timeout_read(std::time::Duration::from_secs(60))
-        .timeout_write(std::time::Duration::from_secs(30))
-        .build()
+    let config = ureq::Agent::config_builder()
+        .timeout_connect(Some(std::time::Duration::from_secs(10)))
+        .timeout_recv_response(Some(std::time::Duration::from_secs(60)))
+        .timeout_send_body(Some(std::time::Duration::from_secs(30)))
+        .build();
+    ureq::Agent::new_with_config(config)
 }
 
 pub(crate) fn validate_asset_url(url: &str) -> Result<(), String> {
@@ -155,20 +156,17 @@ impl Updater {
     fn fetch_latest_release(&self) -> Result<GitHubRelease, String> {
         let response = http_agent()
             .get(UPDATE_CHECK_URL)
-            .set("Accept", "application/vnd.github.v3+json")
-            .set("User-Agent", "SystemMonitor/1.0")
+            .header("Accept", "application/vnd.github.v3+json")
+            .header("User-Agent", "SystemMonitor/1.0")
             .call()
             .map_err(|e| format!("Failed to fetch release info: {}", e))?;
 
-        let mut body = String::new();
-        response
-            .into_reader()
-            .take(MAX_RELEASE_METADATA_BYTES + 1)
-            .read_to_string(&mut body)
+        let body = response
+            .into_body()
+            .into_with_config()
+            .limit(MAX_RELEASE_METADATA_BYTES)
+            .read_to_string()
             .map_err(|e| format!("Failed to read response body: {}", e))?;
-        if body.len() as u64 > MAX_RELEASE_METADATA_BYTES {
-            return Err("Release metadata exceeds size limit".into());
-        }
 
         serde_json::from_str(&body).map_err(|e| format!("Failed to parse GitHub response: {}", e))
     }
@@ -217,19 +215,16 @@ impl Updater {
     fn fetch_expected_checksum(&self, checksum_url: &str, expected_filename: &str) -> Result<String, String> {
         let response = http_agent()
             .get(checksum_url)
-            .set("User-Agent", "SystemMonitor/1.0")
+            .header("User-Agent", "SystemMonitor/1.0")
             .call()
             .map_err(|e| format!("Failed to download checksum: {}", e))?;
 
-        let mut body = String::new();
-        response
-            .into_reader()
-            .take(MAX_CHECKSUM_BYTES + 1)
-            .read_to_string(&mut body)
+        let body = response
+            .into_body()
+            .into_with_config()
+            .limit(MAX_CHECKSUM_BYTES)
+            .read_to_string()
             .map_err(|e| format!("Failed to read checksum file: {e}"))?;
-        if body.len() as u64 > MAX_CHECKSUM_BYTES {
-            return Err("Checksum file exceeds size limit".into());
-        }
 
         parse_checksum_file(&body, expected_filename)
             .ok_or_else(|| "Checksum file does not contain the expected installer hash and filename".to_string())
@@ -242,11 +237,13 @@ impl Updater {
         // Download the update using ureq
         let response = http_agent()
             .get(download_url)
-            .set("User-Agent", "SystemMonitor/1.0")
+            .header("User-Agent", "SystemMonitor/1.0")
             .call()
             .map_err(|e| format!("Failed to download update: {}", e))?;
         if response
-            .header("Content-Length")
+            .headers()
+            .get("Content-Length")
+            .and_then(|value| value.to_str().ok())
             .and_then(|value| value.parse::<u64>().ok())
             .is_some_and(|size| size > MAX_INSTALLER_BYTES)
         {
@@ -255,13 +252,12 @@ impl Updater {
 
         let mut bytes = Vec::new();
         response
-            .into_reader()
-            .take(MAX_INSTALLER_BYTES + 1)
+            .into_body()
+            .into_with_config()
+            .limit(MAX_INSTALLER_BYTES)
+            .reader()
             .read_to_end(&mut bytes)
             .map_err(|e| format!("Failed to read update file: {e}"))?;
-        if bytes.len() as u64 > MAX_INSTALLER_BYTES {
-            return Err("Update installer exceeds size limit".into());
-        }
 
         // Verify the downloaded installer against the SHA-256 checksum
         // published with the release before writing or executing it.

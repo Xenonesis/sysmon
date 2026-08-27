@@ -38,7 +38,7 @@ tracing-appender = "0.2"
 tray-icon = "0.24"
 muda = "0.19"
 parking_lot = "0.12"
-ureq = { version = "2.10", features = ["json"] }
+ureq = "3.4"
 percent-encoding = "2.3"
 sha2 = "0.10"
 windows-service = "0.8.1"
