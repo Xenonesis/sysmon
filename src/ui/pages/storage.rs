@@ -361,7 +361,7 @@ fn paint_lock_inspector_card(app: &mut crate::SystemMonitorApp, ui: &mut egui::U
             )
             .fill(ThemePalette::ACCENT_PRIMARY.gamma_multiply(if is_dark { 0.18 } else { 0.12 }))
             .stroke(egui::Stroke::new(1.0, ThemePalette::ACCENT_PRIMARY.gamma_multiply(0.5)))
-            .rounding(egui::Rounding::same(4.0));
+            .corner_radius(egui::CornerRadius::same(4));
 
             if ui.add(inspect_btn).clicked() {
                 app.storage_page.inspect_locks();
@@ -438,7 +438,7 @@ fn paint_lock_inspector_card(app: &mut crate::SystemMonitorApp, ui: &mut egui::U
                                 )
                                 .fill(ThemePalette::STATUS_CRITICAL.gamma_multiply(if is_dark { 0.18 } else { 0.12 }))
                                 .stroke(egui::Stroke::new(1.0, ThemePalette::STATUS_CRITICAL.gamma_multiply(0.5)))
-                                .rounding(egui::Rounding::same(4.0));
+                                .corner_radius(egui::CornerRadius::same(4));
 
                                 if ui.add(kill_btn).on_hover_text("Terminate locking process via ActionPlan").clicked() {
                                     kill_pid = Some(proc.pid);
@@ -588,7 +588,7 @@ fn paint_reclaimer_card(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, is
                     ))
                     .fill(ThemePalette::STATUS_WARNING.gamma_multiply(if is_dark { 0.18 } else { 0.12 }))
                     .stroke(egui::Stroke::new(1.0, ThemePalette::STATUS_WARNING.gamma_multiply(0.5)))
-                    .rounding(egui::Rounding::same(4.0));
+                    .corner_radius(egui::CornerRadius::same(4));
 
                 let has_selection = !app.storage_page.reclaimer_selected.is_empty();
                 ui.add_enabled_ui(has_selection, |ui| {
@@ -623,9 +623,11 @@ mod tests {
         let data = SystemData::default();
         let ctx = egui::Context::default();
 
-        let _ = ctx.run(Default::default(), |ctx| {
-            egui::CentralPanel::default().show(ctx, |ui| show(&mut app, ui, &data));
-        });
+        ctx.run_ui(Default::default(), |ui| {
+            egui::CentralPanel::default().show(ui, |ui| show(&mut app, ui, &data));
+        })
+        .textures_delta
+        .clear();
 
         assert!(app.storage_page.reclaimer_scanned);
     }
@@ -678,8 +680,10 @@ mod tests {
         });
 
         let ctx = egui::Context::default();
-        let _ = ctx.run(Default::default(), |ctx| {
-            egui::CentralPanel::default().show(ctx, |ui| show(&mut app, ui, &data));
-        });
+        ctx.run_ui(Default::default(), |ui| {
+            egui::CentralPanel::default().show(ui, |ui| show(&mut app, ui, &data));
+        })
+        .textures_delta
+        .clear();
     }
 }

@@ -126,11 +126,13 @@ mod tests {
 
         // 1. Initial empty/loading state render
         let ctx = egui::Context::default();
-        let _ = ctx.run(Default::default(), |ctx| {
-            egui::CentralPanel::default().show(ctx, |ui| {
+        ctx.run_ui(Default::default(), |ui| {
+            egui::CentralPanel::default().show(ui, |ui| {
                 show(&mut app, ui, &data);
             });
-        });
+        })
+        .textures_delta
+        .clear();
 
         // 2. Populated telemetry data state render
         data.memory_total = 16 * 1024 * 1024 * 1024;
@@ -181,23 +183,27 @@ mod tests {
             status: "Running".to_string(),
         }];
 
-        let _ = ctx.run(Default::default(), |ctx| {
-            egui::CentralPanel::default().show(ctx, |ui| {
+        ctx.run_ui(Default::default(), |ui| {
+            egui::CentralPanel::default().show(ui, |ui| {
                 show(&mut app, ui, &data);
             });
-        });
+        })
+        .textures_delta
+        .clear();
 
         // 3. Compact width render
-        let _ = ctx.run(
+        ctx.run_ui(
             egui::RawInput {
                 screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(600.0, 800.0))),
                 ..Default::default()
             },
-            |ctx| {
-                egui::CentralPanel::default().show(ctx, |ui| {
+            |ui| {
+                egui::CentralPanel::default().show(ui, |ui| {
                     show(&mut app, ui, &data);
                 });
             },
-        );
+        )
+        .textures_delta
+        .clear();
     }
 }

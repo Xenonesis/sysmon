@@ -56,7 +56,7 @@ pub(super) fn paint_general_settings(
                             )
                             .fill(ThemePalette::ACCENT_PRIMARY)
                             .stroke(egui::Stroke::NONE)
-                            .rounding(egui::Rounding::same(4.0))
+                            .corner_radius(egui::CornerRadius::same(4))
                         } else {
                             egui::Button::new(
                                 egui::RichText::new(label)
@@ -65,7 +65,7 @@ pub(super) fn paint_general_settings(
                             )
                             .fill(ThemePalette::bg_deepest(is_dark))
                             .stroke(egui::Stroke::new(1.0, ThemePalette::border(is_dark)))
-                            .rounding(egui::Rounding::same(4.0))
+                            .corner_radius(egui::CornerRadius::same(4))
                         };
                         if ui.add(btn).clicked() {
                             app.settings.theme = theme;

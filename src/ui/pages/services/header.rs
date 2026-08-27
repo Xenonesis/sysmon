@@ -45,8 +45,8 @@ pub(super) fn paint(ui: &mut egui::Ui, is_dark: bool, intents: &mut Vec<UiIntent
         egui::vec2((full_w - accent_w).max(0.0), 1.0),
     );
     ui.painter()
-        .rect_filled(accent_rect, egui::Rounding::ZERO, ThemePalette::ACCENT_PRIMARY);
+        .rect_filled(accent_rect, egui::CornerRadius::ZERO, ThemePalette::ACCENT_PRIMARY);
     ui.painter()
-        .rect_filled(remainder_rect, egui::Rounding::ZERO, ThemePalette::border(is_dark));
+        .rect_filled(remainder_rect, egui::CornerRadius::ZERO, ThemePalette::border(is_dark));
     ui.add_space(10.0);
 }

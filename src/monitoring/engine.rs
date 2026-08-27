@@ -945,7 +945,7 @@ impl SystemMonitorApp {
                 if let Ok(font_bytes) = std::fs::read(path) {
                     fonts
                         .font_data
-                        .insert("segoe_ui".to_owned(), egui::FontData::from_owned(font_bytes));
+                        .insert("segoe_ui".to_owned(), egui::FontData::from_owned(font_bytes).into());
                     fonts
                         .families
                         .entry(egui::FontFamily::Proportional)
@@ -967,7 +967,7 @@ impl SystemMonitorApp {
                 if let Ok(font_bytes) = std::fs::read(path) {
                     fonts
                         .font_data
-                        .insert(key.to_string(), egui::FontData::from_owned(font_bytes));
+                        .insert(key.to_string(), egui::FontData::from_owned(font_bytes).into());
                     fonts
                         .families
                         .entry(egui::FontFamily::Proportional)
@@ -987,7 +987,7 @@ impl SystemMonitorApp {
                 if let Ok(font_bytes) = std::fs::read(path) {
                     fonts
                         .font_data
-                        .insert("consolas".to_owned(), egui::FontData::from_owned(font_bytes));
+                        .insert("consolas".to_owned(), egui::FontData::from_owned(font_bytes).into());
                     fonts
                         .families
                         .entry(egui::FontFamily::Monospace)
@@ -1004,14 +1004,14 @@ impl SystemMonitorApp {
         }
 
         // Configure fonts and style
-        let mut style = (*cc.egui_ctx.style()).clone();
+        let mut style = (*cc.egui_ctx.style_of(cc.egui_ctx.theme())).clone();
 
         // Premium spacing
         style.spacing.item_spacing = egui::vec2(16.0, 12.0);
         style.spacing.button_padding = egui::vec2(16.0, 10.0);
         style.spacing.interact_size = egui::vec2(32.0, 32.0); // Touch target minimums
-        style.spacing.window_margin = egui::Margin::same(20.0);
-        style.spacing.menu_margin = egui::Margin::same(12.0);
+        style.spacing.window_margin = egui::Margin::same(20);
+        style.spacing.menu_margin = egui::Margin::same(12);
 
         // Typographic hierarchy (slightly larger for premium feel)
         use egui::{FontFamily, FontId, TextStyle};
@@ -1064,26 +1064,26 @@ impl SystemMonitorApp {
             visuals.widgets.active.fg_stroke = egui::Stroke::new(1.0, crate::ui::theme::ThemePalette::TEXT_SELECTED);
 
             // Rounding (Terminal Noir Minimal 4px)
-            visuals.window_rounding = egui::Rounding::same(4.0);
-            visuals.menu_rounding = egui::Rounding::same(4.0);
-            visuals.widgets.noninteractive.rounding = egui::Rounding::same(4.0);
-            visuals.widgets.inactive.rounding = egui::Rounding::same(4.0);
-            visuals.widgets.hovered.rounding = egui::Rounding::same(4.0);
-            visuals.widgets.active.rounding = egui::Rounding::same(4.0);
+            visuals.window_corner_radius = egui::CornerRadius::same(4);
+            visuals.menu_corner_radius = egui::CornerRadius::same(4);
+            visuals.widgets.noninteractive.corner_radius = egui::CornerRadius::same(4);
+            visuals.widgets.inactive.corner_radius = egui::CornerRadius::same(4);
+            visuals.widgets.hovered.corner_radius = egui::CornerRadius::same(4);
+            visuals.widgets.active.corner_radius = egui::CornerRadius::same(4);
 
             // Window chrome and depth
             visuals.window_stroke = egui::Stroke::new(1.0, crate::ui::theme::ThemePalette::BORDER);
             visuals.window_shadow = egui::epaint::Shadow {
-                offset: egui::vec2(0.0, 4.0),
-                blur: 16.0,
-                spread: 0.0,
+                offset: [0, 4],
+                blur: 16,
+                spread: 0,
                 color: egui::Color32::from_rgba_premultiplied(0, 0, 0, 40),
             };
 
             visuals.popup_shadow = egui::epaint::Shadow {
-                offset: egui::vec2(0.0, 8.0),
-                blur: 40.0,
-                spread: 0.0,
+                offset: [0, 8],
+                blur: 40,
+                spread: 0,
                 color: egui::Color32::from_rgba_premultiplied(0, 0, 0, 20),
             };
 
@@ -1103,13 +1103,13 @@ impl SystemMonitorApp {
             visuals.widgets.noninteractive.bg_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(220, 220, 225));
             visuals.widgets.noninteractive.fg_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(40, 40, 45));
 
-            visuals.window_rounding = egui::Rounding::same(8.0);
-            visuals.menu_rounding = egui::Rounding::same(8.0);
+            visuals.window_corner_radius = egui::CornerRadius::same(8);
+            visuals.menu_corner_radius = egui::CornerRadius::same(8);
 
             cc.egui_ctx.set_visuals(visuals);
         }
 
-        cc.egui_ctx.set_style(style);
+        cc.egui_ctx.set_style_of(cc.egui_ctx.theme(), style);
 
         let data = Arc::new(RwLock::new(SystemData::default()));
         let data_clone = Arc::clone(&data);

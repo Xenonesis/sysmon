@@ -100,11 +100,13 @@ mod tests {
         };
 
         let ctx = egui::Context::default();
-        let _ = ctx.run(Default::default(), |ctx| {
-            egui::CentralPanel::default().show(ctx, |ui| {
+        ctx.run_ui(Default::default(), |ui| {
+            egui::CentralPanel::default().show(ui, |ui| {
                 show(&app, ui, &data);
             });
-        });
+        })
+        .textures_delta
+        .clear();
     }
 
     #[test]
@@ -114,24 +116,28 @@ mod tests {
         let data = SystemData::default();
 
         let ctx = egui::Context::default();
-        let _ = ctx.run(Default::default(), |ctx| {
-            egui::CentralPanel::default().show(ctx, |ui| {
+        ctx.run_ui(Default::default(), |ui| {
+            egui::CentralPanel::default().show(ui, |ui| {
                 show(&app, ui, &data);
             });
-        });
+        })
+        .textures_delta
+        .clear();
     }
 
     #[test]
     fn test_subcomponents_direct() {
         let data = SystemData::default();
         let ctx = egui::Context::default();
-        let _ = ctx.run(Default::default(), |ctx| {
-            egui::CentralPanel::default().show(ctx, |ui| {
+        ctx.run_ui(Default::default(), |ui| {
+            egui::CentralPanel::default().show(ui, |ui| {
                 rate_summary::paint_history_summary(ui, &data, true);
                 rate_summary::paint_history_summary(ui, &data, false);
                 plots::paint_performance_plots(ui, &data, true);
                 plots::paint_performance_plots(ui, &data, false);
             });
-        });
+        })
+        .textures_delta
+        .clear();
     }
 }

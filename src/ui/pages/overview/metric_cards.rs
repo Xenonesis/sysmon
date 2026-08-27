@@ -16,11 +16,12 @@ pub(super) struct MetricCard {
 pub(super) fn paint_metric_card(ui: &mut egui::Ui, cr: egui::Rect, card: &MetricCard, is_dark: bool) {
     let card_bg = ThemePalette::bg_card(is_dark);
     let card_border = egui::Stroke::new(1.0, ThemePalette::border(is_dark));
-    let card_rnd = egui::Rounding::same(6.0);
+    let card_rnd = egui::CornerRadius::same(6);
 
     // Card background & 1px structural border
     ui.painter().rect_filled(cr, card_rnd, card_bg);
-    ui.painter().rect_stroke(cr, card_rnd, card_border);
+    ui.painter()
+        .rect_stroke(cr, card_rnd, card_border, egui::StrokeKind::Middle);
 
     // Header Row: Accent indicator + Title
     ui.painter()
@@ -39,9 +40,13 @@ pub(super) fn paint_metric_card(ui: &mut egui::Ui, cr: egui::Rect, card: &Metric
     let status_border = egui::Stroke::new(1.0, card.color.gamma_multiply(0.4));
     let badge_rect = egui::Rect::from_min_size(egui::pos2(cr.max.x - 72.0, cr.min.y + 8.0), egui::vec2(60.0, 18.0));
     ui.painter()
-        .rect_filled(badge_rect, egui::Rounding::same(3.0), status_bg);
-    ui.painter()
-        .rect_stroke(badge_rect, egui::Rounding::same(3.0), status_border);
+        .rect_filled(badge_rect, egui::CornerRadius::same(3), status_bg);
+    ui.painter().rect_stroke(
+        badge_rect,
+        egui::CornerRadius::same(3),
+        status_border,
+        egui::StrokeKind::Middle,
+    );
     ui.painter().text(
         badge_rect.center(),
         egui::Align2::CENTER_CENTER,
@@ -66,7 +71,7 @@ pub(super) fn paint_metric_card(ui: &mut egui::Ui, cr: egui::Rect, card: &Metric
     let bar_y = cr.min.y + 66.0;
     let bar_track_rect =
         egui::Rect::from_min_size(egui::pos2(cr.min.x + bar_margin_x, bar_y), egui::vec2(bar_w, bar_h));
-    let bar_rnd = egui::Rounding::same(2.0);
+    let bar_rnd = egui::CornerRadius::same(2);
 
     ui.painter()
         .rect_filled(bar_track_rect, bar_rnd, ThemePalette::bg_deepest(is_dark));
@@ -74,6 +79,7 @@ pub(super) fn paint_metric_card(ui: &mut egui::Ui, cr: egui::Rect, card: &Metric
         bar_track_rect,
         bar_rnd,
         egui::Stroke::new(1.0, ThemePalette::bg_track(is_dark)),
+        egui::StrokeKind::Middle,
     );
 
     let filled_w = (bar_w * card.fraction.clamp(0.0, 1.0)).max(2.0);

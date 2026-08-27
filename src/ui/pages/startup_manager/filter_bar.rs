@@ -29,7 +29,7 @@ pub(crate) fn paint_filter_bar(app: &mut crate::SystemMonitorApp, ui: &mut egui:
                     .strong()
                     .color(ThemePalette::text_secondary(is_dark)),
             );
-            egui::ComboBox::from_id_source("startup_impact_filter")
+            egui::ComboBox::from_id_salt("startup_impact_filter")
                 .selected_text(match &app.startup_filter_impact {
                     Some(ImpactTier::High) => "High",
                     Some(ImpactTier::Medium) => "Medium",
@@ -71,7 +71,7 @@ pub(crate) fn paint_filter_bar(app: &mut crate::SystemMonitorApp, ui: &mut egui:
                     .strong()
                     .color(ThemePalette::text_secondary(is_dark)),
             );
-            egui::ComboBox::from_id_source("startup_signed_filter")
+            egui::ComboBox::from_id_salt("startup_signed_filter")
                 .selected_text(match app.startup_filter_signed {
                     Some(true) => "Signed",
                     Some(false) => "Unsigned",

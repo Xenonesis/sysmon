@@ -147,7 +147,7 @@ pub(crate) fn show(_app: &crate::SystemMonitorApp, ui: &mut egui::Ui, data: &Sys
                     let frac = (core.usage / 100.0).clamp(0.0, 1.0);
 
                     card_frame(is_dark)
-                        .inner_margin(egui::Margin::symmetric(10.0, 8.0))
+                        .inner_margin(egui::Margin::symmetric(10, 8))
                         .show(col, |ui| {
                             ui.horizontal(|ui| {
                                 let (dot, _) = ui.allocate_exact_size(egui::vec2(5.0, 5.0), egui::Sense::hover());

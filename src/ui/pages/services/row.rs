@@ -29,7 +29,7 @@ pub(super) fn paint(
     }
     paint_background(ui, row_rect, &response, index, selected, is_dark);
 
-    ui.allocate_ui_at_rect(row_rect, |ui| {
+    ui.new_child(egui::UiBuilder::new().max_rect(row_rect)).scope(|ui| {
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = widths.spacing;
             paint_display_name(ui, service, selected, widths.display, row_height, is_dark);
@@ -54,24 +54,24 @@ fn paint_background(
         } else {
             egui::Color32::from_rgba_unmultiplied(16, 185, 129, 20)
         };
-        ui.painter().rect_filled(rect, egui::Rounding::same(3.0), fill);
+        ui.painter().rect_filled(rect, egui::CornerRadius::same(3), fill);
         let indicator = egui::Rect::from_min_size(rect.min, egui::vec2(3.0, rect.height()));
         ui.painter()
-            .rect_filled(indicator, egui::Rounding::same(1.5), ThemePalette::ACCENT_PRIMARY);
+            .rect_filled(indicator, egui::CornerRadius::same(2), ThemePalette::ACCENT_PRIMARY);
     } else if response.hovered() {
         let fill = if is_dark {
             egui::Color32::from_rgba_unmultiplied(255, 255, 255, 10)
         } else {
             egui::Color32::from_rgba_unmultiplied(0, 0, 0, 8)
         };
-        ui.painter().rect_filled(rect, egui::Rounding::same(3.0), fill);
+        ui.painter().rect_filled(rect, egui::CornerRadius::same(3), fill);
     } else if index.is_multiple_of(2) {
         let fill = if is_dark {
             egui::Color32::from_rgba_unmultiplied(255, 255, 255, 3)
         } else {
             egui::Color32::from_rgba_unmultiplied(0, 0, 0, 3)
         };
-        ui.painter().rect_filled(rect, egui::Rounding::same(3.0), fill);
+        ui.painter().rect_filled(rect, egui::CornerRadius::same(3), fill);
     }
 }
 
@@ -120,7 +120,7 @@ fn paint_identifier(ui: &mut egui::Ui, service: &ServiceInfo, width: f32, height
                 )
                 .on_hover_text(format!("Click to copy '{}'", service.name));
             if response.clicked() {
-                ui.output_mut(|output| output.copied_text = service.name.clone());
+                ui.ctx().copy_text(service.name.clone());
             }
         },
     );

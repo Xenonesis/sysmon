@@ -470,9 +470,11 @@ mod tests {
             let data = SystemData::default();
             let ctx = egui::Context::default();
 
-            let _ = ctx.run(Default::default(), |ctx| {
-                egui::CentralPanel::default().show(ctx, |ui| show(&mut app, ui, &data));
-            });
+            ctx.run_ui(Default::default(), |ui| {
+                egui::CentralPanel::default().show(ui, |ui| show(&mut app, ui, &data));
+            })
+            .textures_delta
+            .clear();
 
             app.session_recorder.start().unwrap();
             for index in 0..20 {
@@ -486,15 +488,17 @@ mod tests {
             }
             app.session_recorder.stop().unwrap();
 
-            let _ = ctx.run(
+            ctx.run_ui(
                 egui::RawInput {
                     screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(900.0, 700.0))),
                     ..Default::default()
                 },
-                |ctx| {
-                    egui::CentralPanel::default().show(ctx, |ui| show(&mut app, ui, &data));
+                |ui| {
+                    egui::CentralPanel::default().show(ui, |ui| show(&mut app, ui, &data));
                 },
-            );
+            )
+            .textures_delta
+            .clear();
         });
         std::fs::remove_dir_all(root).unwrap();
     }
@@ -525,9 +529,11 @@ mod tests {
         ]);
 
         let ctx = egui::Context::default();
-        let _ = ctx.run(Default::default(), |ctx| {
-            egui::CentralPanel::default().show(ctx, |ui| show(&mut app, ui, &data));
-        });
+        ctx.run_ui(Default::default(), |ui| {
+            egui::CentralPanel::default().show(ui, |ui| show(&mut app, ui, &data));
+        })
+        .textures_delta
+        .clear();
 
         assert_eq!(app.crash_reports.as_ref().unwrap().len(), 2);
     }

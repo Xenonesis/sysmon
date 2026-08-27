@@ -1,0 +1,27 @@
+{
+    "version": "3.8.0",
+    "description": "Native Windows observability and diagnostics application written in Rust",
+    "homepage": "https://github.com/Xenonesis/sysmon",
+    "license": "MIT",
+    "architecture": {
+        "64bit": {
+            "url": "https://github.com/Xenonesis/sysmon/releases/download/v3.8.0/SystemMonitor-3.8.0-setup.exe",
+            "hash": "a522a6de351e2796730dd8f94acc5b0462c07e52b42bf58a65c0e83b4c2a199b"
+        }
+    },
+    "bin": "system-monitor.exe",
+    "shortcuts": [
+        [
+            "system-monitor.exe",
+            "System Monitor"
+        ]
+    ],
+    "checkver": "github",
+    "autoupdate": {
+        "architecture": {
+            "64bit": {
+                "url": "https://github.com/Xenonesis/sysmon/releases/download/v$version/SystemMonitor-$version-setup.exe"
+            }
+        }
+    }
+}

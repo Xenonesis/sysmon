@@ -87,7 +87,7 @@ pub(crate) fn paint_power_schemes_card(
                         ThemePalette::border(is_dark)
                     },
                 ))
-                .rounding(egui::Rounding::same(4.0));
+                .corner_radius(egui::CornerRadius::same(4));
 
                 if ui
                     .add(btn)

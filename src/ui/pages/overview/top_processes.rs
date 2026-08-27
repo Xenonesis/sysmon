@@ -113,7 +113,7 @@ pub(super) fn paint_top_processes_table(
                             let bar_w = 48.0;
                             let bar_h = 4.0;
                             let (rect, _) = ui.allocate_exact_size(egui::vec2(bar_w, bar_h), egui::Sense::hover());
-                            let rnd = egui::Rounding::same(2.0);
+                            let rnd = egui::CornerRadius::same(2);
                             ui.painter().rect_filled(rect, rnd, ThemePalette::bg_deepest(is_dark));
                             let fill_w = (bar_w * mem_bar_frac).max(2.0);
                             let fill_rect = egui::Rect::from_min_size(rect.min, egui::vec2(fill_w, bar_h));

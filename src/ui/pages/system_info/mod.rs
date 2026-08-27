@@ -103,11 +103,13 @@ mod tests {
         };
 
         let ctx = egui::Context::default();
-        let _ = ctx.run(Default::default(), |ctx| {
-            egui::CentralPanel::default().show(ctx, |ui| {
+        ctx.run_ui(Default::default(), |ui| {
+            egui::CentralPanel::default().show(ui, |ui| {
                 show(&mut app, ui, &data);
             });
-        });
+        })
+        .textures_delta
+        .clear();
     }
 
     #[test]
@@ -141,11 +143,13 @@ mod tests {
         };
 
         let ctx = egui::Context::default();
-        let _ = ctx.run(Default::default(), |ctx| {
-            egui::CentralPanel::default().show(ctx, |ui| {
+        ctx.run_ui(Default::default(), |ui| {
+            egui::CentralPanel::default().show(ui, |ui| {
                 show(&mut app, ui, &data);
             });
-        });
+        })
+        .textures_delta
+        .clear();
     }
 
     #[test]
@@ -200,11 +204,13 @@ mod tests {
         };
 
         let ctx = egui::Context::default();
-        let _ = ctx.run(Default::default(), |ctx| {
-            egui::CentralPanel::default().show(ctx, |ui| {
+        ctx.run_ui(Default::default(), |ui| {
+            egui::CentralPanel::default().show(ui, |ui| {
                 show(&mut app, ui, &data);
             });
-        });
+        })
+        .textures_delta
+        .clear();
     }
 
     #[test]
@@ -213,8 +219,8 @@ mod tests {
         let data = SystemData::default();
 
         let ctx = egui::Context::default();
-        let _ = ctx.run(Default::default(), |ctx| {
-            egui::CentralPanel::default().show(ctx, |ui| {
+        ctx.run_ui(Default::default(), |ui| {
+            egui::CentralPanel::default().show(ui, |ui| {
                 os_platform::paint_os_platform_card(ui, &data, true);
                 battery_diag::paint_power_schemes_card(&mut app, ui, &data, true);
                 cpu_arch::paint_cpu_arch_card(ui, &data, true);
@@ -222,6 +228,8 @@ mod tests {
                 gpu_display::paint_gpu_display_card(ui, &data, true);
                 battery_diag::paint_battery_diagnostics_card(ui, &data, true);
             });
-        });
+        })
+        .textures_delta
+        .clear();
     }
 }

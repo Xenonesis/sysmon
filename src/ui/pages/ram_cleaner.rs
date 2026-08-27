@@ -99,7 +99,7 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
                         .color(if is_cleaning { ThemePalette::text_dimmed(is_dark) } else { ThemePalette::bg_deepest(is_dark) }),
                 )
                 .fill(if is_cleaning { ThemePalette::bg_track(is_dark) } else { ThemePalette::ACCENT_PRIMARY })
-                .rounding(egui::Rounding::same(4.0));
+                .corner_radius(egui::CornerRadius::same(4));
 
                 if ui.add_sized([ui.available_width(), 34.0], btn).clicked() {
                     app.start_ram_clean(ui.ctx());

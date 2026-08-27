@@ -59,7 +59,8 @@ impl SystemMonitorApp {
 }
 
 impl eframe::App for SystemMonitorApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        let ctx = ui.ctx().clone();
         let ctx_clone = ctx.clone();
         if self.data.read().last_activity.elapsed().as_secs() > 0 {
             self.data.write().last_activity = Instant::now();
@@ -430,61 +431,59 @@ impl eframe::App for SystemMonitorApp {
             && update_info.update_available
             && self.show_update_notification
         {
-            let mut frame = egui::Frame::none().fill(ThemePalette::BG_SURFACE);
-            frame.inner_margin = egui::Margin::symmetric(16.0, 12.0);
+            let mut frame = egui::Frame::NONE.fill(ThemePalette::BG_SURFACE);
+            frame.inner_margin = egui::Margin::symmetric(16, 12);
 
-            egui::TopBottomPanel::top("update_notification")
-                .frame(frame)
-                .show(ctx, |ui| {
-                    ui.horizontal(|ui| {
-                        ui.colored_label(
-                            ThemePalette::ACCENT_PRIMARY,
-                            egui::RichText::new("UPDATE AVAILABLE").strong(),
-                        );
+            egui::Panel::top("update_notification").frame(frame).show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.colored_label(
+                        ThemePalette::ACCENT_PRIMARY,
+                        egui::RichText::new("UPDATE AVAILABLE").strong(),
+                    );
+                    ui.add_space(8.0);
+                    ui.label(format!(
+                        "Version {} is ready. You are currently on v{}.",
+                        update_info.latest_version, update_info.current_version
+                    ));
+
+                    // Show inline error message if the last attempt failed.
+                    if let Some(err) = &self.update_error {
                         ui.add_space(8.0);
-                        ui.label(format!(
-                            "Version {} is ready. You are currently on v{}.",
-                            update_info.latest_version, update_info.current_version
-                        ));
+                        ui.colored_label(egui::Color32::from_rgb(220, 80, 70), format!("⚠ {}", err));
+                    }
 
-                        // Show inline error message if the last attempt failed.
-                        if let Some(err) = &self.update_error {
-                            ui.add_space(8.0);
-                            ui.colored_label(egui::Color32::from_rgb(220, 80, 70), format!("⚠ {}", err));
-                        }
-
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if !self.update_downloading {
-                                if ui.button("Dismiss").clicked() {
-                                    self.show_update_notification = false;
-                                    self.update_error = None;
-                                }
-                                ui.add_space(8.0);
-                            }
-                            if self.update_downloading {
-                                ui.add_enabled(
-                                    false,
-                                    egui::Button::new(egui::RichText::new("⏳ Downloading…").strong()),
-                                );
-                            } else if ui.button(egui::RichText::new("Install Update").strong()).clicked() {
-                                let download_url = update_info.download_url.clone();
-                                let checksum_url = update_info.checksum_url.clone();
-                                let result_share = self.update_result_share.clone();
-                                self.update_downloading = true;
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if !self.update_downloading {
+                            if ui.button("Dismiss").clicked() {
+                                self.show_update_notification = false;
                                 self.update_error = None;
-                                thread::Builder::new()
-                                    .name("updater_downloader".to_string())
-                                    .stack_size(8 * 1024 * 1024)
-                                    .spawn(move || {
-                                        let result = updater::Updater::new()
-                                            .download_and_install_update(&download_url, &checksum_url);
-                                        *result_share.lock() = Some(result);
-                                    })
-                                    .expect("failed to spawn updater downloader thread");
                             }
-                        });
+                            ui.add_space(8.0);
+                        }
+                        if self.update_downloading {
+                            ui.add_enabled(
+                                false,
+                                egui::Button::new(egui::RichText::new("⏳ Downloading…").strong()),
+                            );
+                        } else if ui.button(egui::RichText::new("Install Update").strong()).clicked() {
+                            let download_url = update_info.download_url.clone();
+                            let checksum_url = update_info.checksum_url.clone();
+                            let result_share = self.update_result_share.clone();
+                            self.update_downloading = true;
+                            self.update_error = None;
+                            thread::Builder::new()
+                                .name("updater_downloader".to_string())
+                                .stack_size(8 * 1024 * 1024)
+                                .spawn(move || {
+                                    let result = updater::Updater::new()
+                                        .download_and_install_update(&download_url, &checksum_url);
+                                    *result_share.lock() = Some(result);
+                                })
+                                .expect("failed to spawn updater downloader thread");
+                        }
                     });
                 });
+            });
         }
 
         // Keyboard shortcuts
@@ -722,7 +721,7 @@ impl eframe::App for SystemMonitorApp {
                 .open(&mut show_export_csv)
                 .resizable(true)
                 .default_width(500.0)
-                .show(ctx, |ui| {
+                .show(ui, |ui| {
                     ui.heading("Export System Data to CSV");
                     ui.separator();
 
@@ -738,7 +737,7 @@ impl eframe::App for SystemMonitorApp {
                             ui.add_space(5.0);
                             ui.horizontal(|ui| {
                                 if ui.button("📋 Copy to Clipboard").clicked() {
-                                    ui.output_mut(|o| o.copied_text = csv_data.clone());
+                                    ui.ctx().copy_text(csv_data.clone());
                                 }
                                 if ui.button("💾 Save to File...").clicked() {
                                     let date_str = Local::now().format("%Y%m%d_%H%M%S").to_string();
@@ -773,7 +772,7 @@ impl eframe::App for SystemMonitorApp {
                 .open(&mut show_export)
                 .resizable(true)
                 .default_width(500.0)
-                .show(ctx, |ui| {
+                .show(ui, |ui| {
                     ui.heading("Export System Data to JSON");
                     ui.separator();
 
@@ -789,7 +788,7 @@ impl eframe::App for SystemMonitorApp {
                             ui.add_space(5.0);
                             ui.horizontal(|ui| {
                                 if ui.button("📋 Copy to Clipboard").clicked() {
-                                    ui.output_mut(|o| o.copied_text = json_data.clone());
+                                    ui.ctx().copy_text(json_data.clone());
                                 }
                                 if ui.button("💾 Save to File...").clicked() {
                                     let date_str = Local::now().format("%Y%m%d_%H%M%S").to_string();
@@ -824,7 +823,7 @@ impl eframe::App for SystemMonitorApp {
                 .open(&mut show_alerts)
                 .resizable(true)
                 .default_width(600.0)
-                .show(ctx, |ui| {
+                .show(ui, |ui| {
                     ui.heading("Active System Alerts");
                     ui.separator();
 
@@ -870,16 +869,16 @@ impl eframe::App for SystemMonitorApp {
 
         let is_collapsed = self.settings.sidebar_collapsed;
         let sidebar_width = if is_collapsed { 52.0 } else { 200.0 };
-        let sidebar_frame = egui::Frame::none()
+        let sidebar_frame = egui::Frame::NONE
             .fill(ThemePalette::bg_surface(is_dark))
             .stroke(egui::Stroke::new(1.0, ThemePalette::border(is_dark)));
 
         // Modern sleek SidePanel for navigation
-        egui::SidePanel::left("sidebar_panel")
+        egui::Panel::left("sidebar_panel")
             .resizable(false)
-            .exact_width(sidebar_width)
+            .exact_size(sidebar_width)
             .frame(sidebar_frame)
-            .show(ctx, |ui| {
+            .show(ui, |ui| {
                 ui.add_space(12.0);
 
                 if !is_collapsed {
@@ -916,7 +915,7 @@ impl eframe::App for SystemMonitorApp {
                                     egui::Color32::from_rgba_unmultiplied(0, 0, 0, 10)
                                 };
                                 ui.painter()
-                                    .rect_filled(btn_rect, egui::Rounding::same(4.0), hover_fill);
+                                    .rect_filled(btn_rect, egui::CornerRadius::same(4), hover_fill);
                             }
                             ui.painter().text(
                                 btn_rect.center(),
@@ -952,7 +951,7 @@ impl eframe::App for SystemMonitorApp {
                         };
                         let pill_rect = rect.shrink2(egui::vec2(6.0, 2.0));
                         ui.painter()
-                            .rect_filled(pill_rect, egui::Rounding::same(4.0), hover_fill);
+                            .rect_filled(pill_rect, egui::CornerRadius::same(4), hover_fill);
                     }
                     let logo_rect = egui::Rect::from_center_size(rect.center(), egui::vec2(22.0, 22.0));
                     egui::Image::new(egui::include_image!("../assets/icon.png")).paint_at(ui, logo_rect);
@@ -1115,11 +1114,12 @@ impl eframe::App for SystemMonitorApp {
                             } else {
                                 egui::Color32::from_rgba_unmultiplied(16, 185, 129, 85)
                             };
-                            ui.painter().rect_filled(pill_rect, egui::Rounding::same(5.0), fill);
+                            ui.painter().rect_filled(pill_rect, egui::CornerRadius::same(5), fill);
                             ui.painter().rect_stroke(
                                 pill_rect,
-                                egui::Rounding::same(5.0),
+                                egui::CornerRadius::same(5),
                                 egui::Stroke::new(1.0, border_color),
+                                egui::StrokeKind::Middle,
                             );
 
                             // Inset rounded 3px vertical left accent indicator
@@ -1129,7 +1129,7 @@ impl eframe::App for SystemMonitorApp {
                             );
                             ui.painter().rect_filled(
                                 edge_rect,
-                                egui::Rounding::same(2.0),
+                                egui::CornerRadius::same(2),
                                 ThemePalette::ACCENT_PRIMARY,
                             );
                         } else if is_hovered {
@@ -1139,7 +1139,7 @@ impl eframe::App for SystemMonitorApp {
                                 egui::Color32::from_rgba_unmultiplied(0, 0, 0, 10)
                             };
                             ui.painter()
-                                .rect_filled(pill_rect, egui::Rounding::same(5.0), hover_fill);
+                                .rect_filled(pill_rect, egui::CornerRadius::same(5), hover_fill);
                         }
 
                         if !is_collapsed {
@@ -1182,11 +1182,12 @@ impl eframe::App for SystemMonitorApp {
                                     egui::vec2(18.0, 15.0),
                                 );
                                 ui.painter()
-                                    .rect_filled(badge_rect, egui::Rounding::same(4.0), badge_bg);
+                                    .rect_filled(badge_rect, egui::CornerRadius::same(4), badge_bg);
                                 ui.painter().rect_stroke(
                                     badge_rect,
-                                    egui::Rounding::same(4.0),
+                                    egui::CornerRadius::same(4),
                                     egui::Stroke::new(1.0, badge_color.gamma_multiply(0.45)),
+                                    egui::StrokeKind::Middle,
                                 );
                                 ui.painter().text(
                                     badge_rect.center(),
@@ -1262,7 +1263,7 @@ impl eframe::App for SystemMonitorApp {
                                         egui::Color32::from_rgba_unmultiplied(0, 0, 0, 10)
                                     };
                                     ui.painter()
-                                        .rect_filled(pill_rect, egui::Rounding::same(5.0), hover_fill);
+                                        .rect_filled(pill_rect, egui::CornerRadius::same(5), hover_fill);
                                 }
 
                                 let text_color = if is_hovered {
@@ -1329,7 +1330,7 @@ impl eframe::App for SystemMonitorApp {
                                     egui::Color32::from_rgba_unmultiplied(0, 0, 0, 10)
                                 };
                                 ui.painter()
-                                    .rect_filled(pill_rect, egui::Rounding::same(5.0), hover_fill);
+                                    .rect_filled(pill_rect, egui::CornerRadius::same(5), hover_fill);
                             }
 
                             let text_color = if is_hovered {
@@ -1367,11 +1368,11 @@ impl eframe::App for SystemMonitorApp {
 
         // Process Manager window
         if self.show_process_manager {
-            crate::ui::windows::process_manager::show(self, ctx, &data);
+            crate::ui::windows::process_manager::show(self, &ctx, &data);
         }
 
         // Keyboard Shortcuts dialog
-        crate::ui::dialogs::render_shortcuts_dialog(self, ctx, is_dark);
+        crate::ui::dialogs::render_shortcuts_dialog(self, &ctx, is_dark);
 
         // Settings window
         if self.show_settings {
@@ -1381,7 +1382,7 @@ impl eframe::App for SystemMonitorApp {
                 .resizable(true)
                 .default_width(600.0)
                 .default_height(500.0)
-                .show(ctx, |ui| {
+                .show(ui, |ui| {
                     crate::ui::pages::settings::show(self, ui);
                 });
             self.show_settings = show_settings;
@@ -1394,28 +1395,28 @@ impl eframe::App for SystemMonitorApp {
                 .resizable(false)
                 .title_bar(true)
                 .collapsible(false)
-                .show(ctx, |ui| {
+                .show(ui, |ui| {
                     crate::ui::hud::render_hud(self, ui, &data);
                 });
         }
 
         // Global always-visible status bar header
-        let status_bar_frame = egui::Frame::none()
+        let status_bar_frame = egui::Frame::NONE
             .fill(ThemePalette::bg_deepest(is_dark))
-            .inner_margin(egui::Margin::symmetric(14.0, 0.0))
+            .inner_margin(egui::Margin::symmetric(14, 0))
             .stroke(egui::Stroke::new(1.0, ThemePalette::border(is_dark)));
 
-        egui::TopBottomPanel::top("global_status_bar")
-            .exact_height(42.0)
+        egui::Panel::top("global_status_bar")
+            .exact_size(42.0)
             .frame(status_bar_frame)
-            .show(ctx, |ui| {
+            .show(ui, |ui| {
                 ui.horizontal_centered(|ui| {
                     if is_collapsed {
                         let expand_btn =
                             egui::Button::new(egui::RichText::new("☰").size(13.0).color(ThemePalette::ACCENT_PRIMARY))
                                 .fill(ThemePalette::bg_surface(is_dark))
                                 .stroke(egui::Stroke::new(1.0, ThemePalette::border(is_dark)))
-                                .rounding(egui::Rounding::same(4.0));
+                                .corner_radius(egui::CornerRadius::same(4));
                         if ui.add(expand_btn).on_hover_text("Expand Sidebar (Ctrl+B)").clicked() {
                             self.settings.sidebar_collapsed = false;
                             let _ = self.settings.save();
@@ -1503,7 +1504,7 @@ impl eframe::App for SystemMonitorApp {
                             )
                             .fill(ThemePalette::STATUS_WARNING.gamma_multiply(if is_dark { 0.18 } else { 0.12 }))
                             .stroke(egui::Stroke::new(1.0, ThemePalette::STATUS_WARNING.gamma_multiply(0.5)))
-                            .rounding(egui::Rounding::same(4.0));
+                            .corner_radius(egui::CornerRadius::same(4));
 
                             if ui.add(alert_btn).on_hover_text("View active system alerts").clicked() {
                                 self.selected_tab = Tab::Alerts;
@@ -1518,7 +1519,7 @@ impl eframe::App for SystemMonitorApp {
                             )
                             .fill(ThemePalette::bg_surface(is_dark))
                             .stroke(egui::Stroke::new(1.0, ThemePalette::border(is_dark)))
-                            .rounding(egui::Rounding::same(4.0));
+                            .corner_radius(egui::CornerRadius::same(4));
 
                             if ui
                                 .add(nominal_btn)
@@ -1559,7 +1560,7 @@ impl eframe::App for SystemMonitorApp {
                                         ThemePalette::border(is_dark)
                                     },
                                 ))
-                                .rounding(egui::Rounding::same(4.0));
+                                .corner_radius(egui::CornerRadius::same(4));
 
                         if ui
                             .add(rec_btn)
@@ -1615,7 +1616,7 @@ impl eframe::App for SystemMonitorApp {
                                 ThemePalette::ACCENT_PRIMARY.gamma_multiply(0.45)
                             },
                         ))
-                        .rounding(egui::Rounding::same(4.0));
+                        .corner_radius(egui::CornerRadius::same(4));
 
                         ui.add_enabled_ui(!is_cleaning, |ui| {
                             if ui
@@ -1623,7 +1624,7 @@ impl eframe::App for SystemMonitorApp {
                                 .on_hover_text("Free working sets of running processes")
                                 .clicked()
                             {
-                                self.start_ram_clean(ctx);
+                                self.start_ram_clean(&ctx);
                             }
                         });
 
@@ -1655,7 +1656,7 @@ impl eframe::App for SystemMonitorApp {
                                     ThemePalette::border(is_dark)
                                 },
                             ))
-                            .rounding(egui::Rounding::same(4.0));
+                            .corner_radius(egui::CornerRadius::same(4));
 
                         if ui
                             .add(hud_btn)
@@ -1706,7 +1707,7 @@ impl eframe::App for SystemMonitorApp {
                                 ThemePalette::ACCENT_PRIMARY.gamma_multiply(0.4)
                             },
                         ))
-                        .rounding(egui::Rounding::same(4.0));
+                        .corner_radius(egui::CornerRadius::same(4));
 
                         let picker_resp = ui
                             .add(picker_btn)
@@ -1743,7 +1744,7 @@ impl eframe::App for SystemMonitorApp {
         // Main content area. Pages emit intents; the application shell owns side effects.
         let is_elevated = self.selected_tab == Tab::Services && privilege::is_app_elevated();
         let mut ui_intents = Vec::new();
-        egui::CentralPanel::default().show(ctx, |ui| match self.selected_tab {
+        egui::CentralPanel::default().show(ui, |ui| match self.selected_tab {
             Tab::Overview => crate::ui::pages::overview::show(self, ui, &data),
             Tab::Performance => crate::ui::pages::performance::show(self, ui, &data),
             Tab::Processes => crate::ui::pages::processes::show(self, ui, &data),
@@ -1762,8 +1763,8 @@ impl eframe::App for SystemMonitorApp {
         for intent in ui_intents {
             self.handle_ui_intent(intent);
         }
-        crate::ui::dialogs::render_action_confirmation(self, ctx);
-        crate::ui::dialogs::render_action_history(self, ctx);
+        crate::ui::dialogs::render_action_confirmation(self, &ctx);
+        crate::ui::dialogs::render_action_history(self, &ctx);
     }
 }
 

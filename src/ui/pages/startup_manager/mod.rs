@@ -286,27 +286,33 @@ mod tests {
         ];
 
         let ctx = egui::Context::default();
-        let _ = ctx.run(Default::default(), |ctx| {
-            egui::CentralPanel::default().show(ctx, |ui| {
+        ctx.run_ui(Default::default(), |ui| {
+            egui::CentralPanel::default().show(ui, |ui| {
                 show(&mut app, ui);
             });
-        });
+        })
+        .textures_delta
+        .clear();
 
         // Test with confirmation dialog open
         app.startup_show_confirm = Some("Test App Normal".into());
-        let _ = ctx.run(Default::default(), |ctx| {
-            egui::CentralPanel::default().show(ctx, |ui| {
+        ctx.run_ui(Default::default(), |ui| {
+            egui::CentralPanel::default().show(ui, |ui| {
                 show(&mut app, ui);
             });
-        });
+        })
+        .textures_delta
+        .clear();
 
         // Test with empty items and filters active
         app.startup_search = "NonExistentFilter999".into();
-        let _ = ctx.run(Default::default(), |ctx| {
-            egui::CentralPanel::default().show(ctx, |ui| {
+        ctx.run_ui(Default::default(), |ui| {
+            egui::CentralPanel::default().show(ui, |ui| {
                 show(&mut app, ui);
             });
-        });
+        })
+        .textures_delta
+        .clear();
     }
 
     #[test]

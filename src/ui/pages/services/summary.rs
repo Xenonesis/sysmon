@@ -112,14 +112,14 @@ pub(super) fn paint(
         let bar_w = ui.available_width();
         let (bar_rect, _) = ui.allocate_exact_size(egui::vec2(bar_w, bar_h), egui::Sense::hover());
         ui.painter()
-            .rect_filled(bar_rect, egui::Rounding::same(2.0), ThemePalette::bg_track(is_dark));
+            .rect_filled(bar_rect, egui::CornerRadius::same(2), ThemePalette::bg_track(is_dark));
 
         if counts.total > 0 {
             let running_width = (bar_w * (counts.running as f32 / counts.total as f32)).max(2.0);
             let running_rect = egui::Rect::from_min_size(bar_rect.min, egui::vec2(running_width, bar_h));
             ui.painter().rect_filled(
                 running_rect,
-                egui::Rounding::same(2.0),
+                egui::CornerRadius::same(2),
                 ThemePalette::STATUS_HEALTHY,
             );
 
@@ -130,7 +130,7 @@ pub(super) fn paint(
                     egui::vec2(other_width, bar_h),
                 );
                 ui.painter()
-                    .rect_filled(other_rect, egui::Rounding::ZERO, ThemePalette::STATUS_WARNING);
+                    .rect_filled(other_rect, egui::CornerRadius::ZERO, ThemePalette::STATUS_WARNING);
             }
         }
     });

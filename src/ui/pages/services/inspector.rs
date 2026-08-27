@@ -100,30 +100,29 @@ fn paint_copy_commands(ui: &mut egui::Ui, service: &ServiceInfo, is_dark: bool) 
                 .on_hover_text("Copy service identifier to clipboard")
                 .clicked()
             {
-                ui.output_mut(|output| output.copied_text = service.name.clone());
+                ui.ctx().copy_text(service.name.clone());
             }
             if ui
                 .small_button("📋 PowerShell: Get-Service")
                 .on_hover_text("Copy 'Get-Service -Name <svc>' command")
                 .clicked()
             {
-                ui.output_mut(|output| output.copied_text = format!("Get-Service -Name \"{}\"", service.name));
+                ui.ctx().copy_text(format!("Get-Service -Name \"{}\"", service.name));
             }
             if ui
                 .small_button("📋 PowerShell: Restart-Service")
                 .on_hover_text("Copy 'Restart-Service -Name <svc> -Force' command")
                 .clicked()
             {
-                ui.output_mut(|output| {
-                    output.copied_text = format!("Restart-Service -Name \"{}\" -Force", service.name)
-                });
+                ui.ctx()
+                    .copy_text(format!("Restart-Service -Name \"{}\" -Force", service.name));
             }
             if ui
                 .small_button("📋 SC Query")
                 .on_hover_text("Copy 'sc.exe query <svc>' command")
                 .clicked()
             {
-                ui.output_mut(|output| output.copied_text = format!("sc.exe query \"{}\"", service.name));
+                ui.ctx().copy_text(format!("sc.exe query \"{}\"", service.name));
             }
         });
     });

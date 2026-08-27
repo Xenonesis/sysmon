@@ -73,10 +73,13 @@ fn service(name: &str, display_name: &str, state: &str) -> crate::services::Serv
 }
 
 fn render(context: &egui::Context, app: &mut crate::SystemMonitorApp, data: &SystemData, elevated: bool) {
-    let _ = context.run(Default::default(), |context| {
-        egui::CentralPanel::default().show(context, |ui| {
-            let intents = show(app, ui, data, elevated);
-            assert!(intents.is_empty());
-        });
-    });
+    context
+        .run_ui(Default::default(), |ui| {
+            egui::CentralPanel::default().show(ui, |ui| {
+                let intents = show(app, ui, data, elevated);
+                assert!(intents.is_empty());
+            });
+        })
+        .textures_delta
+        .clear();
 }

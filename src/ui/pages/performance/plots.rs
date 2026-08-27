@@ -29,7 +29,9 @@ pub(crate) fn paint_performance_plots(ui: &mut egui::Ui, data: &SystemData, is_d
 
             ui.add_space(4.0);
             let cpu_points: PlotPoints = data.cpu_history.iter().map(|p| [p.time, p.value]).collect();
-            let line = Line::new(cpu_points).color(ThemePalette::ACCENT_PRIMARY).width(1.5);
+            let line = Line::new("CPU", cpu_points)
+                .color(ThemePalette::ACCENT_PRIMARY)
+                .width(1.5);
 
             Plot::new("cpu_plot")
                 .height(180.0)
@@ -65,7 +67,9 @@ pub(crate) fn paint_performance_plots(ui: &mut egui::Ui, data: &SystemData, is_d
 
             ui.add_space(4.0);
             let mem_points: PlotPoints = data.memory_history.iter().map(|p| [p.time, p.value]).collect();
-            let line = Line::new(mem_points).color(ThemePalette::STATUS_HEALTHY).width(1.5);
+            let line = Line::new("Memory", mem_points)
+                .color(ThemePalette::STATUS_HEALTHY)
+                .width(1.5);
 
             Plot::new("memory_plot")
                 .height(180.0)
@@ -108,7 +112,9 @@ pub(crate) fn paint_performance_plots(ui: &mut egui::Ui, data: &SystemData, is_d
 
                 ui.add_space(4.0);
                 let gpu_points: PlotPoints = data.gpu_history.iter().map(|p| [p.time, p.value]).collect();
-                let line = Line::new(gpu_points).color(ThemePalette::STATUS_WARNING).width(1.5);
+                let line = Line::new("GPU", gpu_points)
+                    .color(ThemePalette::STATUS_WARNING)
+                    .width(1.5);
 
                 Plot::new("gpu_plot")
                     .height(180.0)
@@ -151,11 +157,11 @@ pub(crate) fn paint_performance_plots(ui: &mut egui::Ui, data: &SystemData, is_d
             let read_points: PlotPoints = data.disk_read_history.iter().map(|p| [p.time, p.value]).collect();
             let write_points: PlotPoints = data.disk_write_history.iter().map(|p| [p.time, p.value]).collect();
 
-            let line_r = Line::new(read_points)
+            let line_r = Line::new("Read", read_points)
                 .name("Read MB/s")
                 .color(ThemePalette::STATUS_HEALTHY)
                 .width(1.5);
-            let line_w = Line::new(write_points)
+            let line_w = Line::new("Write", write_points)
                 .name("Write MB/s")
                 .color(ThemePalette::STATUS_WARNING)
                 .width(1.5);
@@ -212,11 +218,11 @@ pub(crate) fn paint_performance_plots(ui: &mut egui::Ui, data: &SystemData, is_d
                 .collect();
             let up_points: PlotPoints = data.network_upload_history.iter().map(|p| [p.time, p.value]).collect();
 
-            let line_down = Line::new(down_points)
+            let line_down = Line::new("Download", down_points)
                 .name("Download MB/s")
                 .color(ThemePalette::ACCENT_PRIMARY)
                 .width(1.5);
-            let line_up = Line::new(up_points)
+            let line_up = Line::new("Upload", up_points)
                 .name("Upload MB/s")
                 .color(ThemePalette::STATUS_WARNING)
                 .width(1.5);
@@ -260,7 +266,7 @@ pub(crate) fn paint_performance_plots(ui: &mut egui::Ui, data: &SystemData, is_d
 
             ui.add_space(4.0);
             let temp_points: PlotPoints = data.cpu_temp_history.iter().map(|p| [p.time, p.value]).collect();
-            let line_temp = Line::new(temp_points)
+            let line_temp = Line::new("Temperature", temp_points)
                 .name("Temperature °C")
                 .color(ThemePalette::STATUS_CRITICAL)
                 .width(1.5);

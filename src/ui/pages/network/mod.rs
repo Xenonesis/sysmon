@@ -96,11 +96,13 @@ mod tests {
         };
 
         let ctx = egui::Context::default();
-        let _ = ctx.run(Default::default(), |ctx| {
-            egui::CentralPanel::default().show(ctx, |ui| {
+        ctx.run_ui(Default::default(), |ui| {
+            egui::CentralPanel::default().show(ui, |ui| {
                 show(&mut app, ui, &data);
             });
-        });
+        })
+        .textures_delta
+        .clear();
     }
 
     #[test]
@@ -109,11 +111,13 @@ mod tests {
         let data = SystemData::default();
 
         let ctx = egui::Context::default();
-        let _ = ctx.run(Default::default(), |ctx| {
-            egui::CentralPanel::default().show(ctx, |ui| {
+        ctx.run_ui(Default::default(), |ui| {
+            egui::CentralPanel::default().show(ui, |ui| {
                 show(&mut app, ui, &data);
             });
-        });
+        })
+        .textures_delta
+        .clear();
     }
 
     #[test]
@@ -123,11 +127,13 @@ mod tests {
         let data = SystemData::default();
 
         let ctx = egui::Context::default();
-        let _ = ctx.run(Default::default(), |ctx| {
-            egui::CentralPanel::default().show(ctx, |ui| {
+        ctx.run_ui(Default::default(), |ui| {
+            egui::CentralPanel::default().show(ui, |ui| {
                 show(&mut app, ui, &data);
             });
-        });
+        })
+        .textures_delta
+        .clear();
     }
 
     #[test]
@@ -135,13 +141,15 @@ mod tests {
         let mut app = crate::SystemMonitorApp::test_app();
         let data = SystemData::default();
         let ctx = egui::Context::default();
-        let _ = ctx.run(Default::default(), |ctx| {
-            egui::CentralPanel::default().show(ctx, |ui| {
+        ctx.run_ui(Default::default(), |ui| {
+            egui::CentralPanel::default().show(ui, |ui| {
                 interfaces::paint_network_throughput_history(ui, &data, true);
                 interfaces::paint_network_interfaces(ui, &data, true);
                 sockets::paint_socket_connections(&mut app, ui, &data, true);
             });
-        });
+        })
+        .textures_delta
+        .clear();
     }
 
     #[test]
@@ -170,18 +178,22 @@ mod tests {
         };
 
         let ctx = egui::Context::default();
-        let _ = ctx.run(Default::default(), |ctx| {
-            egui::CentralPanel::default().show(ctx, |ui| {
+        ctx.run_ui(Default::default(), |ui| {
+            egui::CentralPanel::default().show(ui, |ui| {
                 sockets::paint_socket_connections(&mut app, ui, &data, true);
             });
-        });
+        })
+        .textures_delta
+        .clear();
 
         // Also test filtering by IPv6 bracketed address
         app.network_socket_search = "2001:db8".to_string();
-        let _ = ctx.run(Default::default(), |ctx| {
-            egui::CentralPanel::default().show(ctx, |ui| {
+        ctx.run_ui(Default::default(), |ui| {
+            egui::CentralPanel::default().show(ui, |ui| {
                 sockets::paint_socket_connections(&mut app, ui, &data, false);
             });
-        });
+        })
+        .textures_delta
+        .clear();
     }
 }

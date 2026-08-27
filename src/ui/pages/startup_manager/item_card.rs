@@ -189,7 +189,7 @@ pub(crate) fn paint_startup_item_card(
                 .on_hover_text("Copy full command to clipboard")
                 .clicked()
             {
-                ui.output_mut(|o| o.copied_text = item.command.clone());
+                ui.ctx().copy_text(item.command.clone());
             }
 
             // Search online

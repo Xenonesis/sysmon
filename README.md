@@ -1,7 +1,7 @@
 # SysMon
 
 [![Rust CI](https://github.com/Xenonesis/sysmon/actions/workflows/rust-ci.yml/badge.svg)](https://github.com/Xenonesis/sysmon/actions/workflows/rust-ci.yml)
-[![Rust 1.85+](https://img.shields.io/badge/Rust-1.85%2B-orange.svg)](https://www.rust-lang.org/)
+[![Rust 1.95+](https://img.shields.io/badge/Rust-1.95%2B-orange.svg)](https://www.rust-lang.org/)
 [![Windows](https://img.shields.io/badge/Windows-10%2F11-blue.svg)](https://www.microsoft.com/windows)
 [![Version](https://img.shields.io/badge/version-3.8.0-green.svg)](CHANGELOG.md)
 
@@ -131,6 +131,23 @@ Alerts are modeled as explicit state transitions — `Normal → Triggered → A
 
 Use the installer from [GitHub Releases](https://github.com/Xenonesis/sysmon/releases/latest). SysMon verifies the downloaded installer's SHA-256 checksum against the checksum file published with the release and refuses to install when they do not match or when no checksum is published.
 
+### Scoop
+
+This repository doubles as a Scoop bucket:
+
+```powershell
+scoop bucket add sysmon https://github.com/Xenonesis/sysmon
+scoop install sysmon
+```
+
+### winget
+
+The winget manifest for the current release lives in `deploy/winget/` and is submitted to [winget-pkgs](https://github.com/microsoft/winget-pkgs). Once accepted:
+
+```powershell
+winget install Xenonesis.SysMon
+```
+
 Installation steps:
 
 1. Download the `.exe` installer and its `.sha256` checksum file from the latest release.
@@ -145,7 +162,7 @@ Installation steps:
 Requirements:
 
 - Windows 10 or 11, x64
-- Rust 1.85 or newer with the MSVC toolchain
+- Rust 1.95 or newer with the MSVC toolchain
 - Visual Studio C++ Build Tools
 - NVIDIA drivers only if NVML-specific metrics are required
 
@@ -223,7 +240,7 @@ Please do not attach full audit logs or settings files unless asked; they can co
 
 ## Contributing
 
-SysMon targets Windows 10/11 x64 and Rust 1.85 or newer. Contributions should keep changes focused, preserve standard-user monitoring, and put any system-changing behavior behind the action-plan confirmation and audit boundary.
+SysMon targets Windows 10/11 x64 and Rust 1.95 or newer. Contributions should keep changes focused, preserve standard-user monitoring, and put any system-changing behavior behind the action-plan confirmation and audit boundary.
 
 A typical workflow:
 
@@ -253,7 +270,7 @@ Provider changes must use normalized metric keys, return structured errors, avoi
 
 ## Technology stack
 
-- **Language:** Rust 2024 edition, 1.85+, MSVC toolchain, with `Cargo.lock` committed for reproducible builds.
+- **Language:** Rust 2024 edition, 1.95+, MSVC toolchain, with `Cargo.lock` committed for reproducible builds.
 - **GUI:** egui / eframe with hardware-accelerated rendering, dark and light themes.
 - **Telemetry sources:** `sysinfo`, NVML bindings, the `wmi` crate and native Windows GPU performance counters.
 - **Concurrency:** plain OS threads with `parking_lot` mutexes; no async runtime.

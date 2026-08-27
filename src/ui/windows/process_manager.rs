@@ -209,10 +209,10 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ctx: &egui::Context, data:
                                     egui::Color32::from_rgba_unmultiplied(0, 0, 0, 3)
                                 };
                                 ui.painter()
-                                    .rect_filled(row_rect, egui::Rounding::same(2.0), stripe_fill);
+                                    .rect_filled(row_rect, egui::CornerRadius::same(2), stripe_fill);
                             }
 
-                            ui.allocate_ui_at_rect(row_rect, |ui| {
+                            ui.new_child(egui::UiBuilder::new().max_rect(row_rect)).scope(|ui| {
                                 ui.horizontal(|ui| {
                                     ui.spacing_mut().item_spacing.x = 8.0;
 
@@ -329,7 +329,7 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ctx: &egui::Context, data:
                                             for priority in &["High", "AboveNormal", "Normal", "BelowNormal", "Idle"] {
                                                 if ui.button(*priority).clicked() {
                                                     app.priority_change = Some((process.pid, priority.to_string()));
-                                                    ui.close_menu();
+                                                    ui.close();
                                                 }
                                             }
                                         });
@@ -342,16 +342,16 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ctx: &egui::Context, data:
                                             };
                                             if ui.button("All Cores (Default)").clicked() {
                                                 app.affinity_change = Some((process.pid, all_mask));
-                                                ui.close_menu();
+                                                ui.close();
                                             }
                                             if num_cores > 1 {
                                                 if ui.button("Core 0 Only (0x1)").clicked() {
                                                     app.affinity_change = Some((process.pid, 1));
-                                                    ui.close_menu();
+                                                    ui.close();
                                                 }
                                                 if ui.button("Core 1 Only (0x2)").clicked() {
                                                     app.affinity_change = Some((process.pid, 2));
-                                                    ui.close_menu();
+                                                    ui.close();
                                                 }
                                             }
                                         });
@@ -439,10 +439,10 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ctx: &egui::Context, data:
                                     egui::Color32::from_rgba_unmultiplied(0, 0, 0, 3)
                                 };
                                 ui.painter()
-                                    .rect_filled(row_rect, egui::Rounding::same(2.0), stripe_fill);
+                                    .rect_filled(row_rect, egui::CornerRadius::same(2), stripe_fill);
                             }
 
-                            ui.allocate_ui_at_rect(row_rect, |ui| {
+                            ui.new_child(egui::UiBuilder::new().max_rect(row_rect)).scope(|ui| {
                                 ui.horizontal(|ui| {
                                     ui.spacing_mut().item_spacing.x = 8.0;
 
@@ -527,7 +527,7 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ctx: &egui::Context, data:
                                             for priority in &["High", "AboveNormal", "Normal", "BelowNormal", "Idle"] {
                                                 if ui.button(*priority).clicked() {
                                                     app.priority_change = Some((r.process.pid, priority.to_string()));
-                                                    ui.close_menu();
+                                                    ui.close();
                                                 }
                                             }
                                         });
@@ -540,16 +540,16 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ctx: &egui::Context, data:
                                             };
                                             if ui.button("All Cores (Default)").clicked() {
                                                 app.affinity_change = Some((r.process.pid, all_mask));
-                                                ui.close_menu();
+                                                ui.close();
                                             }
                                             if num_cores > 1 {
                                                 if ui.button("Core 0 Only (0x1)").clicked() {
                                                     app.affinity_change = Some((r.process.pid, 1));
-                                                    ui.close_menu();
+                                                    ui.close();
                                                 }
                                                 if ui.button("Core 1 Only (0x2)").clicked() {
                                                     app.affinity_change = Some((r.process.pid, 2));
-                                                    ui.close_menu();
+                                                    ui.close();
                                                 }
                                             }
                                         });

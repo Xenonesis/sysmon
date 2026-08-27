@@ -82,7 +82,7 @@ pub(crate) fn paint_network_throughput_history(ui: &mut egui::Ui, data: &SystemD
                     .map(|p| [p.time - latest_time, p.value])
                     .collect();
 
-                let line = Line::new(download_points)
+                let line = Line::new("Download", download_points)
                     .color(ThemePalette::STATUS_HEALTHY)
                     .width(1.8)
                     .fill(0.0);
@@ -145,7 +145,7 @@ pub(crate) fn paint_network_throughput_history(ui: &mut egui::Ui, data: &SystemD
                     .map(|p| [p.time - latest_time, p.value])
                     .collect();
 
-                let line = Line::new(upload_points)
+                let line = Line::new("Upload", upload_points)
                     .color(ThemePalette::STATUS_WARNING)
                     .width(1.8)
                     .fill(0.0);

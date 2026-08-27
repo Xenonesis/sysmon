@@ -50,7 +50,7 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
                     )
                     .fill(ThemePalette::ACCENT_PRIMARY.gamma_multiply(if is_dark { 0.15 } else { 0.10 }))
                     .stroke(egui::Stroke::new(1.0, ThemePalette::ACCENT_PRIMARY.gamma_multiply(0.45)))
-                    .rounding(egui::Rounding::same(4.0));
+                    .corner_radius(egui::CornerRadius::same(4));
 
                     if ui.add(test_btn).on_hover_text("Simulate a test hardware alert to verify audio chimes & visual indicators").clicked() {
                         trigger_test_alert = true;
@@ -81,7 +81,7 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
                             ThemePalette::border(is_dark)
                         },
                     ))
-                    .rounding(egui::Rounding::same(4.0));
+                    .corner_radius(egui::CornerRadius::same(4));
 
                     if ui.add(sound_btn).on_hover_text("Toggle alert notification audio chime on/off").clicked() {
                         app.settings.enable_alert_sound = !app.settings.enable_alert_sound;
@@ -113,7 +113,7 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
                             ThemePalette::border(is_dark)
                         },
                     ))
-                    .rounding(egui::Rounding::same(4.0));
+                    .corner_radius(egui::CornerRadius::same(4));
 
                     if ui.add(toast_btn).on_hover_text("Toggle Windows desktop notification popups on/off").clicked() {
                         app.settings.show_notifications = !app.settings.show_notifications;
@@ -130,7 +130,7 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
                         )
                         .fill(ThemePalette::STATUS_CRITICAL.gamma_multiply(if is_dark { 0.15 } else { 0.10 }))
                         .stroke(egui::Stroke::new(1.0, ThemePalette::STATUS_CRITICAL.gamma_multiply(0.45)))
-                        .rounding(egui::Rounding::same(4.0));
+                        .corner_radius(egui::CornerRadius::same(4));
 
                         if ui.add(clear_btn).on_hover_text("Dismiss all active system alerts").clicked() {
                             clear_all_alerts = true;
@@ -749,11 +749,13 @@ mod tests {
         let data = SystemData::default();
 
         let ctx = egui::Context::default();
-        let _ = ctx.run(Default::default(), |ctx| {
-            egui::CentralPanel::default().show(ctx, |ui| {
+        ctx.run_ui(Default::default(), |ui| {
+            egui::CentralPanel::default().show(ui, |ui| {
                 show(&mut app, ui, &data);
             });
-        });
+        })
+        .textures_delta
+        .clear();
     }
 
     #[test]
@@ -807,10 +809,12 @@ mod tests {
         };
 
         let ctx = egui::Context::default();
-        let _ = ctx.run(Default::default(), |ctx| {
-            egui::CentralPanel::default().show(ctx, |ui| {
+        ctx.run_ui(Default::default(), |ui| {
+            egui::CentralPanel::default().show(ui, |ui| {
                 show(&mut app, ui, &data);
             });
-        });
+        })
+        .textures_delta
+        .clear();
     }
 }

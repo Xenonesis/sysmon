@@ -34,9 +34,9 @@ pub(crate) fn paint_section_header(ui: &mut egui::Ui, text: &str, is_dark: bool)
         egui::vec2((full_w - accent_w).max(0.0), 1.0),
     );
     ui.painter()
-        .rect_filled(accent_rect, egui::Rounding::ZERO, ThemePalette::ACCENT_PRIMARY);
+        .rect_filled(accent_rect, egui::CornerRadius::ZERO, ThemePalette::ACCENT_PRIMARY);
     ui.painter()
-        .rect_filled(remainder_rect, egui::Rounding::ZERO, ThemePalette::border(is_dark));
+        .rect_filled(remainder_rect, egui::CornerRadius::ZERO, ThemePalette::border(is_dark));
     ui.add_space(10.0);
 }
 
@@ -93,11 +93,11 @@ pub(crate) fn paint_circular_gauge(
 /// Structured card frame container with 1px border and 6.0px rounding.
 #[allow(dead_code)]
 pub(crate) fn card_frame(is_dark: bool) -> egui::Frame {
-    egui::Frame::none()
+    egui::Frame::NONE
         .fill(ThemePalette::bg_surface(is_dark))
         .stroke(egui::Stroke::new(1.0, ThemePalette::border(is_dark)))
-        .rounding(egui::Rounding::same(6.0))
-        .inner_margin(egui::Margin::symmetric(14.0, 12.0))
+        .corner_radius(egui::CornerRadius::same(6))
+        .inner_margin(egui::Margin::symmetric(14, 12))
 }
 
 /// Precision telemetry flight-deck chip with micro progress indicator bar.
@@ -109,11 +109,11 @@ pub(crate) fn paint_telemetry_chip(
     color: egui::Color32,
     is_dark: bool,
 ) {
-    let frame = egui::Frame::none()
+    let frame = egui::Frame::NONE
         .fill(ThemePalette::bg_surface(is_dark))
         .stroke(egui::Stroke::new(1.0, ThemePalette::border(is_dark)))
-        .rounding(egui::Rounding::same(4.0))
-        .inner_margin(egui::Margin::symmetric(7.0, 3.5));
+        .corner_radius(egui::CornerRadius::same(4))
+        .inner_margin(egui::Margin::symmetric(7, 4));
 
     frame.show(ui, |ui| {
         ui.horizontal(|ui| {
@@ -130,10 +130,10 @@ pub(crate) fn paint_telemetry_chip(
                 let bar_h = 3.5;
                 let (rect, _) = ui.allocate_exact_size(egui::vec2(bar_w, bar_h), egui::Sense::hover());
                 ui.painter()
-                    .rect_filled(rect, egui::Rounding::same(1.5), ThemePalette::bg_track(is_dark));
+                    .rect_filled(rect, egui::CornerRadius::same(2), ThemePalette::bg_track(is_dark));
                 let filled_w = (bar_w * frac.clamp(0.0, 1.0)).max(1.0);
                 let fill_rect = egui::Rect::from_min_size(rect.min, egui::vec2(filled_w, bar_h));
-                ui.painter().rect_filled(fill_rect, egui::Rounding::same(1.5), color);
+                ui.painter().rect_filled(fill_rect, egui::CornerRadius::same(2), color);
             }
         });
     });
@@ -142,11 +142,11 @@ pub(crate) fn paint_telemetry_chip(
 /// Flat status indicator pill with tinted background, 1px border, and bold uppercase text.
 #[allow(dead_code)]
 pub(crate) fn status_pill(ui: &mut egui::Ui, label: &str, color: egui::Color32, is_dark: bool) {
-    let frame = egui::Frame::none()
+    let frame = egui::Frame::NONE
         .fill(color.gamma_multiply(if is_dark { 0.15 } else { 0.12 }))
         .stroke(egui::Stroke::new(1.0, color.gamma_multiply(0.4)))
-        .rounding(egui::Rounding::same(4.0))
-        .inner_margin(egui::Margin::symmetric(8.0, 3.0));
+        .corner_radius(egui::CornerRadius::same(4))
+        .inner_margin(egui::Margin::symmetric(8, 3));
     frame.show(ui, |ui| {
         ui.label(egui::RichText::new(label).size(11.0).strong().color(color));
     });
@@ -160,8 +160,12 @@ pub(crate) fn paint_progress_bar(ui: &mut egui::Ui, fraction: f32, fill: egui::C
 
     // Track background
     ui.painter().rect_filled(rect, rnd, ThemePalette::bg_deepest(is_dark));
-    ui.painter()
-        .rect_stroke(rect, rnd, egui::Stroke::new(1.0, ThemePalette::bg_track(is_dark)));
+    ui.painter().rect_stroke(
+        rect,
+        rnd,
+        egui::Stroke::new(1.0, ThemePalette::bg_track(is_dark)),
+        egui::StrokeKind::Middle,
+    );
 
     let frac = fraction.clamp(0.0, 1.0);
     if frac > 0.005 {
@@ -238,12 +242,12 @@ mod tests {
         let dark_frame = card_frame(true);
         assert_eq!(dark_frame.fill, ThemePalette::bg_surface(true));
         assert_eq!(dark_frame.stroke.color, ThemePalette::border(true));
-        assert_eq!(dark_frame.rounding, egui::Rounding::same(6.0));
+        assert_eq!(dark_frame.corner_radius, egui::CornerRadius::same(6));
 
         let light_frame = card_frame(false);
         assert_eq!(light_frame.fill, ThemePalette::bg_surface(false));
         assert_eq!(light_frame.stroke.color, ThemePalette::border(false));
-        assert_eq!(light_frame.rounding, egui::Rounding::same(6.0));
+        assert_eq!(light_frame.corner_radius, egui::CornerRadius::same(6));
     }
 
     #[test]
@@ -254,8 +258,8 @@ mod tests {
     #[test]
     fn ui_components_render_without_panic() {
         let ctx = egui::Context::default();
-        let _ = ctx.run(Default::default(), |ctx| {
-            egui::CentralPanel::default().show(ctx, |ui| {
+        ctx.run_ui(Default::default(), |ui| {
+            egui::CentralPanel::default().show(ui, |ui| {
                 paint_section_header(ui, "Test Header", true);
                 paint_section_header(ui, "Test Header Light", false);
                 paint_circular_gauge(ui, egui::pos2(50.0, 50.0), 20.0, 0.45, egui::Color32::GREEN, true);
@@ -269,6 +273,8 @@ mod tests {
                     details_row(ui, "Key2", "Value2", false);
                 });
             });
-        });
+        })
+        .textures_delta
+        .clear();
     }
 }

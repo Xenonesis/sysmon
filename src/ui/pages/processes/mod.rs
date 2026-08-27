@@ -73,11 +73,13 @@ mod tests {
 
         // 1. Initial empty process list render
         let ctx = egui::Context::default();
-        let _ = ctx.run(Default::default(), |ctx| {
-            egui::CentralPanel::default().show(ctx, |ui| {
+        ctx.run_ui(Default::default(), |ui| {
+            egui::CentralPanel::default().show(ui, |ui| {
                 show(&mut app, ui, &data);
             });
-        });
+        })
+        .textures_delta
+        .clear();
 
         // 2. Populated process list render
         data.top_processes = vec![
@@ -119,19 +121,23 @@ mod tests {
             },
         ];
 
-        let _ = ctx.run(Default::default(), |ctx| {
-            egui::CentralPanel::default().show(ctx, |ui| {
+        ctx.run_ui(Default::default(), |ui| {
+            egui::CentralPanel::default().show(ui, |ui| {
                 show(&mut app, ui, &data);
             });
-        });
+        })
+        .textures_delta
+        .clear();
 
         // 3. Search filtered render
         app.process_search = "browser".to_string();
-        let _ = ctx.run(Default::default(), |ctx| {
-            egui::CentralPanel::default().show(ctx, |ui| {
+        ctx.run_ui(Default::default(), |ui| {
+            egui::CentralPanel::default().show(ui, |ui| {
                 show(&mut app, ui, &data);
             });
-        });
+        })
+        .textures_delta
+        .clear();
 
         // 4. Details panel expanded render
         app.process_search.clear();
@@ -149,11 +155,13 @@ mod tests {
             },
         ));
 
-        let _ = ctx.run(Default::default(), |ctx| {
-            egui::CentralPanel::default().show(ctx, |ui| {
+        ctx.run_ui(Default::default(), |ui| {
+            egui::CentralPanel::default().show(ui, |ui| {
                 show(&mut app, ui, &data);
             });
-        });
+        })
+        .textures_delta
+        .clear();
     }
 
     #[test]
@@ -200,12 +208,14 @@ mod tests {
         app.suspended_pids.insert(2048);
 
         let ctx = egui::Context::default();
-        let _ = ctx.run(Default::default(), |ctx| {
-            egui::CentralPanel::default().show(ctx, |ui| {
+        ctx.run_ui(Default::default(), |ui| {
+            egui::CentralPanel::default().show(ui, |ui| {
                 toolbar::paint_process_toolbar(&mut app, ui, 1, 1, true);
                 let refs: Vec<_> = data.top_processes.iter().collect();
                 table::paint_process_table(&mut app, ui, &refs, &data, true);
             });
-        });
+        })
+        .textures_delta
+        .clear();
     }
 }

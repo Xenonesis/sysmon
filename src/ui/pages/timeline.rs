@@ -154,10 +154,10 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui) {
                 .x_axis_label("Seconds in selected range")
                 .y_axis_label("Usage %")
                 .show(ui, |plot| {
-                    plot.line(Line::new(cpu).name("CPU").color(ThemePalette::ACCENT_PRIMARY));
-                    plot.line(Line::new(memory).name("Memory").color(ThemePalette::STATUS_HEALTHY));
+                    plot.line(Line::new("CPU", cpu).color(ThemePalette::ACCENT_PRIMARY));
+                    plot.line(Line::new("Memory", memory).color(ThemePalette::STATUS_HEALTHY));
                     if has_gpu {
-                        plot.line(Line::new(gpu).name("GPU").color(ThemePalette::STATUS_WARNING));
+                        plot.line(Line::new("GPU", gpu).color(ThemePalette::STATUS_WARNING));
                     }
                 });
         });
@@ -199,8 +199,8 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui) {
                 .x_axis_label("Seconds in selected range")
                 .y_axis_label("MB/s")
                 .show(ui, |plot| {
-                    plot.line(Line::new(disk).name("Disk").color(ThemePalette::STATUS_WARNING));
-                    plot.line(Line::new(network).name("Network").color(ThemePalette::ACCENT_PRIMARY));
+                    plot.line(Line::new("Disk", disk).color(ThemePalette::STATUS_WARNING));
+                    plot.line(Line::new("Network", network).color(ThemePalette::ACCENT_PRIMARY));
                 });
         });
 
@@ -321,8 +321,11 @@ mod tests {
     fn timeline_page_renders_when_disabled() {
         let mut app = crate::SystemMonitorApp::test_app();
         let context = egui::Context::default();
-        let _ = context.run(Default::default(), |context| {
-            egui::CentralPanel::default().show(context, |ui| show(&mut app, ui));
-        });
+        context
+            .run_ui(Default::default(), |ui| {
+                egui::CentralPanel::default().show(ui, |ui| show(&mut app, ui));
+            })
+            .textures_delta
+            .clear();
     }
 }

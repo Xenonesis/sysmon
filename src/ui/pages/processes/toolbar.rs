@@ -60,7 +60,7 @@ pub(super) fn paint_process_toolbar(
                 ProcessSortColumn::Disk => "Disk",
             };
 
-            egui::ComboBox::from_id_source("process_toolbar_sort_combo")
+            egui::ComboBox::from_id_salt("process_toolbar_sort_combo")
                 .selected_text(current_label)
                 .width(80.0)
                 .show_ui(ui, |ui| {

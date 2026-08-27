@@ -90,23 +90,23 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui) {
                 visuals.widgets.active.bg_fill = ThemePalette::ACCENT_ACTIVE;
                 visuals.widgets.active.bg_stroke = egui::Stroke::NONE;
                 visuals.widgets.active.fg_stroke = egui::Stroke::new(1.0, ThemePalette::TEXT_SELECTED);
-                visuals.window_rounding = egui::Rounding::same(4.0);
-                visuals.menu_rounding = egui::Rounding::same(4.0);
-                visuals.widgets.noninteractive.rounding = egui::Rounding::same(4.0);
-                visuals.widgets.inactive.rounding = egui::Rounding::same(4.0);
-                visuals.widgets.hovered.rounding = egui::Rounding::same(4.0);
-                visuals.widgets.active.rounding = egui::Rounding::same(4.0);
+                visuals.window_corner_radius = egui::CornerRadius::same(4);
+                visuals.menu_corner_radius = egui::CornerRadius::same(4);
+                visuals.widgets.noninteractive.corner_radius = egui::CornerRadius::same(4);
+                visuals.widgets.inactive.corner_radius = egui::CornerRadius::same(4);
+                visuals.widgets.hovered.corner_radius = egui::CornerRadius::same(4);
+                visuals.widgets.active.corner_radius = egui::CornerRadius::same(4);
                 visuals.window_stroke = egui::Stroke::new(1.0, ThemePalette::BORDER);
                 visuals.window_shadow = egui::epaint::Shadow {
-                    offset: egui::vec2(0.0, 4.0),
-                    blur: 16.0,
-                    spread: 0.0,
+                    offset: [0, 4],
+                    blur: 16,
+                    spread: 0,
                     color: egui::Color32::from_rgba_premultiplied(0, 0, 0, 40),
                 };
                 visuals.popup_shadow = egui::epaint::Shadow {
-                    offset: egui::vec2(0.0, 4.0),
-                    blur: 16.0,
-                    spread: 0.0,
+                    offset: [0, 4],
+                    blur: 16,
+                    spread: 0,
                     color: egui::Color32::from_rgba_premultiplied(0, 0, 0, 40),
                 };
                 ui.ctx().set_visuals(visuals);
@@ -121,8 +121,8 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui) {
                 visuals.widgets.noninteractive.bg_stroke =
                     egui::Stroke::new(1.0, egui::Color32::from_rgb(220, 220, 225));
                 visuals.widgets.noninteractive.fg_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(40, 40, 45));
-                visuals.window_rounding = egui::Rounding::same(8.0);
-                visuals.menu_rounding = egui::Rounding::same(8.0);
+                visuals.window_corner_radius = egui::CornerRadius::same(8);
+                visuals.menu_corner_radius = egui::CornerRadius::same(8);
                 ui.ctx().set_visuals(visuals);
             }
         }
@@ -138,28 +138,34 @@ mod tests {
         let mut app = crate::SystemMonitorApp::test_app();
 
         let ctx = egui::Context::default();
-        let _ = ctx.run(Default::default(), |ctx| {
-            egui::CentralPanel::default().show(ctx, |ui| {
+        ctx.run_ui(Default::default(), |ui| {
+            egui::CentralPanel::default().show(ui, |ui| {
                 show(&mut app, ui);
             });
-        });
+        })
+        .textures_delta
+        .clear();
 
         // Test with action pending spinner
         app.action_pending = true;
-        let _ = ctx.run(Default::default(), |ctx| {
-            egui::CentralPanel::default().show(ctx, |ui| {
+        ctx.run_ui(Default::default(), |ui| {
+            egui::CentralPanel::default().show(ui, |ui| {
                 show(&mut app, ui);
             });
-        });
+        })
+        .textures_delta
+        .clear();
 
         // Test with action status message
         app.action_pending = false;
         app.action_status = Some("Export completed successfully".to_string());
-        let _ = ctx.run(Default::default(), |ctx| {
-            egui::CentralPanel::default().show(ctx, |ui| {
+        ctx.run_ui(Default::default(), |ui| {
+            egui::CentralPanel::default().show(ui, |ui| {
                 show(&mut app, ui);
             });
-        });
+        })
+        .textures_delta
+        .clear();
     }
 
     #[test]
@@ -169,14 +175,16 @@ mod tests {
         let mut theme_changed = false;
 
         let ctx = egui::Context::default();
-        let _ = ctx.run(Default::default(), |ctx| {
-            egui::CentralPanel::default().show(ctx, |ui| {
+        ctx.run_ui(Default::default(), |ui| {
+            egui::CentralPanel::default().show(ui, |ui| {
                 general::paint_general_settings(&mut app, ui, &mut changed, &mut theme_changed, true);
                 telemetry_config::paint_telemetry_settings(&mut app, ui, &mut changed, true);
                 alerts_config::paint_alerts_settings(&mut app, ui, &mut changed, true);
                 ram_cleaner_config::paint_ram_cleaner_settings(&mut app, ui, &mut changed, true);
             });
-        });
+        })
+        .textures_delta
+        .clear();
     }
 
     #[test]
@@ -187,10 +195,12 @@ mod tests {
         app.settings.auto_clean_exclusions = vec!["custom_game.exe".to_string(), "editor.exe".to_string()];
 
         let ctx = egui::Context::default();
-        let _ = ctx.run(Default::default(), |ctx| {
-            egui::CentralPanel::default().show(ctx, |ui| {
+        ctx.run_ui(Default::default(), |ui| {
+            egui::CentralPanel::default().show(ui, |ui| {
                 show(&mut app, ui);
             });
-        });
+        })
+        .textures_delta
+        .clear();
     }
 }
