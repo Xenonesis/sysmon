@@ -3,7 +3,7 @@
 [![Rust CI](https://github.com/Xenonesis/sysmon/actions/workflows/rust-ci.yml/badge.svg)](https://github.com/Xenonesis/sysmon/actions/workflows/rust-ci.yml)
 [![Rust 1.95+](https://img.shields.io/badge/Rust-1.95%2B-orange.svg)](https://www.rust-lang.org/)
 [![Windows](https://img.shields.io/badge/Windows-10%2F11-blue.svg)](https://www.microsoft.com/windows)
-[![Version](https://img.shields.io/badge/version-3.8.0-green.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-3.8.1-green.svg)](CHANGELOG.md)
 
 SysMon is a native Windows observability and diagnostics application written in Rust. It combines live CPU, memory, disk, network, process, service, startup, battery and GPU telemetry with evidence-based diagnostics and guarded system actions. The project targets a single goal: give a technically curious user the same depth of insight a professional operations team would have, without background services, cloud accounts, or opaque tweak scripts.
 

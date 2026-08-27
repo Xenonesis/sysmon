@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
+## [3.8.1] - 2026-08-27
+
+### Changed
+- **UI framework upgrade:** egui/eframe 0.28 to 0.36 (glow renderer), egui_plot 0.37, egui_extras 0.36.
+- **Dependency modernization:** sysinfo 0.30 to 0.39, wmi 0.9 to 0.18 (COM initialization now handled internally), ureq 2 to 3, windows crate 0.52 to 0.62. Minimum supported Rust version is now 1.95.
+
+### Added
+- **Scoop distribution:** the repository doubles as a Scoop bucket (`scoop bucket add sysmon` then `scoop install sysmon`).
+- **winget manifest:** published under `deploy/winget/` for submission to winget-pkgs.
+
+### Fixed
+- **Release checksum consistency:** republished installer and SHA-256 checksum from a single verified workflow run, restoring self-update verification that v3.8.0 asset drift had broken.
+- CI: security-audit job granted `checks: write` so audit results publish; formatting and clippy gates green.
+
+---
 ## [3.8.0] - 2026-08-21
 
 ### Added
