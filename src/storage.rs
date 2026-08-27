@@ -98,6 +98,78 @@ pub fn get_physical_disks() -> Vec<PhysicalDiskHealth> {
     }
 }
 
+/// Live per-physical-disk performance counters (latency, queue depth, IOPS).
+#[derive(Debug, Clone, Default)]
+pub struct DiskPerfStats {
+    pub name: String,
+    pub read_latency_ms: f32,
+    pub write_latency_ms: f32,
+    pub queue_depth: f32,
+    pub active_pct: f32,
+    pub read_iops: u32,
+    pub write_iops: u32,
+}
+
+#[cfg(target_os = "windows")]
+mod perf_impl {
+    use super::DiskPerfStats;
+    use serde::Deserialize;
+    use wmi::WMIConnection;
+
+    #[derive(Deserialize, Debug)]
+    #[serde(rename_all = "PascalCase")]
+    struct PerfRow {
+        name: Option<String>,
+        avg_disk_sec_per_read: Option<u32>,
+        avg_disk_sec_per_write: Option<u32>,
+        avg_disk_queue_length: Option<u32>,
+        percent_disk_time: Option<u32>,
+        disk_reads_persec: Option<u32>,
+        disk_writes_persec: Option<u32>,
+    }
+
+    pub fn get_disk_perf_internal() -> Vec<DiskPerfStats> {
+        let Ok(wmi_con) = WMIConnection::new() else {
+            return Vec::new();
+        };
+        let Ok(rows) = wmi_con.raw_query::<PerfRow>(
+            "SELECT Name, AvgDiskSecPerRead, AvgDiskSecPerWrite, AvgDiskQueueLength, PercentDiskTime, DiskReadsPersec, DiskWritesPersec FROM Win32_PerfFormattedData_PerfDisk_PhysicalDisk",
+        ) else {
+            return Vec::new();
+        };
+        rows.into_iter()
+            .filter_map(|row| {
+                let name = row.name?;
+                if name.eq_ignore_ascii_case("_Total") {
+                    return None;
+                }
+                Some(DiskPerfStats {
+                    name,
+                    read_latency_ms: row.avg_disk_sec_per_read.unwrap_or(0) as f32,
+                    write_latency_ms: row.avg_disk_sec_per_write.unwrap_or(0) as f32,
+                    queue_depth: row.avg_disk_queue_length.unwrap_or(0) as f32,
+                    active_pct: row.percent_disk_time.unwrap_or(0) as f32,
+                    read_iops: row.disk_reads_persec.unwrap_or(0),
+                    write_iops: row.disk_writes_persec.unwrap_or(0),
+                })
+            })
+            .collect()
+    }
+}
+
+/// Retrieve live disk latency, queue depth and IOPS per physical disk.
+pub fn get_disk_perf() -> Vec<DiskPerfStats> {
+    #[cfg(target_os = "windows")]
+    {
+        perf_impl::get_disk_perf_internal()
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        Vec::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -123,6 +195,15 @@ mod tests {
         let disks = get_physical_disks();
         for d in disks {
             assert!(!d.model.is_empty());
+        }
+    }
+
+    #[test]
+    fn get_disk_perf_does_not_panic() {
+        let perf = get_disk_perf();
+        for p in perf {
+            assert!(!p.name.is_empty());
+            assert!(!p.name.eq_ignore_ascii_case("_Total"));
         }
     }
 }

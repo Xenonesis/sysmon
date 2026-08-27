@@ -1141,6 +1141,7 @@ impl SystemMonitorApp {
                 let mut temperature_check_counter: u32 = 0;
                 let mut service_check_counter: u32 = 0;
                 let mut disk_smart_check_counter: u32 = 0;
+                let mut disk_perf_check_counter: u32 = 0;
                 let mut sockets_check_counter: u32 = 0;
                 let mut power_plans_check_counter: u32 = 0;
                 let mut last_alert_time: std::collections::HashMap<AlertType, Instant> =
@@ -1395,6 +1396,18 @@ impl SystemMonitorApp {
                         }
                     }
                     disk_smart_check_counter = disk_smart_check_counter.wrapping_add(1);
+
+                    // Poll disk latency/queue counters in background (~every 5s on Storage tab)
+                    if !is_hidden
+                        && selected_tab == Tab::Storage
+                        && (disk_perf_check_counter.is_multiple_of(10) || data_clone.read().disk_perf.is_empty())
+                    {
+                        let perf = crate::storage::get_disk_perf();
+                        if !perf.is_empty() {
+                            data_clone.write().disk_perf = perf;
+                        }
+                    }
+                    disk_perf_check_counter = disk_perf_check_counter.wrapping_add(1);
 
                     // Poll active socket connections in background (~every 2s on Network tab)
                     if !is_hidden
