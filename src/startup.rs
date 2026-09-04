@@ -301,7 +301,9 @@ fn string_from_reg_value(val: &winreg::RegValue) -> String {
         winreg::enums::REG_SZ | winreg::enums::REG_EXPAND_SZ => {
             let words: Vec<u16> = val
                 .bytes
-                .chunks_exact(2)
+                .as_chunks::<2>()
+                .0
+                .iter()
                 .map(|c| u16::from_le_bytes([c[0], c[1]]))
                 .take_while(|&w| w != 0)
                 .collect();

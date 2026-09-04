@@ -3,7 +3,7 @@ use crate::ui::theme::ThemePalette;
 use crate::*;
 use eframe::egui;
 
-pub(super) fn paint_volumes(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &SystemData, is_dark: bool) {
+pub(super) fn paint_volumes(ui: &mut egui::Ui, data: &SystemData, is_dark: bool) {
     egui::ScrollArea::vertical().show(ui, |ui| {
         // ── 1. Global Disk I/O Banner ──
         card_frame(is_dark).show(ui, |ui| {

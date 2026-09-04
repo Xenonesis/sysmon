@@ -236,7 +236,9 @@ pub fn parse_minidump_file(path: &Path) -> Result<MinidumpCrashReport, String> {
                                                             let mut str_bytes = vec![0u8; str_len as usize];
                                                             if f.read_exact(&mut str_bytes).is_ok() {
                                                                 let u16_chars: Vec<u16> = str_bytes
-                                                                    .chunks_exact(2)
+                                                                    .as_chunks::<2>()
+                                                                    .0
+                                                                    .iter()
                                                                     .map(|c| u16::from_le_bytes([c[0], c[1]]))
                                                                     .collect();
                                                                 let full_str = String::from_utf16_lossy(&u16_chars);

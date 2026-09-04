@@ -13,7 +13,7 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
     paint_section_header(ui, "Storage Devices & Partitions", is_dark);
 
     egui::ScrollArea::vertical().show(ui, |ui| {
-        volumes::paint_volumes(app, ui, data, is_dark);
+        volumes::paint_volumes(ui, data, is_dark);
 
         // ── 3b. Disk Latency & Queue Depth ──
         perf::paint_disk_perf_card(ui, &data.disk_perf, is_dark);
