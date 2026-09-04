@@ -66,25 +66,55 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
 
                     let toast_on = app.settings.show_notifications;
                     let toast_label = if toast_on { "🔔 Toast: ON" } else { "🔕 Toast: OFF" };
-                    if toggle_button(ui, toast_label, toast_on, "Toggle Windows desktop notification popups on/off", is_dark).clicked() {
+                    if toggle_button(
+                        ui,
+                        toast_label,
+                        toast_on,
+                        "Toggle Windows desktop notification popups on/off",
+                        is_dark,
+                    )
+                    .clicked()
+                    {
                         app.settings.show_notifications = !app.settings.show_notifications;
                         let _ = app.settings.save();
                     }
 
                     let sound_on = app.settings.enable_alert_sound && app.settings.enable_sounds;
                     let sound_label = if sound_on { "🔊 Sound: ON" } else { "🔇 Sound: OFF" };
-                    if toggle_button(ui, sound_label, sound_on, "Toggle alert notification audio chime on/off", is_dark).clicked() {
+                    if toggle_button(
+                        ui,
+                        sound_label,
+                        sound_on,
+                        "Toggle alert notification audio chime on/off",
+                        is_dark,
+                    )
+                    .clicked()
+                    {
                         app.settings.enable_alert_sound = !app.settings.enable_alert_sound;
                         let _ = app.settings.save();
                     }
 
                     // Action controls right-aligned
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if secondary_button(ui, "⚙ Thresholds", "Configure alert trigger thresholds in Settings (Ctrl+,)", is_dark).clicked() {
+                        if secondary_button(
+                            ui,
+                            "⚙ Thresholds",
+                            "Configure alert trigger thresholds in Settings (Ctrl+,)",
+                            is_dark,
+                        )
+                        .clicked()
+                        {
                             app.show_settings = true;
                         }
 
-                        if accent_button(ui, "🧪 Test Alert", "Simulate a test hardware alert to verify audio chimes & visual indicators", is_dark).clicked() {
+                        if accent_button(
+                            ui,
+                            "🧪 Test Alert",
+                            "Simulate a test hardware alert to verify audio chimes & visual indicators",
+                            is_dark,
+                        )
+                        .clicked()
+                        {
                             trigger_test_alert = true;
                         }
 
@@ -96,10 +126,17 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
                                     .color(ThemePalette::STATUS_CRITICAL),
                             )
                             .fill(ThemePalette::STATUS_CRITICAL.gamma_multiply(if is_dark { 0.15 } else { 0.10 }))
-                            .stroke(egui::Stroke::new(1.0, ThemePalette::STATUS_CRITICAL.gamma_multiply(0.45)))
+                            .stroke(egui::Stroke::new(
+                                1.0,
+                                ThemePalette::STATUS_CRITICAL.gamma_multiply(0.45),
+                            ))
                             .corner_radius(egui::CornerRadius::same(4));
 
-                            if ui.add(clear_btn).on_hover_text("Dismiss all active system alerts").clicked() {
+                            if ui
+                                .add(clear_btn)
+                                .on_hover_text("Dismiss all active system alerts")
+                                .clicked()
+                            {
                                 clear_all_alerts = true;
                             }
                         }
@@ -119,35 +156,27 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
 
             ui.horizontal_top(|ui| {
                 // LEFT COLUMN: Live Metric Proximity & Safety Headroom Matrix
-                ui.allocate_ui_with_layout(
-                    egui::vec2(col_w, 0.0),
-                    egui::Layout::top_down(egui::Align::Min),
-                    |ui| {
-                        paint_proximity_matrix(app, ui, data, is_dark);
-                    },
-                );
+                ui.allocate_ui_with_layout(egui::vec2(col_w, 0.0), egui::Layout::top_down(egui::Align::Min), |ui| {
+                    paint_proximity_matrix(app, ui, data, is_dark);
+                });
 
                 ui.add_space(12.0);
 
                 // RIGHT COLUMN: Active Incidents Stream OR Health Board
-                ui.allocate_ui_with_layout(
-                    egui::vec2(col_w, 0.0),
-                    egui::Layout::top_down(egui::Align::Min),
-                    |ui| {
-                        if data.alerts.is_empty() {
-                            paint_nominal_health_board(ui, data, is_dark);
-                        } else {
-                            paint_active_incidents_feed(
-                                ui,
-                                data,
-                                is_dark,
-                                &mut remove_alert_idx,
-                                &mut navigate_tab,
-                                &mut run_ram_clean,
-                            );
-                        }
-                    },
-                );
+                ui.allocate_ui_with_layout(egui::vec2(col_w, 0.0), egui::Layout::top_down(egui::Align::Min), |ui| {
+                    if data.alerts.is_empty() {
+                        paint_nominal_health_board(ui, data, is_dark);
+                    } else {
+                        paint_active_incidents_feed(
+                            ui,
+                            data,
+                            is_dark,
+                            &mut remove_alert_idx,
+                            &mut navigate_tab,
+                            &mut run_ram_clean,
+                        );
+                    }
+                });
             });
         } else {
             // Narrow layout: Stacked vertically
@@ -246,24 +275,54 @@ fn paint_control_hub_actions(
     clear_all_alerts: &mut bool,
 ) {
     // Rendered right-to-left
-    if secondary_button(ui, "⚙ Thresholds", "Configure alert trigger thresholds in Settings (Ctrl+,)", is_dark).clicked() {
+    if secondary_button(
+        ui,
+        "⚙ Thresholds",
+        "Configure alert trigger thresholds in Settings (Ctrl+,)",
+        is_dark,
+    )
+    .clicked()
+    {
         app.show_settings = true;
     }
 
-    if accent_button(ui, "🧪 Test Alert", "Simulate a test hardware alert to verify audio chimes & visual indicators", is_dark).clicked() {
+    if accent_button(
+        ui,
+        "🧪 Test Alert",
+        "Simulate a test hardware alert to verify audio chimes & visual indicators",
+        is_dark,
+    )
+    .clicked()
+    {
         *trigger_test_alert = true;
     }
 
     let sound_on = app.settings.enable_alert_sound && app.settings.enable_sounds;
     let sound_label = if sound_on { "🔊 Sound: ON" } else { "🔇 Sound: OFF" };
-    if toggle_button(ui, sound_label, sound_on, "Toggle alert notification audio chime on/off", is_dark).clicked() {
+    if toggle_button(
+        ui,
+        sound_label,
+        sound_on,
+        "Toggle alert notification audio chime on/off",
+        is_dark,
+    )
+    .clicked()
+    {
         app.settings.enable_alert_sound = !app.settings.enable_alert_sound;
         let _ = app.settings.save();
     }
 
     let toast_on = app.settings.show_notifications;
     let toast_label = if toast_on { "🔔 Toast: ON" } else { "🔕 Toast: OFF" };
-    if toggle_button(ui, toast_label, toast_on, "Toggle Windows desktop notification popups on/off", is_dark).clicked() {
+    if toggle_button(
+        ui,
+        toast_label,
+        toast_on,
+        "Toggle Windows desktop notification popups on/off",
+        is_dark,
+    )
+    .clicked()
+    {
         app.settings.show_notifications = !app.settings.show_notifications;
         let _ = app.settings.save();
     }
@@ -276,22 +335,23 @@ fn paint_control_hub_actions(
                 .color(ThemePalette::STATUS_CRITICAL),
         )
         .fill(ThemePalette::STATUS_CRITICAL.gamma_multiply(if is_dark { 0.15 } else { 0.10 }))
-        .stroke(egui::Stroke::new(1.0, ThemePalette::STATUS_CRITICAL.gamma_multiply(0.45)))
+        .stroke(egui::Stroke::new(
+            1.0,
+            ThemePalette::STATUS_CRITICAL.gamma_multiply(0.45),
+        ))
         .corner_radius(egui::CornerRadius::same(4));
 
-        if ui.add(clear_btn).on_hover_text("Dismiss all active system alerts").clicked() {
+        if ui
+            .add(clear_btn)
+            .on_hover_text("Dismiss all active system alerts")
+            .clicked()
+        {
             *clear_all_alerts = true;
         }
     }
 }
 
-fn toggle_button(
-    ui: &mut egui::Ui,
-    label: &str,
-    is_on: bool,
-    tooltip: &str,
-    is_dark: bool,
-) -> egui::Response {
+fn toggle_button(ui: &mut egui::Ui, label: &str, is_on: bool, tooltip: &str, is_dark: bool) -> egui::Response {
     let text_color = if is_on {
         ThemePalette::STATUS_HEALTHY
     } else {
@@ -308,25 +368,15 @@ fn toggle_button(
         ThemePalette::border(is_dark)
     };
 
-    let btn = egui::Button::new(
-        egui::RichText::new(label)
-            .size(11.5)
-            .strong()
-            .color(text_color),
-    )
-    .fill(fill)
-    .stroke(egui::Stroke::new(1.0, stroke_color))
-    .corner_radius(egui::CornerRadius::same(4));
+    let btn = egui::Button::new(egui::RichText::new(label).size(11.5).strong().color(text_color))
+        .fill(fill)
+        .stroke(egui::Stroke::new(1.0, stroke_color))
+        .corner_radius(egui::CornerRadius::same(4));
 
     ui.add(btn).on_hover_text(tooltip)
 }
 
-fn secondary_button(
-    ui: &mut egui::Ui,
-    label: &str,
-    tooltip: &str,
-    is_dark: bool,
-) -> egui::Response {
+fn secondary_button(ui: &mut egui::Ui, label: &str, tooltip: &str, is_dark: bool) -> egui::Response {
     let btn = egui::Button::new(
         egui::RichText::new(label)
             .size(11.5)
@@ -340,12 +390,7 @@ fn secondary_button(
     ui.add(btn).on_hover_text(tooltip)
 }
 
-fn accent_button(
-    ui: &mut egui::Ui,
-    label: &str,
-    tooltip: &str,
-    is_dark: bool,
-) -> egui::Response {
+fn accent_button(ui: &mut egui::Ui, label: &str, tooltip: &str, is_dark: bool) -> egui::Response {
     let btn = egui::Button::new(
         egui::RichText::new(label)
             .size(11.5)
@@ -353,7 +398,10 @@ fn accent_button(
             .color(ThemePalette::ACCENT_PRIMARY),
     )
     .fill(ThemePalette::ACCENT_PRIMARY.gamma_multiply(if is_dark { 0.15 } else { 0.10 }))
-    .stroke(egui::Stroke::new(1.0, ThemePalette::ACCENT_PRIMARY.gamma_multiply(0.45)))
+    .stroke(egui::Stroke::new(
+        1.0,
+        ThemePalette::ACCENT_PRIMARY.gamma_multiply(0.45),
+    ))
     .corner_radius(egui::CornerRadius::same(4));
 
     ui.add(btn).on_hover_text(tooltip)

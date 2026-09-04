@@ -716,7 +716,7 @@ impl eframe::App for SystemMonitorApp {
         // CSV Export window
         let mut show_export_csv = self.show_export_csv;
         if show_export_csv {
-            let csv_result = self.export_to_csv(&data);
+            let csv_result = Self::export_to_csv(&data);
             egui::Window::new("Export to CSV")
                 .open(&mut show_export_csv)
                 .resizable(true)

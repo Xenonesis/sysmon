@@ -2000,7 +2000,7 @@ impl SystemMonitorApp {
         crate::persistence::diagnostics::export(destination, &snapshot, &self.settings)
     }
 
-    pub(crate) fn export_to_csv(&self, data: &SystemData) -> Result<String, Box<dyn std::error::Error>> {
+    pub(crate) fn export_to_csv(data: &SystemData) -> Result<String, Box<dyn std::error::Error>> {
         let mut wtr = csv::Writer::from_writer(vec![]);
 
         // Header
@@ -2039,20 +2039,21 @@ impl SystemMonitorApp {
             }
         }
 
-        // Top processes header
-        wtr.write_record(["", "", ""])?; // Empty line
-        wtr.write_record(["Process PID", "Name", "Memory MB", "VRAM MB", "CPU %"])?;
+        // Top processes (kept as 3 fields: Category/Metric/Value to keep the CSV rectangular)
         for proc in &data.top_processes {
             let vram_str = proc
                 .vram_bytes
                 .map(|b| format!("{:.2}", crate::ui::components::bytes_to_mb(b)))
                 .unwrap_or_else(|| "-".to_string());
             wtr.write_record([
-                &proc.pid.to_string(),
-                &proc.name,
-                &format!("{:.2}", crate::ui::components::bytes_to_mb(proc.memory)),
-                &vram_str,
-                &format!("{:.2}", proc.cpu_usage),
+                "Process",
+                &format!("PID {} ({})", proc.pid, proc.name),
+                &format!(
+                    "Memory: {:.2} MB, VRAM: {} MB, CPU: {:.2}%",
+                    crate::ui::components::bytes_to_mb(proc.memory),
+                    vram_str,
+                    proc.cpu_usage
+                ),
             ])?;
         }
 
@@ -2327,5 +2328,40 @@ mod alert_tests {
             }
         );
         assert_eq!(alerts[0].key(), "disk:D:\\");
+    }
+}
+
+#[cfg(test)]
+mod csv_export_tests {
+    use super::*;
+
+    // ponytail: smallest check that fails if export mixes 3- and 5-field records again
+    #[test]
+    fn export_csv_is_rectangular_and_parseable() {
+        let data = SystemData {
+            last_update: "2026-01-01 00:00:00".into(),
+            cpu_usage: 12.5,
+            top_processes: vec![crate::processes::ProcessInfo {
+                pid: 1234,
+                start_time: 0,
+                name: "test_a.exe".into(),
+                parent_pid: Some(4),
+                cpu_usage: 3.2,
+                memory: 50 * 1024 * 1024,
+                vram_bytes: Some(1024 * 1024),
+                status: "Running".into(),
+                disk_read_bytes: 0,
+                disk_written_bytes: 0,
+            }],
+            ..Default::default()
+        };
+        let csv_data = SystemMonitorApp::export_to_csv(&data).expect("export must succeed");
+        let mut rdr = csv::ReaderBuilder::new()
+            .has_headers(true)
+            .flexible(false)
+            .from_reader(csv_data.as_bytes());
+        for record in rdr.records() {
+            record.expect("every CSV record must have 3 fields");
+        }
     }
 }
