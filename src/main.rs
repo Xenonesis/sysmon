@@ -1072,7 +1072,7 @@ impl eframe::App for SystemMonitorApp {
                             ui.add_space(12.0);
                             ui.label(
                                 egui::RichText::new(group.title)
-                                    .size(9.5)
+                                    .size(10.0)
                                     .strong()
                                     .color(ThemePalette::text_secondary(is_dark)),
                             );

@@ -24,19 +24,11 @@ pub(crate) fn paint_section_header(ui: &mut egui::Ui, text: &str, is_dark: bool)
                 .circle_filled(dot_rect.center(), 2.5, ThemePalette::ACCENT_PRIMARY);
         });
     });
-    ui.add_space(3.0);
+    ui.add_space(4.0);
     let full_w = ui.available_width();
     let (line_rect, _) = ui.allocate_exact_size(egui::vec2(full_w, 1.0), egui::Sense::hover());
-    let accent_w = 48.0f32.min(full_w);
-    let accent_rect = egui::Rect::from_min_size(line_rect.min, egui::vec2(accent_w, 1.0));
-    let remainder_rect = egui::Rect::from_min_size(
-        egui::pos2(line_rect.min.x + accent_w, line_rect.min.y),
-        egui::vec2((full_w - accent_w).max(0.0), 1.0),
-    );
     ui.painter()
-        .rect_filled(accent_rect, egui::CornerRadius::ZERO, ThemePalette::ACCENT_PRIMARY);
-    ui.painter()
-        .rect_filled(remainder_rect, egui::CornerRadius::ZERO, ThemePalette::border(is_dark));
+        .rect_filled(line_rect, egui::CornerRadius::ZERO, ThemePalette::border(is_dark));
     ui.add_space(10.0);
 }
 
@@ -117,17 +109,17 @@ pub(crate) fn paint_telemetry_chip(
 
     frame.show(ui, |ui| {
         ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 4.5;
+            ui.spacing_mut().item_spacing.x = 5.0;
             ui.label(
                 egui::RichText::new(label)
                     .size(10.0)
                     .strong()
-                    .color(ThemePalette::text_dimmed(is_dark)),
+                    .color(ThemePalette::text_secondary(is_dark)),
             );
             ui.label(egui::RichText::new(value).size(11.0).monospace().strong().color(color));
             if let Some(frac) = fraction {
-                let bar_w = 18.0;
-                let bar_h = 3.5;
+                let bar_w = 22.0;
+                let bar_h = 4.5;
                 let (rect, _) = ui.allocate_exact_size(egui::vec2(bar_w, bar_h), egui::Sense::hover());
                 ui.painter()
                     .rect_filled(rect, egui::CornerRadius::same(2), ThemePalette::bg_track(is_dark));

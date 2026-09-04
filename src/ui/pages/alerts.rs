@@ -16,128 +16,96 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
     egui::ScrollArea::vertical().show(ui, |ui| {
         // ── 1. Top Status & Control Hub ──
         card_frame(is_dark).show(ui, |ui| {
-            ui.horizontal(|ui| {
-                if data.alerts.is_empty() {
-                    status_pill(ui, "ALL SYSTEMS NOMINAL", ThemePalette::STATUS_HEALTHY, is_dark);
-                    ui.label(
-                        egui::RichText::new("Zero active threshold violations · Real-time telemetry operating within safety boundaries.")
-                            .size(12.5)
-                            .color(ThemePalette::text_primary(is_dark)),
-                    );
-                } else {
-                    let count = data.alerts.len();
-                    status_pill(ui, &format!("⚠️ {} ACTIVE INCIDENT{}", count, if count > 1 { "S" } else { "" }), ThemePalette::STATUS_WARNING, is_dark);
-                    ui.label(
-                        egui::RichText::new("Metric threshold violations detected · Immediate review and mitigation recommended.")
-                            .size(12.5)
-                            .strong()
-                            .color(ThemePalette::text_primary(is_dark)),
-                    );
-                }
+            let avail_w = ui.available_width();
+            let is_wide = avail_w >= 1050.0;
 
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    // Settings shortcut
-                    if ui.button("⚙ Thresholds").on_hover_text("Configure alert trigger thresholds in Settings (Ctrl+,)").clicked() {
-                        app.show_settings = true;
-                    }
+            if is_wide {
+                // Wide single-row layout with defensive bounds preventing text collision
+                ui.horizontal(|ui| {
+                    let controls_w = if data.alerts.is_empty() { 420.0 } else { 540.0 };
+                    let left_w = (avail_w - controls_w - 16.0).max(200.0);
 
-                    // Test Alert Button
-                    let test_btn = egui::Button::new(
-                        egui::RichText::new("🧪 Test Alert")
+                    ui.allocate_ui_with_layout(
+                        egui::vec2(left_w, 0.0),
+                        egui::Layout::left_to_right(egui::Align::Center),
+                        |ui| {
+                            paint_status_headline(ui, data, is_dark);
+                        },
+                    );
+
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        paint_control_hub_actions(
+                            app,
+                            ui,
+                            data,
+                            is_dark,
+                            &mut trigger_test_alert,
+                            &mut clear_all_alerts,
+                        );
+                    });
+                });
+            } else {
+                // Responsive 2-tier layout: Status headline on top, unified toolbar below
+                ui.horizontal(|ui| {
+                    paint_status_headline(ui, data, is_dark);
+                });
+
+                ui.add_space(6.0);
+                ui.separator();
+                ui.add_space(6.0);
+
+                ui.horizontal(|ui| {
+                    // Notification preferences
+                    ui.label(
+                        egui::RichText::new("Preferences:")
                             .size(11.5)
                             .strong()
-                            .color(ThemePalette::ACCENT_PRIMARY),
-                    )
-                    .fill(ThemePalette::ACCENT_PRIMARY.gamma_multiply(if is_dark { 0.15 } else { 0.10 }))
-                    .stroke(egui::Stroke::new(1.0, ThemePalette::ACCENT_PRIMARY.gamma_multiply(0.45)))
-                    .corner_radius(egui::CornerRadius::same(4));
+                            .color(ThemePalette::text_secondary(is_dark)),
+                    );
+                    ui.add_space(2.0);
 
-                    if ui.add(test_btn).on_hover_text("Simulate a test hardware alert to verify audio chimes & visual indicators").clicked() {
-                        trigger_test_alert = true;
-                    }
-
-                    // Sound Toggle Button
-                    let sound_on = app.settings.enable_alert_sound && app.settings.enable_sounds;
-                    let sound_label = if sound_on { "🔔 Sound: ON" } else { "🔕 Sound: OFF" };
-                    let sound_btn = egui::Button::new(
-                        egui::RichText::new(sound_label).size(11.5).strong().color(
-                            if sound_on {
-                                ThemePalette::STATUS_HEALTHY
-                            } else {
-                                ThemePalette::text_dimmed(is_dark)
-                            },
-                        ),
-                    )
-                    .fill(if sound_on {
-                        ThemePalette::STATUS_HEALTHY.gamma_multiply(if is_dark { 0.15 } else { 0.10 })
-                    } else {
-                        ThemePalette::bg_track(is_dark)
-                    })
-                    .stroke(egui::Stroke::new(
-                        1.0,
-                        if sound_on {
-                            ThemePalette::STATUS_HEALTHY.gamma_multiply(0.4)
-                        } else {
-                            ThemePalette::border(is_dark)
-                        },
-                    ))
-                    .corner_radius(egui::CornerRadius::same(4));
-
-                    if ui.add(sound_btn).on_hover_text("Toggle alert notification audio chime on/off").clicked() {
-                        app.settings.enable_alert_sound = !app.settings.enable_alert_sound;
-                        let _ = app.settings.save();
-                    }
-
-                    // Desktop Toast Notifications Toggle Button
                     let toast_on = app.settings.show_notifications;
-                    let toast_label = if toast_on { "🖥️ Desktop Toast: ON" } else { "🖥️ Desktop Toast: OFF" };
-                    let toast_btn = egui::Button::new(
-                        egui::RichText::new(toast_label).size(11.5).strong().color(
-                            if toast_on {
-                                ThemePalette::STATUS_HEALTHY
-                            } else {
-                                ThemePalette::text_dimmed(is_dark)
-                            },
-                        ),
-                    )
-                    .fill(if toast_on {
-                        ThemePalette::STATUS_HEALTHY.gamma_multiply(if is_dark { 0.15 } else { 0.10 })
-                    } else {
-                        ThemePalette::bg_track(is_dark)
-                    })
-                    .stroke(egui::Stroke::new(
-                        1.0,
-                        if toast_on {
-                            ThemePalette::STATUS_HEALTHY.gamma_multiply(0.4)
-                        } else {
-                            ThemePalette::border(is_dark)
-                        },
-                    ))
-                    .corner_radius(egui::CornerRadius::same(4));
-
-                    if ui.add(toast_btn).on_hover_text("Toggle Windows desktop notification popups on/off").clicked() {
+                    let toast_label = if toast_on { "🔔 Toast: ON" } else { "🔕 Toast: OFF" };
+                    if toggle_button(ui, toast_label, toast_on, "Toggle Windows desktop notification popups on/off", is_dark).clicked() {
                         app.settings.show_notifications = !app.settings.show_notifications;
                         let _ = app.settings.save();
                     }
 
-                    // Clear All Alerts (when alerts exist)
-                    if !data.alerts.is_empty() {
-                        let clear_btn = egui::Button::new(
-                            egui::RichText::new("Clear All Alerts")
-                                .strong()
-                                .size(11.5)
-                                .color(ThemePalette::STATUS_CRITICAL),
-                        )
-                        .fill(ThemePalette::STATUS_CRITICAL.gamma_multiply(if is_dark { 0.15 } else { 0.10 }))
-                        .stroke(egui::Stroke::new(1.0, ThemePalette::STATUS_CRITICAL.gamma_multiply(0.45)))
-                        .corner_radius(egui::CornerRadius::same(4));
-
-                        if ui.add(clear_btn).on_hover_text("Dismiss all active system alerts").clicked() {
-                            clear_all_alerts = true;
-                        }
+                    let sound_on = app.settings.enable_alert_sound && app.settings.enable_sounds;
+                    let sound_label = if sound_on { "🔊 Sound: ON" } else { "🔇 Sound: OFF" };
+                    if toggle_button(ui, sound_label, sound_on, "Toggle alert notification audio chime on/off", is_dark).clicked() {
+                        app.settings.enable_alert_sound = !app.settings.enable_alert_sound;
+                        let _ = app.settings.save();
                     }
+
+                    // Action controls right-aligned
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if secondary_button(ui, "⚙ Thresholds", "Configure alert trigger thresholds in Settings (Ctrl+,)", is_dark).clicked() {
+                            app.show_settings = true;
+                        }
+
+                        if accent_button(ui, "🧪 Test Alert", "Simulate a test hardware alert to verify audio chimes & visual indicators", is_dark).clicked() {
+                            trigger_test_alert = true;
+                        }
+
+                        if !data.alerts.is_empty() {
+                            let clear_btn = egui::Button::new(
+                                egui::RichText::new("Clear All Alerts")
+                                    .strong()
+                                    .size(11.5)
+                                    .color(ThemePalette::STATUS_CRITICAL),
+                            )
+                            .fill(ThemePalette::STATUS_CRITICAL.gamma_multiply(if is_dark { 0.15 } else { 0.10 }))
+                            .stroke(egui::Stroke::new(1.0, ThemePalette::STATUS_CRITICAL.gamma_multiply(0.45)))
+                            .corner_radius(egui::CornerRadius::same(4));
+
+                            if ui.add(clear_btn).on_hover_text("Dismiss all active system alerts").clicked() {
+                                clear_all_alerts = true;
+                            }
+                        }
+                    });
                 });
-            });
+            }
         });
 
         ui.add_space(10.0);
@@ -240,6 +208,157 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
     }
 }
 
+// ── Top Hub Helper Functions ───────────────────────────────────────────────
+
+fn paint_status_headline(ui: &mut egui::Ui, data: &SystemData, is_dark: bool) {
+    if data.alerts.is_empty() {
+        status_pill(ui, "ALL SYSTEMS NOMINAL", ThemePalette::STATUS_HEALTHY, is_dark);
+        ui.add_space(6.0);
+        ui.label(
+            egui::RichText::new("Zero active threshold violations · Telemetry operating within safety boundaries.")
+                .size(12.5)
+                .color(ThemePalette::text_primary(is_dark)),
+        );
+    } else {
+        let count = data.alerts.len();
+        status_pill(
+            ui,
+            &format!("⚠️ {} ACTIVE INCIDENT{}", count, if count > 1 { "S" } else { "" }),
+            ThemePalette::STATUS_WARNING,
+            is_dark,
+        );
+        ui.add_space(6.0);
+        ui.label(
+            egui::RichText::new("Metric threshold violations detected · Immediate review and mitigation recommended.")
+                .size(12.5)
+                .strong()
+                .color(ThemePalette::text_primary(is_dark)),
+        );
+    }
+}
+
+fn paint_control_hub_actions(
+    app: &mut crate::SystemMonitorApp,
+    ui: &mut egui::Ui,
+    data: &SystemData,
+    is_dark: bool,
+    trigger_test_alert: &mut bool,
+    clear_all_alerts: &mut bool,
+) {
+    // Rendered right-to-left
+    if secondary_button(ui, "⚙ Thresholds", "Configure alert trigger thresholds in Settings (Ctrl+,)", is_dark).clicked() {
+        app.show_settings = true;
+    }
+
+    if accent_button(ui, "🧪 Test Alert", "Simulate a test hardware alert to verify audio chimes & visual indicators", is_dark).clicked() {
+        *trigger_test_alert = true;
+    }
+
+    let sound_on = app.settings.enable_alert_sound && app.settings.enable_sounds;
+    let sound_label = if sound_on { "🔊 Sound: ON" } else { "🔇 Sound: OFF" };
+    if toggle_button(ui, sound_label, sound_on, "Toggle alert notification audio chime on/off", is_dark).clicked() {
+        app.settings.enable_alert_sound = !app.settings.enable_alert_sound;
+        let _ = app.settings.save();
+    }
+
+    let toast_on = app.settings.show_notifications;
+    let toast_label = if toast_on { "🔔 Toast: ON" } else { "🔕 Toast: OFF" };
+    if toggle_button(ui, toast_label, toast_on, "Toggle Windows desktop notification popups on/off", is_dark).clicked() {
+        app.settings.show_notifications = !app.settings.show_notifications;
+        let _ = app.settings.save();
+    }
+
+    if !data.alerts.is_empty() {
+        let clear_btn = egui::Button::new(
+            egui::RichText::new("Clear All Alerts")
+                .strong()
+                .size(11.5)
+                .color(ThemePalette::STATUS_CRITICAL),
+        )
+        .fill(ThemePalette::STATUS_CRITICAL.gamma_multiply(if is_dark { 0.15 } else { 0.10 }))
+        .stroke(egui::Stroke::new(1.0, ThemePalette::STATUS_CRITICAL.gamma_multiply(0.45)))
+        .corner_radius(egui::CornerRadius::same(4));
+
+        if ui.add(clear_btn).on_hover_text("Dismiss all active system alerts").clicked() {
+            *clear_all_alerts = true;
+        }
+    }
+}
+
+fn toggle_button(
+    ui: &mut egui::Ui,
+    label: &str,
+    is_on: bool,
+    tooltip: &str,
+    is_dark: bool,
+) -> egui::Response {
+    let text_color = if is_on {
+        ThemePalette::STATUS_HEALTHY
+    } else {
+        ThemePalette::text_secondary(is_dark)
+    };
+    let fill = if is_on {
+        ThemePalette::STATUS_HEALTHY.gamma_multiply(if is_dark { 0.14 } else { 0.10 })
+    } else {
+        ThemePalette::bg_track(is_dark)
+    };
+    let stroke_color = if is_on {
+        ThemePalette::STATUS_HEALTHY.gamma_multiply(0.40)
+    } else {
+        ThemePalette::border(is_dark)
+    };
+
+    let btn = egui::Button::new(
+        egui::RichText::new(label)
+            .size(11.5)
+            .strong()
+            .color(text_color),
+    )
+    .fill(fill)
+    .stroke(egui::Stroke::new(1.0, stroke_color))
+    .corner_radius(egui::CornerRadius::same(4));
+
+    ui.add(btn).on_hover_text(tooltip)
+}
+
+fn secondary_button(
+    ui: &mut egui::Ui,
+    label: &str,
+    tooltip: &str,
+    is_dark: bool,
+) -> egui::Response {
+    let btn = egui::Button::new(
+        egui::RichText::new(label)
+            .size(11.5)
+            .strong()
+            .color(ThemePalette::text_primary(is_dark)),
+    )
+    .fill(ThemePalette::bg_track(is_dark))
+    .stroke(egui::Stroke::new(1.0, ThemePalette::border(is_dark)))
+    .corner_radius(egui::CornerRadius::same(4));
+
+    ui.add(btn).on_hover_text(tooltip)
+}
+
+fn accent_button(
+    ui: &mut egui::Ui,
+    label: &str,
+    tooltip: &str,
+    is_dark: bool,
+) -> egui::Response {
+    let btn = egui::Button::new(
+        egui::RichText::new(label)
+            .size(11.5)
+            .strong()
+            .color(ThemePalette::ACCENT_PRIMARY),
+    )
+    .fill(ThemePalette::ACCENT_PRIMARY.gamma_multiply(if is_dark { 0.15 } else { 0.10 }))
+    .stroke(egui::Stroke::new(1.0, ThemePalette::ACCENT_PRIMARY.gamma_multiply(0.45)))
+    .corner_radius(egui::CornerRadius::same(4));
+
+    ui.add(btn).on_hover_text(tooltip)
+}
+
 /// Renders the Live Metric Proximity & Headroom Matrix card.
 fn paint_proximity_matrix(app: &crate::SystemMonitorApp, ui: &mut egui::Ui, data: &SystemData, is_dark: bool) {
     card_frame(is_dark).show(ui, |ui| {
@@ -261,7 +380,7 @@ fn paint_proximity_matrix(app: &crate::SystemMonitorApp, ui: &mut egui::Ui, data
                 .size(12.0)
                 .color(ThemePalette::text_secondary(is_dark)),
         );
-        ui.add_space(10.0);
+        ui.add_space(8.0);
 
         // 1. CPU Saturation Metric
         let cpu_curr = data.cpu_usage;
@@ -279,8 +398,10 @@ fn paint_proximity_matrix(app: &crate::SystemMonitorApp, ui: &mut egui::Ui, data
             ui,
             ProximityRow {
                 title: "CPU Saturation Limit",
+                current_label: "Current Load:",
                 current_value: format!("{:.1}%", cpu_curr),
                 threshold_value: format!("> {:.0}%", cpu_thresh),
+                threshold_fraction: cpu_thresh / 100.0,
                 headroom: format!("+{:.1}% Headroom", cpu_headroom),
                 fraction: cpu_curr / 100.0,
                 color: cpu_color,
@@ -288,9 +409,9 @@ fn paint_proximity_matrix(app: &crate::SystemMonitorApp, ui: &mut egui::Ui, data
             is_dark,
         );
 
-        ui.add_space(8.0);
+        ui.add_space(4.0);
         ui.separator();
-        ui.add_space(8.0);
+        ui.add_space(4.0);
 
         // 2. Memory Exhaustion Metric
         let mem_curr = data.memory_percentage;
@@ -308,8 +429,10 @@ fn paint_proximity_matrix(app: &crate::SystemMonitorApp, ui: &mut egui::Ui, data
             ui,
             ProximityRow {
                 title: "Memory Exhaustion Limit",
+                current_label: "Current Usage:",
                 current_value: format!("{:.1}%", mem_curr),
                 threshold_value: format!("> {:.0}%", mem_thresh),
+                threshold_fraction: mem_thresh / 100.0,
                 headroom: format!("+{:.1}% Headroom", mem_headroom),
                 fraction: mem_curr / 100.0,
                 color: mem_color,
@@ -317,9 +440,9 @@ fn paint_proximity_matrix(app: &crate::SystemMonitorApp, ui: &mut egui::Ui, data
             is_dark,
         );
 
-        ui.add_space(8.0);
+        ui.add_space(4.0);
         ui.separator();
-        ui.add_space(8.0);
+        ui.add_space(4.0);
 
         // 3. GPU Thermal Boundary
         let gpu_temp_opt = data.gpu_info.first().and_then(|g| g.temperature);
@@ -353,8 +476,10 @@ fn paint_proximity_matrix(app: &crate::SystemMonitorApp, ui: &mut egui::Ui, data
             ui,
             ProximityRow {
                 title: "GPU Thermal Boundary",
+                current_label: "Current Temp:",
                 current_value: gpu_val_str,
                 threshold_value: format!("> {:.0} °C", gpu_thresh),
+                threshold_fraction: (gpu_thresh / 100.0).clamp(0.0, 1.0),
                 headroom: gpu_headroom_str,
                 fraction: gpu_frac,
                 color: gpu_color,
@@ -362,9 +487,9 @@ fn paint_proximity_matrix(app: &crate::SystemMonitorApp, ui: &mut egui::Ui, data
             is_dark,
         );
 
-        ui.add_space(8.0);
+        ui.add_space(4.0);
         ui.separator();
-        ui.add_space(8.0);
+        ui.add_space(4.0);
 
         // 4. Disk Space Warning Metric (Highest capacity disk)
         let max_disk_usage = data
@@ -386,9 +511,11 @@ fn paint_proximity_matrix(app: &crate::SystemMonitorApp, ui: &mut egui::Ui, data
             ui,
             ProximityRow {
                 title: "Disk Capacity Warning",
+                current_label: "Used Space:",
                 current_value: format!("{:.1}%", max_disk_usage),
                 threshold_value: format!("> {:.0}%", disk_thresh),
-                headroom: format!("+{:.1}% Free Space Margin", disk_headroom),
+                threshold_fraction: disk_thresh / 100.0,
+                headroom: format!("+{:.1}% Threshold Headroom", disk_headroom),
                 fraction: max_disk_usage / 100.0,
                 color: disk_color,
             },
@@ -400,8 +527,10 @@ fn paint_proximity_matrix(app: &crate::SystemMonitorApp, ui: &mut egui::Ui, data
 /// Helper to render an individual metric threshold proximity row with progress bar and headroom badge.
 struct ProximityRow {
     title: &'static str,
+    current_label: &'static str,
     current_value: String,
     threshold_value: String,
+    threshold_fraction: f32,
     headroom: String,
     fraction: f32,
     color: egui::Color32,
@@ -426,13 +555,13 @@ fn paint_proximity_row(ui: &mut egui::Ui, row: ProximityRow, is_dark: bool) {
         });
     });
 
-    ui.add_space(3.0);
-    paint_progress_bar(ui, row.fraction, row.color, 6.0, is_dark);
-    ui.add_space(3.0);
+    ui.add_space(2.5);
+    paint_proximity_bar(ui, row.fraction, row.threshold_fraction, row.color, 6.0, is_dark);
+    ui.add_space(2.5);
 
     ui.horizontal(|ui| {
         ui.label(
-            egui::RichText::new(format!("Current Load: {}", row.current_value))
+            egui::RichText::new(format!("{} {}", row.current_label, row.current_value))
                 .monospace()
                 .size(11.0)
                 .color(ThemePalette::text_primary(is_dark)),
@@ -446,6 +575,51 @@ fn paint_proximity_row(ui: &mut egui::Ui, row: ProximityRow, is_dark: bool) {
             );
         });
     });
+}
+
+fn paint_proximity_bar(
+    ui: &mut egui::Ui,
+    fraction: f32,
+    threshold_fraction: f32,
+    fill: egui::Color32,
+    h: f32,
+    is_dark: bool,
+) {
+    let w = ui.available_width();
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(w, h), egui::Sense::hover());
+    let rnd = (h / 2.0).min(3.0);
+
+    // Track background
+    ui.painter().rect_filled(rect, rnd, ThemePalette::bg_deepest(is_dark));
+    ui.painter().rect_stroke(
+        rect,
+        rnd,
+        egui::Stroke::new(1.0, ThemePalette::bg_track(is_dark)),
+        egui::StrokeKind::Middle,
+    );
+
+    // Fill bar
+    let frac = fraction.clamp(0.0, 1.0);
+    if frac > 0.005 {
+        let bar = egui::Rect::from_min_size(rect.min, egui::vec2(w * frac, h));
+        ui.painter().rect_filled(bar, rnd, fill);
+    }
+
+    // Subtle threshold reference tick
+    let thresh_frac = threshold_fraction.clamp(0.05, 0.98);
+    let thresh_x = rect.min.x + w * thresh_frac;
+    let thresh_color = if is_dark {
+        egui::Color32::from_rgba_unmultiplied(245, 158, 11, 150)
+    } else {
+        egui::Color32::from_rgba_unmultiplied(217, 119, 6, 170)
+    };
+    ui.painter().line_segment(
+        [
+            egui::pos2(thresh_x, rect.min.y - 1.5),
+            egui::pos2(thresh_x, rect.max.y + 1.5),
+        ],
+        egui::Stroke::new(1.5, thresh_color),
+    );
 }
 
 /// Renders the Nominal System Health & Reliability Board when zero active alerts are present.
@@ -463,115 +637,126 @@ fn paint_nominal_health_board(ui: &mut egui::Ui, data: &SystemData, is_dark: boo
             });
         });
 
-        ui.add_space(6.0);
+        ui.add_space(4.0);
         ui.label(
-            egui::RichText::new("Automated diagnostic telemetry engines are actively policing hardware parameters:")
+            egui::RichText::new("Automated diagnostic telemetry engines actively policing hardware parameters:")
                 .size(12.0)
                 .color(ThemePalette::text_secondary(is_dark)),
         );
-        ui.add_space(10.0);
+        ui.add_space(8.0);
 
-        // Guard Status Items
+        // Guard Status Items with live operational badges
         let guards = [
             (
-                "✓ CPU Thermal & Saturation Guard",
-                "Continuous sampling of global usage & per-core throttling thresholds.",
+                "CPU Thermal & Saturation Guard",
+                "Continuous global & per-core throttling watchdog",
+                "PASS",
+                ThemePalette::STATUS_HEALTHY,
             ),
             (
-                "✓ Memory Working Set Watchdog",
-                "Proactively tracks RAM exhaustion with automated one-click working set cleanup.",
+                "Memory Working Set Watchdog",
+                "RAM exhaustion detection & auto-cleanup readiness",
+                "PASS",
+                ThemePalette::STATUS_HEALTHY,
             ),
             (
-                "✓ Storage Volume Exhaustion Sentinel",
-                "Monitors NTFS & ReFS partition limits to avoid critical disk-write lockouts.",
+                "Storage Volume Exhaustion Sentinel",
+                "NTFS & ReFS partition capacity limit watchdog",
+                "PASS",
+                ThemePalette::STATUS_HEALTHY,
             ),
             (
-                "✓ Windows Startup Degradation Scanner",
-                "Evaluates Boot Diagnostics event logs for rogue startup performance impacts.",
+                "Windows Startup Degradation Scanner",
+                "Boot Diagnostics telemetry monitor for rogue startup impact",
+                "PASS",
+                ThemePalette::STATUS_HEALTHY,
             ),
         ];
 
-        for (name, desc) in guards {
+        for (name, desc, status_text, status_color) in guards {
             ui.horizontal(|ui| {
                 ui.label(
-                    egui::RichText::new(name)
+                    egui::RichText::new(format!("✓ {}", name))
                         .strong()
-                        .size(12.0)
+                        .size(11.5)
                         .color(ThemePalette::STATUS_HEALTHY),
                 );
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    status_pill(ui, status_text, status_color, is_dark);
+                });
             });
             ui.label(
                 egui::RichText::new(desc)
-                    .size(11.0)
+                    .size(10.5)
                     .color(ThemePalette::text_secondary(is_dark)),
             );
-            ui.add_space(6.0);
+            ui.add_space(4.0);
         }
 
         ui.separator();
-        ui.add_space(6.0);
+        ui.add_space(4.0);
 
-        // Live Health Telemetry Summary Grid
+        // Live Health Telemetry Summary Grid (Compact 4-metric 2-row grid)
         ui.label(
             egui::RichText::new("LIVE DIAGNOSTIC TELEMETRY SCOPE")
                 .size(11.0)
                 .strong()
                 .color(ThemePalette::text_secondary(is_dark)),
         );
-        ui.add_space(6.0);
+        ui.add_space(4.0);
 
         egui::Grid::new("health_board_summary_grid")
-            .num_columns(2)
-            .spacing([24.0, 6.0])
+            .num_columns(4)
+            .spacing([12.0, 4.0])
             .show(ui, |ui| {
                 ui.label(
-                    egui::RichText::new("System Uptime:")
-                        .size(11.5)
+                    egui::RichText::new("Uptime:")
+                        .size(11.0)
                         .color(ThemePalette::text_secondary(is_dark)),
                 );
                 ui.label(
                     egui::RichText::new(format_uptime(data.system_info.uptime))
                         .monospace()
                         .strong()
+                        .size(11.0)
+                        .color(ThemePalette::text_primary(is_dark)),
+                );
+                ui.label(
+                    egui::RichText::new("Processes:")
+                        .size(11.0)
+                        .color(ThemePalette::text_secondary(is_dark)),
+                );
+                ui.label(
+                    egui::RichText::new(format!("{} active", data.top_processes.len()))
+                        .monospace()
+                        .strong()
+                        .size(11.0)
                         .color(ThemePalette::text_primary(is_dark)),
                 );
                 ui.end_row();
 
                 ui.label(
-                    egui::RichText::new("Monitored Processes:")
-                        .size(11.5)
+                    egui::RichText::new("Network:")
+                        .size(11.0)
                         .color(ThemePalette::text_secondary(is_dark)),
                 );
                 ui.label(
-                    egui::RichText::new(format!("{} active processes", data.top_processes.len()))
+                    egui::RichText::new(format!("{} polled", data.network_info.len()))
                         .monospace()
                         .strong()
+                        .size(11.0)
                         .color(ThemePalette::text_primary(is_dark)),
                 );
-                ui.end_row();
-
                 ui.label(
-                    egui::RichText::new("Network Interfaces:")
-                        .size(11.5)
+                    egui::RichText::new("Volumes:")
+                        .size(11.0)
                         .color(ThemePalette::text_secondary(is_dark)),
                 );
                 ui.label(
-                    egui::RichText::new(format!("{} adapters polled", data.network_info.len()))
+                    egui::RichText::new(format!("{} mounted", data.disk_info.len()))
                         .monospace()
                         .strong()
-                        .color(ThemePalette::text_primary(is_dark)),
-                );
-                ui.end_row();
-
-                ui.label(
-                    egui::RichText::new("Storage Volumes:")
-                        .size(11.5)
-                        .color(ThemePalette::text_secondary(is_dark)),
-                );
-                ui.label(
-                    egui::RichText::new(format!("{} physical/logical volumes", data.disk_info.len()))
-                        .monospace()
-                        .strong()
+                        .size(11.0)
                         .color(ThemePalette::text_primary(is_dark)),
                 );
                 ui.end_row();
@@ -615,14 +800,16 @@ fn paint_active_incidents_feed(
                 AlertType::StartupHighImpact => ("STARTUP", ThemePalette::ACCENT_PRIMARY, "INFO"),
             };
 
+            // Header row: Status badges and Peak value on left, Dismiss button on right
             ui.horizontal(|ui| {
                 status_pill(ui, severity_label, color, is_dark);
                 status_pill(ui, cat_label, ThemePalette::text_secondary(is_dark), is_dark);
                 ui.label(
-                    egui::RichText::new(&alert.message)
+                    egui::RichText::new(format!("Peak: {:.1}", alert.value))
+                        .monospace()
                         .strong()
-                        .size(12.5)
-                        .color(ThemePalette::text_primary(is_dark)),
+                        .size(11.5)
+                        .color(color),
                 );
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -633,20 +820,22 @@ fn paint_active_incidents_feed(
                     {
                         *remove_alert_idx = Some(i);
                     }
-
-                    ui.label(
-                        egui::RichText::new(format!("Peak: {:.1}", alert.value))
-                            .monospace()
-                            .strong()
-                            .size(11.5)
-                            .color(color),
-                    );
                 });
             });
 
-            ui.add_space(6.0);
+            ui.add_space(4.0);
 
-            // Sub-row: Timestamp & Contextual Remediation Actions
+            // Body: Full-width wrapping incident message (immune to button collision)
+            ui.label(
+                egui::RichText::new(&alert.message)
+                    .strong()
+                    .size(12.0)
+                    .color(ThemePalette::text_primary(is_dark)),
+            );
+
+            ui.add_space(4.0);
+
+            // Sub-row: Timestamp on left & Contextual Remediation Actions on right
             ui.horizontal(|ui| {
                 ui.label(
                     egui::RichText::new(format!("Triggered: {}", alert.timestamp))
@@ -733,7 +922,7 @@ fn paint_active_incidents_feed(
         });
 
         if i < data.alerts.len() - 1 {
-            ui.add_space(6.0);
+            ui.add_space(4.0);
         }
     }
 }
@@ -810,6 +999,46 @@ mod tests {
 
         let ctx = egui::Context::default();
         ctx.run_ui(Default::default(), |ui| {
+            egui::CentralPanel::default().show(ui, |ui| {
+                show(&mut app, ui, &data);
+            });
+        })
+        .textures_delta
+        .clear();
+    }
+
+    #[test]
+    fn test_alerts_page_render_compact_viewport() {
+        let mut app = SystemMonitorApp::test_app();
+        let data = SystemData::default();
+
+        let ctx = egui::Context::default();
+        // Simulate the 860px width from the screenshot
+        let raw_input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(860.0, 700.0))),
+            ..Default::default()
+        };
+        ctx.run_ui(raw_input, |ui| {
+            egui::CentralPanel::default().show(ui, |ui| {
+                show(&mut app, ui, &data);
+            });
+        })
+        .textures_delta
+        .clear();
+    }
+
+    #[test]
+    fn test_alerts_page_render_wide_viewport() {
+        let mut app = SystemMonitorApp::test_app();
+        let data = SystemData::default();
+
+        let ctx = egui::Context::default();
+        // Simulate 1200px wide viewport
+        let raw_input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1200.0, 900.0))),
+            ..Default::default()
+        };
+        ctx.run_ui(raw_input, |ui| {
             egui::CentralPanel::default().show(ui, |ui| {
                 show(&mut app, ui, &data);
             });
