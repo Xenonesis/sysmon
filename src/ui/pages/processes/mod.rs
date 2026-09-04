@@ -1,3 +1,4 @@
+mod row_actions;
 mod table;
 mod toolbar;
 
