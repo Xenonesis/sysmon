@@ -1,0 +1,715 @@
+use crate::monitoring::SystemSnapshot;
+use parking_lot::Mutex;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{self, Sender, SyncSender};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+mod export;
+mod query;
+mod records;
+mod worker;
+
+pub(crate) use export::export_window;
+pub(crate) use query::analyze_window;
+use worker::{run_worker, timeline_db_path};
+
+const SCHEMA_VERSION: i64 = 1;
+const SAMPLE_INTERVAL: Duration = Duration::from_secs(5);
+const MAX_DATABASE_BYTES: u64 = 512 * 1024 * 1024;
+const DAY_MS: i64 = 86_400_000;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) enum TimelineRange {
+    FifteenMinutes,
+    OneHour,
+    SixHours,
+    OneDay,
+    SevenDays,
+}
+
+impl TimelineRange {
+    pub(crate) const ALL: [Self; 5] = [
+        Self::FifteenMinutes,
+        Self::OneHour,
+        Self::SixHours,
+        Self::OneDay,
+        Self::SevenDays,
+    ];
+
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Self::FifteenMinutes => "15m",
+            Self::OneHour => "1h",
+            Self::SixHours => "6h",
+            Self::OneDay => "24h",
+            Self::SevenDays => "7d",
+        }
+    }
+
+    fn duration_ms(self) -> i64 {
+        match self {
+            Self::FifteenMinutes => 15 * 60_000,
+            Self::OneHour => 60 * 60_000,
+            Self::SixHours => 6 * 60 * 60_000,
+            Self::OneDay => DAY_MS,
+            Self::SevenDays => 7 * DAY_MS,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct TimelineQuery {
+    pub(crate) start_ms: i64,
+    pub(crate) end_ms: i64,
+}
+
+impl TimelineQuery {
+    pub(crate) fn latest(range: TimelineRange) -> Self {
+        let end_ms = now_ms();
+        Self {
+            start_ms: end_ms.saturating_sub(range.duration_ms()),
+            end_ms,
+        }
+    }
+
+    fn validated(self) -> Self {
+        if self.start_ms <= self.end_ms {
+            self
+        } else {
+            Self {
+                start_ms: self.end_ms,
+                end_ms: self.start_ms,
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) enum TimelineEventKind {
+    AlertTriggered,
+    AlertResolved,
+    ActionSucceeded,
+    ActionFailed,
+    ProviderUnavailable,
+    ProviderRecovered,
+    MonitoringPaused,
+    MonitoringResumed,
+    PowerChanged,
+    ServiceChanged,
+    StartupChanged,
+    System,
+}
+
+impl TimelineEventKind {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::AlertTriggered => "alert_triggered",
+            Self::AlertResolved => "alert_resolved",
+            Self::ActionSucceeded => "action_succeeded",
+            Self::ActionFailed => "action_failed",
+            Self::ProviderUnavailable => "provider_unavailable",
+            Self::ProviderRecovered => "provider_recovered",
+            Self::MonitoringPaused => "monitoring_paused",
+            Self::MonitoringResumed => "monitoring_resumed",
+            Self::PowerChanged => "power_changed",
+            Self::ServiceChanged => "service_changed",
+            Self::StartupChanged => "startup_changed",
+            Self::System => "system",
+        }
+    }
+
+    fn from_str(value: &str) -> Self {
+        match value {
+            "alert_triggered" => Self::AlertTriggered,
+            "alert_resolved" => Self::AlertResolved,
+            "action_succeeded" => Self::ActionSucceeded,
+            "action_failed" => Self::ActionFailed,
+            "provider_unavailable" => Self::ProviderUnavailable,
+            "provider_recovered" => Self::ProviderRecovered,
+            "monitoring_paused" => Self::MonitoringPaused,
+            "monitoring_resumed" => Self::MonitoringResumed,
+            "power_changed" => Self::PowerChanged,
+            "service_changed" => Self::ServiceChanged,
+            "startup_changed" => Self::StartupChanged,
+            _ => Self::System,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct TimelineEvent {
+    pub(crate) id: Option<i64>,
+    pub(crate) timestamp_ms: i64,
+    pub(crate) kind: TimelineEventKind,
+    pub(crate) source: String,
+    pub(crate) severity: String,
+    pub(crate) summary: String,
+    pub(crate) evidence: String,
+}
+
+impl TimelineEvent {
+    pub(crate) fn new(
+        kind: TimelineEventKind,
+        source: impl Into<String>,
+        severity: impl Into<String>,
+        summary: impl Into<String>,
+        evidence: impl Into<String>,
+    ) -> Self {
+        Self {
+            id: None,
+            timestamp_ms: now_ms(),
+            kind,
+            source: sanitize_text(source.into(), 128),
+            severity: sanitize_text(severity.into(), 32),
+            summary: sanitize_text(summary.into(), 512),
+            evidence: sanitize_text(evidence.into(), 2_048),
+        }
+    }
+
+    pub(crate) fn from_audit(record: &crate::app::actions::ActionAuditRecord) -> Self {
+        let timestamp_ms = chrono::DateTime::parse_from_rfc3339(&record.timestamp)
+            .map(|timestamp| timestamp.timestamp_millis())
+            .unwrap_or_else(|_| now_ms());
+        Self {
+            id: None,
+            timestamp_ms,
+            kind: if record.succeeded {
+                TimelineEventKind::ActionSucceeded
+            } else {
+                TimelineEventKind::ActionFailed
+            },
+            source: "guarded_action".into(),
+            severity: record.risk.label().to_ascii_lowercase(),
+            summary: sanitize_text(record.action.clone(), 512),
+            evidence: sanitize_text(record.message.clone(), 2_048),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub(crate) struct TimelineMetricSample {
+    pub(crate) timestamp_ms: i64,
+    pub(crate) cpu_pct: f64,
+    pub(crate) memory_pct: f64,
+    pub(crate) gpu_pct: Option<f64>,
+    pub(crate) cpu_temp_c: Option<f64>,
+    pub(crate) gpu_temp_c: Option<f64>,
+    pub(crate) disk_read_bps: f64,
+    pub(crate) disk_write_bps: f64,
+    pub(crate) network_down_bps: f64,
+    pub(crate) network_up_bps: f64,
+    pub(crate) paused: bool,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub(crate) struct TimelineProcessSample {
+    pub(crate) timestamp_ms: i64,
+    pub(crate) pid: u32,
+    pub(crate) start_time: u64,
+    pub(crate) name: String,
+    pub(crate) cpu_pct: f64,
+    pub(crate) memory_bytes: u64,
+    pub(crate) disk_read_bytes: u64,
+    pub(crate) disk_write_bytes: u64,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub(crate) struct IncidentContributor {
+    pub(crate) name: String,
+    pub(crate) pid: u32,
+    pub(crate) start_time: u64,
+    pub(crate) cpu_pct: f64,
+    pub(crate) memory_bytes: u64,
+    pub(crate) disk_bytes: u64,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub(crate) struct IncidentAnalysis {
+    pub(crate) timestamp_ms: i64,
+    pub(crate) title: String,
+    pub(crate) summary: String,
+    pub(crate) confidence: String,
+    pub(crate) evidence: Vec<String>,
+    pub(crate) contributors: Vec<IncidentContributor>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub(crate) struct TimelineWindow {
+    pub(crate) query: TimelineQuery,
+    pub(crate) metrics: Vec<TimelineMetricSample>,
+    pub(crate) processes: Vec<TimelineProcessSample>,
+    pub(crate) events: Vec<TimelineEvent>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct TimelineStatus {
+    pub(crate) enabled: bool,
+    pub(crate) retention_days: u16,
+    pub(crate) storage_bytes: u64,
+    pub(crate) last_write_ms: Option<i64>,
+    pub(crate) last_error: Option<String>,
+}
+
+pub(crate) struct TimelineUiState {
+    pub(crate) range: TimelineRange,
+    pub(crate) window: Option<TimelineWindow>,
+    pub(crate) selected_timestamp_ms: Option<i64>,
+    pub(crate) last_refresh: Option<Instant>,
+    pub(crate) clear_confirmation: bool,
+    pub(crate) message: Option<String>,
+    pub(crate) active_alert_keys: std::collections::HashSet<String>,
+    pub(crate) service_states: Option<HashMap<String, String>>,
+    pub(crate) startup_states: Option<HashMap<String, bool>>,
+}
+
+impl Default for TimelineUiState {
+    fn default() -> Self {
+        Self {
+            range: TimelineRange::OneHour,
+            window: None,
+            selected_timestamp_ms: None,
+            last_refresh: None,
+            clear_confirmation: false,
+            message: None,
+            active_alert_keys: std::collections::HashSet::new(),
+            service_states: None,
+            startup_states: None,
+        }
+    }
+}
+
+pub(crate) enum TimelineCommand {
+    RecordSnapshot(Box<SystemSnapshot>),
+    RecordEvent(TimelineEvent),
+    SetPolicy {
+        enabled: bool,
+        retention_days: u16,
+    },
+    Query {
+        query: TimelineQuery,
+        reply: SyncSender<Result<TimelineWindow, String>>,
+    },
+    Export {
+        query: TimelineQuery,
+        destination: PathBuf,
+        reply: SyncSender<Result<PathBuf, String>>,
+    },
+    Clear,
+    Shutdown,
+}
+
+#[derive(Clone)]
+pub(crate) struct TimelineHandle {
+    sender: Sender<TimelineCommand>,
+    status: Arc<Mutex<TimelineStatus>>,
+    query_result: Arc<Mutex<Option<Result<TimelineWindow, String>>>>,
+    query_in_flight: Arc<AtomicBool>,
+    export_result: Arc<Mutex<Option<Result<PathBuf, String>>>>,
+    export_in_flight: Arc<AtomicBool>,
+    last_snapshot_queued: Arc<Mutex<Option<Instant>>>,
+}
+
+impl TimelineHandle {
+    pub(crate) fn start(enabled: bool, retention_days: u16) -> Self {
+        Self::start_at(timeline_db_path(), enabled, retention_days)
+    }
+
+    fn start_at(path: Option<PathBuf>, enabled: bool, retention_days: u16) -> Self {
+        let retention_days = validate_retention(retention_days);
+        let (sender, receiver) = mpsc::channel();
+        let status = Arc::new(Mutex::new(TimelineStatus {
+            enabled,
+            retention_days,
+            storage_bytes: path.as_deref().map(storage_bytes).unwrap_or(0),
+            last_write_ms: None,
+            last_error: path
+                .is_none()
+                .then(|| "Local application-data directory is unavailable".into()),
+        }));
+        let worker_status = status.clone();
+        std::thread::Builder::new()
+            .name("timeline_storage".into())
+            .spawn(move || run_worker(path, enabled, retention_days, receiver, worker_status))
+            .expect("failed to spawn timeline storage worker");
+
+        Self {
+            sender,
+            status,
+            query_result: Arc::new(Mutex::new(None)),
+            query_in_flight: Arc::new(AtomicBool::new(false)),
+            export_result: Arc::new(Mutex::new(None)),
+            export_in_flight: Arc::new(AtomicBool::new(false)),
+            last_snapshot_queued: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    pub(crate) fn status(&self) -> TimelineStatus {
+        self.status.lock().clone()
+    }
+
+    pub(crate) fn record_snapshot(&self, snapshot: SystemSnapshot) {
+        if !self.status.lock().enabled {
+            return;
+        }
+        let now = Instant::now();
+        let mut last = self.last_snapshot_queued.lock();
+        if last.is_some_and(|previous| now.saturating_duration_since(previous) < SAMPLE_INTERVAL) {
+            return;
+        }
+        *last = Some(now);
+        let _ = self.sender.send(TimelineCommand::RecordSnapshot(Box::new(snapshot)));
+    }
+
+    pub(crate) fn record_event(&self, event: TimelineEvent) {
+        if self.status.lock().enabled {
+            let _ = self.sender.send(TimelineCommand::RecordEvent(event));
+        }
+    }
+
+    pub(crate) fn set_policy(&self, enabled: bool, retention_days: u16) {
+        let retention_days = validate_retention(retention_days);
+        {
+            let mut status = self.status.lock();
+            status.enabled = enabled;
+            status.retention_days = retention_days;
+        }
+        if !enabled {
+            *self.last_snapshot_queued.lock() = None;
+        }
+        let _ = self.sender.send(TimelineCommand::SetPolicy {
+            enabled,
+            retention_days,
+        });
+    }
+
+    pub(crate) fn request_window(&self, query: TimelineQuery) {
+        if self.query_in_flight.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        let sender = self.sender.clone();
+        let result_slot = self.query_result.clone();
+        let in_flight = self.query_in_flight.clone();
+        let spawn = std::thread::Builder::new()
+            .name("timeline_query".into())
+            .spawn(move || {
+                let (reply, receiver) = mpsc::sync_channel(1);
+                let result = sender
+                    .send(TimelineCommand::Query {
+                        query: query.validated(),
+                        reply,
+                    })
+                    .map_err(|_| "Timeline worker is unavailable".to_string())
+                    .and_then(|_| {
+                        receiver
+                            .recv()
+                            .map_err(|_| "Timeline query was interrupted".to_string())
+                    })
+                    .and_then(|result| result);
+                *result_slot.lock() = Some(result);
+                in_flight.store(false, Ordering::Release);
+            });
+        if spawn.is_err() {
+            self.query_in_flight.store(false, Ordering::Release);
+            *self.query_result.lock() = Some(Err("Could not start timeline query".into()));
+        }
+    }
+
+    pub(crate) fn query_in_flight(&self) -> bool {
+        self.query_in_flight.load(Ordering::Acquire)
+    }
+
+    pub(crate) fn take_query_result(&self) -> Option<Result<TimelineWindow, String>> {
+        self.query_result.lock().take()
+    }
+
+    pub(crate) fn request_export(&self, query: TimelineQuery, destination: PathBuf) {
+        if self.export_in_flight.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        let sender = self.sender.clone();
+        let result_slot = self.export_result.clone();
+        let in_flight = self.export_in_flight.clone();
+        let spawn = std::thread::Builder::new()
+            .name("timeline_export".into())
+            .spawn(move || {
+                let (reply, receiver) = mpsc::sync_channel(1);
+                let result = sender
+                    .send(TimelineCommand::Export {
+                        query: query.validated(),
+                        destination,
+                        reply,
+                    })
+                    .map_err(|_| "Timeline worker is unavailable".to_string())
+                    .and_then(|_| {
+                        receiver
+                            .recv()
+                            .map_err(|_| "Timeline export was interrupted".to_string())
+                    })
+                    .and_then(|result| result);
+                *result_slot.lock() = Some(result);
+                in_flight.store(false, Ordering::Release);
+            });
+        if spawn.is_err() {
+            self.export_in_flight.store(false, Ordering::Release);
+            *self.export_result.lock() = Some(Err("Could not start timeline export".into()));
+        }
+    }
+
+    pub(crate) fn export_in_flight(&self) -> bool {
+        self.export_in_flight.load(Ordering::Acquire)
+    }
+
+    pub(crate) fn take_export_result(&self) -> Option<Result<PathBuf, String>> {
+        self.export_result.lock().take()
+    }
+
+    pub(crate) fn clear(&self) {
+        let _ = self.sender.send(TimelineCommand::Clear);
+    }
+
+    pub(crate) fn shutdown(&self) {
+        let _ = self.sender.send(TimelineCommand::Shutdown);
+    }
+}
+
+fn sanitize_text(mut value: String, max_chars: usize) -> String {
+    value.retain(|character| character != '\0' && !character.is_control() || matches!(character, '\n' | '\t'));
+    value.chars().take(max_chars).collect()
+}
+
+pub(super) fn validate_retention(days: u16) -> u16 {
+    match days {
+        1 | 7 | 30 => days,
+        _ => 7,
+    }
+}
+
+pub(super) fn now_ms() -> i64 {
+    system_time_ms(SystemTime::now())
+}
+
+pub(super) fn system_time_ms(time: SystemTime) -> i64 {
+    time.duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
+        .min(i64::MAX as u128) as i64
+}
+
+pub(super) fn storage_bytes(path: &Path) -> u64 {
+    let mut total = path.metadata().map_or(0, |metadata| metadata.len());
+    for suffix in ["-wal", "-shm"] {
+        let sidecar = PathBuf::from(format!("{}{suffix}", path.display()));
+        total = total.saturating_add(sidecar.metadata().map_or(0, |metadata| metadata.len()));
+    }
+    total
+}
+
+pub(super) fn to_sql_i64(value: u64) -> i64 {
+    value.min(i64::MAX as u64) as i64
+}
+
+pub(super) fn from_sql_i64(value: i64) -> u64 {
+    value.max(0) as u64
+}
+
+#[cfg(test)]
+mod tests {
+    use super::query::query_window;
+    use super::records::{insert_event, select_process_union, write_snapshot};
+    use super::worker::ensure_connection;
+    use super::worker::{clear_history, prune};
+    use super::*;
+    use crate::monitoring::snapshot::ProcessSnapshot;
+
+    fn temp_db(name: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("sysmon-timeline-{name}-{}.sqlite3", now_ms()))
+    }
+
+    fn snapshot(timestamp_ms: i64) -> SystemSnapshot {
+        SystemSnapshot {
+            sampled_at: UNIX_EPOCH + Duration::from_millis(timestamp_ms as u64),
+            cpu_usage: 60.0,
+            memory_percentage: 70.0,
+            processes: vec![ProcessSnapshot {
+                pid: 42,
+                start_time: 1234,
+                name: "worker.exe".into(),
+                cpu_usage: 50.0,
+                memory: 100,
+                status: "Run".into(),
+                disk_read_bytes: 20,
+                disk_written_bytes: 30,
+            }],
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn retention_values_are_allowlisted() {
+        assert_eq!(validate_retention(1), 1);
+        assert_eq!(validate_retention(7), 7);
+        assert_eq!(validate_retention(30), 30);
+        assert_eq!(validate_retention(365), 7);
+    }
+
+    #[test]
+    fn process_identity_includes_start_time() {
+        let mut sample = snapshot(1_000);
+        sample.processes.push(ProcessSnapshot {
+            start_time: 9999,
+            ..sample.processes[0].clone()
+        });
+        let selected = select_process_union(&sample, 1_000, 10);
+        assert_eq!(selected.len(), 2);
+        assert_ne!(selected[0].start_time, selected[1].start_time);
+    }
+
+    #[test]
+    fn database_round_trip_and_schema_exclude_sensitive_fields() {
+        let path = temp_db("round-trip");
+        let mut conn = None;
+        ensure_connection(&mut conn, &path, true).unwrap();
+        write_snapshot(conn.as_mut().unwrap(), &snapshot(10_000)).unwrap();
+        let window = query_window(
+            conn.as_ref().unwrap(),
+            TimelineQuery {
+                start_ms: 0,
+                end_ms: 20_000,
+            },
+        )
+        .unwrap();
+        assert_eq!(window.metrics.len(), 1);
+        assert_eq!(window.processes[0].name, "worker.exe");
+
+        let columns: String = conn
+            .as_ref()
+            .unwrap()
+            .prepare("SELECT name FROM pragma_table_info('process_samples') ORDER BY cid")
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(0))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap()
+            .join(",");
+        for forbidden in ["command", "path", "cwd", "username", "remote_ip"] {
+            assert!(!columns.contains(forbidden));
+        }
+        drop(conn);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn analysis_refuses_to_guess_without_baseline() {
+        let window = TimelineWindow {
+            query: TimelineQuery {
+                start_ms: 0,
+                end_ms: 10,
+            },
+            metrics: vec![TimelineMetricSample {
+                timestamp_ms: 5,
+                cpu_pct: 99.0,
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let analysis = analyze_window(&window, 5);
+        assert_eq!(analysis.title, "Insufficient baseline");
+        assert_eq!(analysis.confidence, "low");
+    }
+
+    #[test]
+    fn sanitization_removes_controls_and_limits_length() {
+        assert_eq!(sanitize_text("ab\0cd\r\nef".into(), 5), "abcd\n");
+    }
+
+    #[test]
+    fn timeline_event_serialization_round_trips() {
+        let event = TimelineEvent::new(
+            TimelineEventKind::ProviderRecovered,
+            "gpu",
+            "info",
+            "GPU telemetry recovered",
+            "The provider returned a valid sample.",
+        );
+        let encoded = serde_json::to_string(&event).unwrap();
+        let decoded: TimelineEvent = serde_json::from_str(&encoded).unwrap();
+        assert_eq!(decoded.kind, TimelineEventKind::ProviderRecovered);
+        assert_eq!(decoded.source, "gpu");
+    }
+
+    #[test]
+    fn retention_prunes_expired_metrics_and_processes() {
+        let path = temp_db("retention");
+        let mut conn = None;
+        ensure_connection(&mut conn, &path, true).unwrap();
+        let current = now_ms();
+        write_snapshot(conn.as_mut().unwrap(), &snapshot(current - 2 * DAY_MS)).unwrap();
+        write_snapshot(conn.as_mut().unwrap(), &snapshot(current)).unwrap();
+        prune(conn.as_ref().unwrap(), 1, &path).unwrap();
+
+        let metric_count: i64 = conn
+            .as_ref()
+            .unwrap()
+            .query_row("SELECT COUNT(*) FROM metric_samples", [], |row| row.get(0))
+            .unwrap();
+        let process_count: i64 = conn
+            .as_ref()
+            .unwrap()
+            .query_row("SELECT COUNT(*) FROM process_samples", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(metric_count, 1);
+        assert_eq!(process_count, 1);
+        drop(conn);
+        remove_database_files(&path);
+    }
+
+    #[test]
+    fn confirmed_clear_removes_all_history_rows() {
+        let path = temp_db("clear");
+        let mut conn = None;
+        ensure_connection(&mut conn, &path, true).unwrap();
+        write_snapshot(conn.as_mut().unwrap(), &snapshot(now_ms())).unwrap();
+        insert_event(
+            conn.as_ref().unwrap(),
+            &TimelineEvent::new(
+                TimelineEventKind::MonitoringPaused,
+                "monitor",
+                "info",
+                "Paused",
+                "User request",
+            ),
+        )
+        .unwrap();
+        clear_history(conn.as_ref().unwrap()).unwrap();
+        for table in ["metric_samples", "process_samples", "timeline_events"] {
+            let count: i64 = conn
+                .as_ref()
+                .unwrap()
+                .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| row.get(0))
+                .unwrap();
+            assert_eq!(count, 0, "{table} was not cleared");
+        }
+        drop(conn);
+        remove_database_files(&path);
+    }
+
+    #[test]
+    fn corrupt_database_is_reported_without_panicking() {
+        let path = temp_db("corrupt");
+        std::fs::write(&path, b"not a sqlite database").unwrap();
+        let mut conn = None;
+        assert!(ensure_connection(&mut conn, &path, false).is_err());
+        remove_database_files(&path);
+    }
+
+    fn remove_database_files(path: &Path) {
+        let _ = std::fs::remove_file(path);
+        for suffix in ["-wal", "-shm"] {
+            let _ = std::fs::remove_file(format!("{}{suffix}", path.display()));
+        }
+    }
+}
