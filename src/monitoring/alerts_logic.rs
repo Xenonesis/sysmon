@@ -80,3 +80,53 @@ impl SystemMonitor {
         alerts
     }
 }
+
+#[cfg(test)]
+mod alert_tests {
+    use super::*;
+    use crate::app::models::DiskInfo;
+
+    #[test]
+    fn in_app_alerts_do_not_require_desktop_notifications() {
+        let settings = AppSettings {
+            show_notifications: false,
+            notification_cpu_threshold: 80.0,
+            ..Default::default()
+        };
+        let data = SystemData {
+            cpu_usage: 85.0,
+            ..Default::default()
+        };
+        let alerts = SystemMonitor::check_alerts(&settings, &data);
+        assert!(alerts.iter().any(|alert| alert.source == AlertSource::Cpu));
+    }
+
+    #[test]
+    fn disk_alert_uses_configured_threshold_and_typed_source() {
+        let settings = AppSettings {
+            notification_disk_threshold: 75.0,
+            ..Default::default()
+        };
+        let data = SystemData {
+            disk_info: vec![DiskInfo {
+                name: "Data".into(),
+                mount_point: "D:\\".into(),
+                total_space: 100,
+                available_space: 20,
+                usage_percentage: 80.0,
+                file_system: "NTFS".into(),
+            }],
+            ..Default::default()
+        };
+        let alerts = SystemMonitor::check_alerts(&settings, &data);
+        assert_eq!(alerts.len(), 1);
+        assert_eq!(
+            alerts[0].source,
+            AlertSource::Disk {
+                mount_point: "D:\\".into(),
+                name: "Data".into(),
+            }
+        );
+        assert_eq!(alerts[0].key(), "disk:D:\\");
+    }
+}
