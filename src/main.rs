@@ -102,6 +102,16 @@ impl eframe::App for SystemMonitorApp {
                         }
                     }
                     match &command {
+                        app::commands::ActionCommand::SuspendProcess(pid) => {
+                            self.suspended_pids.insert(*pid);
+                        }
+                        app::commands::ActionCommand::ResumeProcess(pid) => {
+                            self.suspended_pids.remove(pid);
+                        }
+                        app::commands::ActionCommand::KillProcess(pid)
+                        | app::commands::ActionCommand::KillProcessTree(pid) => {
+                            self.suspended_pids.remove(pid);
+                        }
                         app::commands::ActionCommand::DisableStartup { locator, .. } => {
                             if let Some(item) = self.startup_items.iter_mut().find(|item| item.locator == *locator) {
                                 item.enabled = false;
