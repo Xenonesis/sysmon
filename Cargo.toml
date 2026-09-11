@@ -18,7 +18,7 @@ path = "src/main.rs"
 
 [dependencies]
 sysinfo = "0.39"
-nvml-wrapper = "0.12"
+nvml-wrapper = "0.13"
 chrono = "0.4"
 eframe = { version = "0.36", default-features = false, features = ["accesskit", "default_fonts", "glow", "links"] }
 winit = { version = "0.30", default-features = false, features = ["rwh_06"] }
