@@ -20,14 +20,7 @@ impl SystemMonitor {
     }
 
     pub(crate) fn get_top_processes(&self, count: usize) -> Vec<crate::processes::ProcessInfo> {
-        #[cfg(target_os = "windows")]
-        let vram_map = if let Some(nvml) = &self.nvml {
-            crate::processes::query_process_vram_from_nvml(nvml)
-        } else {
-            std::collections::HashMap::new()
-        };
-        #[cfg(not(target_os = "windows"))]
-        let vram_map = std::collections::HashMap::new();
+        let vram_map = crate::providers::windows_gpu_provider::query_process_memory().unwrap_or_default();
 
         let cpu_count = self.sys.cpus().len().max(1) as f32;
         let mut processes: Vec<_> = self
@@ -44,17 +37,21 @@ impl SystemMonitor {
                     name_str = file_name.to_string_lossy().into_owned();
                 }
 
+                let identity = crate::processes::process_identity(pid.as_u32()).ok();
                 crate::processes::ProcessInfo {
                     pid: pid.as_u32(),
                     start_time: process.start_time(),
+                    identity,
                     name: name_str,
                     parent_pid: process.parent().map(|p| p.as_u32()),
                     cpu_usage: process.cpu_usage() / cpu_count,
                     memory: process.memory(),
-                    vram_bytes: vram_map.get(&pid.as_u32()).copied(),
+                    vram_bytes: identity.and_then(|identity| vram_map.get(&identity).copied()),
                     status: format!("{:?}", process.status()),
-                    disk_read_bytes: process.disk_usage().read_bytes,
-                    disk_written_bytes: process.disk_usage().written_bytes,
+                    disk_read_bytes: process.disk_usage().total_read_bytes,
+                    disk_written_bytes: process.disk_usage().total_written_bytes,
+                    disk_read_bytes_per_second: None,
+                    disk_written_bytes_per_second: None,
                 }
             })
             .collect();
@@ -94,6 +91,7 @@ impl SystemMonitor {
             .map(|(id, cpu)| CpuCoreInfo {
                 core_id: id,
                 usage: cpu.cpu_usage(),
+                frequency_mhz: (cpu.frequency() > 0).then_some(cpu.frequency()),
                 name: cpu.name().to_string(),
             })
             .collect()
@@ -140,27 +138,24 @@ impl SystemMonitor {
     }
 
     pub(crate) fn get_disk_io(&mut self, _refresh_interval: u64) -> (f64, f64) {
-        let elapsed = self.last_disk_update.elapsed();
-        let (total_read, total_written) =
-            self.sys
-                .processes()
-                .values()
-                .fold((0u64, 0u64), |(read, written), process| {
-                    let usage = process.disk_usage();
-                    (
-                        read.saturating_add(usage.read_bytes),
-                        written.saturating_add(usage.written_bytes),
-                    )
-                });
-        let read_rate = crate::monitoring::rates::counter_rate(Some(self.previous_disk_totals.0), total_read, elapsed);
-        let write_rate =
-            crate::monitoring::rates::counter_rate(Some(self.previous_disk_totals.1), total_written, elapsed);
-        self.previous_disk_totals = (total_read, total_written);
-        self.last_disk_update = Instant::now();
-        (
-            read_rate.value_per_second / 1024.0 / 1024.0,
-            write_rate.value_per_second / 1024.0 / 1024.0,
-        )
+        let now = Instant::now();
+        let elapsed = now.saturating_duration_since(self.last_disk_update);
+        let mut current = std::collections::HashMap::new();
+        let mut rates = (0.0, 0.0);
+        for (pid, process) in self.sys.processes() {
+            let identity = (pid.as_u32(), process.start_time());
+            let usage = process.disk_usage();
+            let totals = (usage.total_read_bytes, usage.total_written_bytes);
+            let previous = self.previous_disk_totals.get(&identity);
+            rates.0 +=
+                crate::monitoring::rates::counter_rate(previous.map(|p| p.0), totals.0, elapsed).value_per_second;
+            rates.1 +=
+                crate::monitoring::rates::counter_rate(previous.map(|p| p.1), totals.1, elapsed).value_per_second;
+            current.insert(identity, totals);
+        }
+        self.previous_disk_totals = current;
+        self.last_disk_update = now;
+        rates
     }
 
     pub(crate) fn get_network_info(&mut self) -> Vec<NetworkInfo> {
@@ -170,7 +165,7 @@ impl SystemMonitor {
             .networks
             .iter()
             .map(|(interface, data)| {
-                let current = (data.received(), data.transmitted());
+                let current = (data.total_received(), data.total_transmitted());
                 let previous = self.previous_network_totals.get(interface).copied();
                 current_totals.insert(interface.clone(), current);
                 let received_rate = crate::monitoring::rates::counter_rate(previous.map(|p| p.0), current.0, elapsed);
@@ -180,8 +175,8 @@ impl SystemMonitor {
                     interface: interface.clone(),
                     received: current.0,
                     transmitted: current.1,
-                    received_rate: received_rate.value_per_second / 1024.0 / 1024.0,
-                    transmitted_rate: transmitted_rate.value_per_second / 1024.0 / 1024.0,
+                    received_rate: received_rate.value_per_second,
+                    transmitted_rate: transmitted_rate.value_per_second,
                 }
             })
             .collect();
@@ -199,6 +194,7 @@ impl SystemMonitor {
             hostname: System::host_name().unwrap_or_else(|| "Unknown".to_string()),
             uptime: System::uptime(),
             cpu_count: self.sys.cpus().len(),
+            physical_core_count: System::physical_core_count(),
             cpu_brand: self
                 .sys
                 .cpus()

@@ -13,11 +13,17 @@ pub struct SocketConnection {
     pub process_name: Option<String>,
 }
 
+fn parse_ipv4(addr_raw: u32, port_raw: u32) -> String {
+    let ip = Ipv4Addr::from(addr_raw.to_ne_bytes());
+    let port = u16::from_be((port_raw & 0xffff) as u16);
+    format!("{ip}:{port}")
+}
+
 /// Parse an IPv6 address from a 16-byte array and a port in network byte order in lower 16 bits.
-pub fn parse_ipv6_addr(bytes: &[u8; 16], port_raw: u32) -> String {
+pub fn parse_ipv6_addr(bytes: &[u8; 16], port_raw: u32, scope_id: u32) -> String {
     let ip = Ipv6Addr::from(*bytes);
     let port = u16::from_be((port_raw & 0xFFFF) as u16);
-    format!("[{ip}]:{port}")
+    std::net::SocketAddrV6::new(ip, port, 0, scope_id).to_string()
 }
 
 #[cfg(target_os = "windows")]
@@ -109,13 +115,6 @@ mod windows_impl {
         }
     }
 
-    fn parse_ipv4(addr_raw: u32, port_raw: u32) -> String {
-        let ip = Ipv4Addr::from(addr_raw.to_le());
-        // Ports in MIB rows are in network byte order in the lower 16 bits
-        let port = u16::from_be((port_raw & 0xFFFF) as u16);
-        format!("{ip}:{port}")
-    }
-
     pub fn get_connections_internal() -> Vec<SocketConnection> {
         let mut connections = Vec::new();
 
@@ -187,11 +186,11 @@ mod windows_impl {
                     let table_ptr = buffer.as_ptr().add(std::mem::size_of::<u32>()) as *const MIB_TCP6ROW_OWNER_PID;
                     for i in 0..num_entries {
                         let row = *table_ptr.add(i);
-                        let local = parse_ipv6_addr(&row.uc_local_addr, row.dw_local_port);
+                        let local = parse_ipv6_addr(&row.uc_local_addr, row.dw_local_port, row.dw_local_scope_id);
                         let remote = if row.uc_remote_addr == [0u8; 16] {
                             "[::]:*".to_string()
                         } else {
-                            parse_ipv6_addr(&row.uc_remote_addr, row.dw_remote_port)
+                            parse_ipv6_addr(&row.uc_remote_addr, row.dw_remote_port, row.dw_remote_scope_id)
                         };
 
                         connections.push(SocketConnection {
@@ -218,7 +217,7 @@ mod windows_impl {
                     let table_ptr = buffer.as_ptr().add(std::mem::size_of::<u32>()) as *const MIB_UDP6ROW_OWNER_PID;
                     for i in 0..num_entries {
                         let row = *table_ptr.add(i);
-                        let local = parse_ipv6_addr(&row.uc_local_addr, row.dw_local_port);
+                        let local = parse_ipv6_addr(&row.uc_local_addr, row.dw_local_port, row.dw_local_scope_id);
 
                         connections.push(SocketConnection {
                             protocol: "UDPv6",
@@ -308,17 +307,17 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_ipv6_formatting() {
-        let raw_bytes: [u8; 16] = [0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x01];
-        let formatted = parse_ipv6_addr(&raw_bytes, 443u32.to_be() << 16);
-        assert!(formatted.contains("[2001:db8::1]"));
-        // port 443 in network byte order in lower 16 bits
-        let formatted_direct = parse_ipv6_addr(&raw_bytes, 443);
-        assert!(formatted_direct.contains("[2001:db8::1]"));
-
-        // Test loopback IPv6 and port 80 in network byte order
-        let loopback = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
-        let port_80_nbo = 80u16.to_be() as u32;
-        assert_eq!(parse_ipv6_addr(&loopback, port_80_nbo), "[::1]:80");
+    fn native_endpoints_preserve_byte_order_and_scope() {
+        assert_eq!(
+            parse_ipv4(u32::from_ne_bytes([127, 0, 0, 1]), 8080u16.to_be() as u32),
+            "127.0.0.1:8080"
+        );
+        let loopback = Ipv6Addr::LOCALHOST.octets();
+        assert_eq!(parse_ipv6_addr(&loopback, 80u16.to_be() as u32, 0), "[::1]:80");
+        let link_local: Ipv6Addr = "fe80::1".parse().unwrap();
+        assert_eq!(
+            parse_ipv6_addr(&link_local.octets(), 443u16.to_be() as u32, 12),
+            "[fe80::1%12]:443"
+        );
     }
 }

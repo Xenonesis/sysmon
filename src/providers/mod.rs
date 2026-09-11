@@ -82,6 +82,9 @@ pub trait TelemetryProvider: Send {
     /// Whether this provider is currently available and functional.
     fn is_available(&self) -> bool;
 
+    /// Explicit user refresh retries initialization once; automatic failures remain bounded by the hub.
+    fn reinitialize(&mut self) {}
+
     /// Gracefully shut down this provider, releasing resources.
     fn shutdown(&mut self) {}
 }

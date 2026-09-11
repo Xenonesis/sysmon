@@ -32,7 +32,11 @@ pub(crate) fn show(_app: &crate::SystemMonitorApp, ui: &mut egui::Ui, data: &Sys
                     ui.label(
                         egui::RichText::new(format!(
                             "{} logical processors  ·  {} physical cores",
-                            total_cores, data.system_info.cpu_count
+                            data.system_info.cpu_count,
+                            data.system_info
+                                .physical_core_count
+                                .map(|v| v.to_string())
+                                .unwrap_or_else(|| "unavailable".into())
                         ))
                         .monospace()
                         .size(11.0)
@@ -171,6 +175,11 @@ pub(crate) fn show(_app: &crate::SystemMonitorApp, ui: &mut egui::Ui, data: &Sys
                             });
 
                             ui.add_space(4.0);
+                            ui.label(
+                                core.frequency_mhz
+                                    .map(|mhz| format!("{mhz} MHz"))
+                                    .unwrap_or_else(|| "Frequency unavailable".into()),
+                            );
                             paint_progress_bar(ui, frac, color, 4.0, is_dark);
                         });
 

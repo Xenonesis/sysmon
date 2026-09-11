@@ -37,6 +37,7 @@ impl TelemetryProvider for SysinfoProvider {
 
     fn poll(&mut self) -> Result<ProviderData, ProviderError> {
         self.system.refresh_cpu_usage();
+        self.system.refresh_cpu_frequency();
         self.system.refresh_memory();
 
         let mut data = ProviderData::new();

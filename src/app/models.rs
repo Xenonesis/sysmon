@@ -82,6 +82,7 @@ pub(crate) fn play_success_sound() {}
 pub(crate) struct CpuCoreInfo {
     pub(crate) core_id: usize,
     pub(crate) usage: f32,
+    pub(crate) frequency_mhz: Option<u64>,
     #[allow(dead_code)]
     pub(crate) name: String,
 }
@@ -89,7 +90,7 @@ pub(crate) struct CpuCoreInfo {
 #[derive(Clone, Serialize)]
 pub(crate) struct GpuInfo {
     pub(crate) name: String,
-    pub(crate) utilization: f32,
+    pub(crate) utilization: Option<f32>,
     pub(crate) memory_used: Option<u64>,
     pub(crate) memory_total: Option<u64>,
     pub(crate) temperature: Option<u32>,
@@ -108,6 +109,12 @@ pub(crate) fn cpu_cores_from_telemetry(snapshot: &crate::telemetry::TelemetrySna
                 .map(|usage| CpuCoreInfo {
                     core_id,
                     usage: *usage as f32,
+                    frequency_mhz: snapshot
+                        .metrics
+                        .get(&format!("cpu.core.{core_id}.frequency"))
+                        .copied()
+                        .filter(|v| *v > 0.0)
+                        .map(|v| v as u64),
                     name: format!("Core {core_id}"),
                 })
         })
@@ -126,7 +133,7 @@ pub(crate) fn gpus_from_telemetry(snapshot: &crate::telemetry::TelemetrySnapshot
                     .get(&format!("{prefix}.name"))
                     .cloned()
                     .unwrap_or_else(|| format!("GPU {index}")),
-                utilization: metric("utilization").unwrap_or_default() as f32,
+                utilization: metric("utilization").map(|v| v as f32),
                 memory_used: metric("vram_used").map(|value| value as u64),
                 memory_total: metric("vram_total").map(|value| value as u64),
                 temperature: metric("temperature").map(|value| value as u32),
@@ -137,13 +144,41 @@ pub(crate) fn gpus_from_telemetry(snapshot: &crate::telemetry::TelemetrySnapshot
         })
         .collect();
 
+    let mut adapter_keys: Vec<_> = snapshot
+        .labels
+        .keys()
+        .filter(|key| key.starts_with("gpu.windows.") && key.ends_with(".name"))
+        .collect();
+    adapter_keys.sort();
+    if !adapter_keys.is_empty() {
+        return adapter_keys
+            .iter()
+            .map(|key| {
+                let prefix = key.trim_end_matches(".name");
+                let name = snapshot.labels[*key].clone();
+                let metric = |suffix: &str| snapshot.metrics.get(&format!("{prefix}.{suffix}")).copied();
+                // Names are only safe for optional sensor enrichment if unique on both sides.
+                let unique = adapter_keys.iter().filter(|k| snapshot.labels[**k] == name).count() == 1;
+                let matches: Vec<_> = gpus.iter().filter(|gpu| gpu.name == name).collect();
+                let sensor = if unique && matches.len() == 1 {
+                    Some(matches[0])
+                } else {
+                    None
+                };
+                GpuInfo {
+                    name,
+                    utilization: metric("utilization").map(|v| v as f32),
+                    memory_used: metric("vram_used").map(|v| v as u64),
+                    memory_total: metric("vram_total").map(|v| v as u64),
+                    temperature: sensor.and_then(|gpu| gpu.temperature),
+                    clock_mhz: sensor.and_then(|gpu| gpu.clock_mhz),
+                    power_watts: sensor.and_then(|gpu| gpu.power_watts),
+                    fan_percent: sensor.and_then(|gpu| gpu.fan_percent),
+                }
+            })
+            .collect();
+    }
     let generic_count = snapshot.metrics.get("gpu.generic_count").copied().unwrap_or_default() as usize;
-    let generic_utilization = snapshot
-        .metrics
-        .get("gpu.generic.utilization")
-        .copied()
-        .unwrap_or_default() as f32;
-    let generic_memory_used = snapshot.metrics.get("gpu.generic.vram_used").map(|value| *value as u64);
     for index in 0..generic_count {
         let prefix = format!("gpu.generic.{index}");
         let name = snapshot
@@ -159,10 +194,8 @@ pub(crate) fn gpus_from_telemetry(snapshot: &crate::telemetry::TelemetrySnapshot
             utilization: snapshot
                 .metrics
                 .get(&format!("{prefix}.utilization"))
-                .copied()
-                .map(|value| value as f32)
-                .unwrap_or(generic_utilization),
-            memory_used: generic_memory_used,
+                .map(|v| *v as f32),
+            memory_used: snapshot.metrics.get(&format!("{prefix}.vram_used")).map(|v| *v as u64),
             memory_total: snapshot
                 .metrics
                 .get(&format!("{prefix}.vram_total"))
@@ -201,18 +234,20 @@ pub(crate) struct AlertInfo {
     pub(crate) alert_type: AlertType,
     pub(crate) source: AlertSource,
     pub(crate) message: String,
+    pub(crate) resolved_at: Option<String>,
     pub(crate) value: f32,
 }
 
 impl AlertInfo {
     pub fn key(&self) -> String {
-        match &self.source {
+        let source = match &self.source {
             AlertSource::Cpu => "cpu".into(),
             AlertSource::Memory => "memory".into(),
-            AlertSource::Gpu { index, .. } => format!("gpu:{index}"),
+            AlertSource::Gpu { index, name } => format!("gpu:{index}:{name}"),
             AlertSource::Disk { mount_point, .. } => format!("disk:{mount_point}"),
             AlertSource::Startup => "startup".into(),
-        }
+        };
+        format!("{:?}:{source}", self.alert_type)
     }
 }
 
@@ -225,7 +260,7 @@ pub(crate) enum AlertSource {
     Startup,
 }
 
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum AlertType {
     CpuHigh,
     MemoryHigh,
@@ -274,6 +309,7 @@ pub(crate) struct SystemInfo {
     pub(crate) hostname: String,
     pub(crate) uptime: u64,
     pub(crate) cpu_count: usize,
+    pub(crate) physical_core_count: Option<usize>,
     pub(crate) cpu_brand: String,
     pub(crate) motherboard: Option<String>,
     pub(crate) bios_version: Option<String>,
@@ -431,10 +467,6 @@ pub(crate) fn is_excluded(name: &str, exclusions: &[String]) -> bool {
     exclusions.iter().any(|ex| name == ex.to_lowercase())
 }
 
-pub(crate) fn should_stop_cleaning(usage_pct: f64, target: f64, freed: u64, budget_left: u64) -> bool {
-    usage_pct <= target || freed == 0 || freed >= budget_left
-}
-
 pub struct SystemMonitor {
     pub(crate) sys: System,
     pub(crate) disks: Disks,
@@ -444,13 +476,10 @@ pub struct SystemMonitor {
     #[cfg(target_os = "windows")]
     pub(crate) wmi_thermal: Option<wmi::WMIConnection>,
     #[cfg(target_os = "windows")]
-    pub(crate) wmi_gpu_engine_class: Option<String>,
-    #[cfg(target_os = "windows")]
-    pub(crate) wmi_gpu_memory_class: Option<String>,
     pub(crate) last_network_update: Instant,
     pub(crate) last_disk_update: Instant,
     pub(crate) previous_network_totals: std::collections::HashMap<String, (u64, u64)>,
-    pub(crate) previous_disk_totals: (u64, u64),
+    pub(crate) previous_disk_totals: std::collections::HashMap<(u32, u64), (u64, u64)>,
 }
 
 impl Default for AppSettings {
@@ -508,14 +537,22 @@ impl AppSettings {
             let exe_path = std::env::current_exe()?;
             key.set_value("SystemMonitor", &format!("\"{}\"", exe_path.to_string_lossy()))?;
         } else {
-            key.delete_value("SystemMonitor").ok();
+            match key.delete_value("SystemMonitor") {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error.into()),
+            }
         }
         Ok(())
     }
 
     #[cfg(not(target_os = "windows"))]
     fn set_auto_start(&self, _enable: bool) -> Result<(), Box<dyn std::error::Error>> {
-        Ok(())
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "Windows auto-start is unavailable on this platform",
+        )
+        .into())
     }
 }
 
@@ -531,11 +568,10 @@ impl AppSettings {
     }
 
     pub fn save(&self) -> Result<(), Box<dyn std::error::Error>> {
-        if let Some(config_path) = crate::app_paths::config_dir() {
-            fs::create_dir_all(&config_path)?;
-            let config_file = config_path.join("settings.json");
-            crate::persistence::settings::save(&config_file, self)?;
-        }
+        let config_path = crate::app_paths::config_dir()
+            .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "Settings directory is unavailable"))?;
+        fs::create_dir_all(&config_path)?;
+        crate::persistence::settings::save(&config_path.join("settings.json"), self)?;
         Ok(())
     }
 }
@@ -559,6 +595,8 @@ pub(crate) struct BatteryInfo {
 #[derive(Clone)]
 
 pub(crate) struct SystemData {
+    pub(crate) sampled_at: std::time::SystemTime,
+    pub(crate) metric_status: std::collections::HashMap<String, crate::monitoring::snapshot::MetricObservation>,
     pub(crate) memory_total: u64,
     pub(crate) memory_used: u64,
     pub(crate) memory_percentage: f32,
@@ -568,8 +606,8 @@ pub(crate) struct SystemData {
     pub(crate) top_processes: Vec<crate::processes::ProcessInfo>,
     pub(crate) timeline_processes: Vec<crate::processes::ProcessInfo>,
     pub(crate) monitoring_paused: bool,
-    pub(crate) selected_process_pid: Option<u32>,
-    pub(crate) selected_process_details: Option<(u32, crate::processes::ProcessDetails)>,
+    pub(crate) selected_process_pid: Option<crate::processes::ProcessIdentity>,
+    pub(crate) selected_process_details: Option<(crate::processes::ProcessIdentity, crate::processes::ProcessDetails)>,
     pub(crate) disk_info: Vec<DiskInfo>,
     pub(crate) network_info: Vec<NetworkInfo>,
     pub(crate) system_info: SystemInfo,
@@ -588,7 +626,6 @@ pub(crate) struct SystemData {
     pub(crate) network_sample_count: u32,
     pub(crate) high_impact_startup_count: usize,
     pub(crate) ram_clean_freed_bytes: u64,
-    pub(crate) ram_clean_is_cleaning: bool,
     pub(crate) disk_read_rate: f64,
     pub(crate) disk_write_rate: f64,
     pub(crate) disk_read_history: VecDeque<DataPoint>,
@@ -596,7 +633,6 @@ pub(crate) struct SystemData {
     pub(crate) is_hidden: bool,
     pub(crate) selected_tab: crate::Tab,
     pub(crate) services: Vec<crate::services::ServiceInfo>,
-    pub(crate) last_activity: Instant,
     pub(crate) telemetry_history_stats: std::collections::HashMap<String, crate::telemetry::HistoryStats>,
     pub(crate) provider_status: std::collections::HashMap<String, bool>,
     pub(crate) physical_disks: Vec<crate::storage::PhysicalDiskHealth>,
@@ -609,6 +645,8 @@ pub(crate) struct SystemData {
 impl Default for SystemData {
     fn default() -> Self {
         Self {
+            sampled_at: std::time::SystemTime::UNIX_EPOCH,
+            metric_status: std::collections::HashMap::new(),
             memory_total: 0,
             memory_used: 0,
             memory_percentage: 0.0,
@@ -629,6 +667,7 @@ impl Default for SystemData {
                 hostname: String::new(),
                 uptime: 0,
                 cpu_count: 0,
+                physical_core_count: None,
                 cpu_brand: String::new(),
                 motherboard: None,
                 bios_version: None,
@@ -654,14 +693,12 @@ impl Default for SystemData {
             network_sample_count: 0,
             high_impact_startup_count: 0,
             ram_clean_freed_bytes: 0,
-            ram_clean_is_cleaning: false,
             disk_read_rate: 0.0,
             disk_write_rate: 0.0,
             disk_read_history: VecDeque::new(),
             disk_write_history: VecDeque::new(),
             is_hidden: false,
             selected_tab: crate::Tab::Overview,
-            last_activity: Instant::now(),
             services: Vec::new(),
             telemetry_history_stats: std::collections::HashMap::new(),
             provider_status: std::collections::HashMap::new(),

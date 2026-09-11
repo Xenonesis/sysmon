@@ -11,6 +11,7 @@ pub(crate) fn snapshot_from_data(data: &SystemData) -> crate::monitoring::System
                     available: *available,
                     stale: data.monitoring_paused,
                     error: None,
+                    observed_at: None,
                 },
             )
         })
@@ -26,11 +27,16 @@ pub(crate) fn snapshot_from_data(data: &SystemData) -> crate::monitoring::System
                 available,
                 stale: data.monitoring_paused,
                 error: None,
+                observed_at: None,
             },
         );
     }
+    let now = std::time::SystemTime::now();
     crate::monitoring::SystemSnapshot {
-        sampled_at: std::time::SystemTime::now(),
+        sampled_at: now,
+        disk_read_bytes_per_second: Some(data.disk_read_rate),
+        disk_written_bytes_per_second: Some(data.disk_write_rate),
+        metric_status: std::collections::HashMap::new(),
         cpu_usage: data.cpu_usage,
         cpu_cores: data.cpu_cores.iter().map(|core| core.usage).collect(),
         cpu_temperature: data.cpu_temperature,
@@ -66,8 +72,8 @@ pub(crate) fn snapshot_from_data(data: &SystemData) -> crate::monitoring::System
                 available_space: disk.available_space,
                 usage_percentage: disk.usage_percentage,
                 file_system: disk.file_system.clone(),
-                read_bytes_per_second: data.disk_read_rate,
-                written_bytes_per_second: data.disk_write_rate,
+                read_bytes_per_second: Some(data.disk_read_rate),
+                written_bytes_per_second: Some(data.disk_write_rate),
             })
             .collect(),
         networks: data
@@ -90,6 +96,7 @@ pub(crate) fn snapshot_from_data(data: &SystemData) -> crate::monitoring::System
         .map(|process| crate::monitoring::snapshot::ProcessSnapshot {
             pid: process.pid,
             start_time: process.start_time,
+            identity: process.identity,
             name: process.name.clone(),
             cpu_usage: process.cpu_usage,
             memory: process.memory,
@@ -120,6 +127,7 @@ pub(crate) fn snapshot_from_data(data: &SystemData) -> crate::monitoring::System
             bios_version: data.system_info.bios_version.clone(),
             gpu_driver: data.system_info.gpu_driver.clone(),
             os_build: data.system_info.os_build.clone(),
+            physical_core_count: data.system_info.physical_core_count,
         },
         provider_status,
         paused: data.monitoring_paused,

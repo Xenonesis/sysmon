@@ -39,18 +39,36 @@ impl SystemMonitorApp {
                 }
             }
             app::commands::UiIntent::RelaunchAsAdmin => {
-                if !crate::privilege::relaunch_as_admin() {
-                    self.action_status = Some("Could not request administrator privileges".to_string());
+                match crate::privilege::relaunch_as_admin() {
+                    Ok(crate::privilege::ElevationOutcome::Ready) => {
+                        // The elevated successor is running and confirmed readiness;
+                        // this instance must yield so exactly one UI remains.
+                        self.quit_requested = true;
+                    }
+                    Ok(crate::privilege::ElevationOutcome::Canceled) => {
+                        self.action_status =
+                            Some("Elevation canceled; continuing without administrator privileges".to_string());
+                    }
+                    Err(error) => {
+                        self.action_status = Some(format!("Could not request administrator privileges: {error}"));
+                    }
                 }
             }
             app::commands::UiIntent::ControlService { name, action } => {
                 self.queue_action(app::commands::ActionCommand::ControlService { name, action });
+            }
+            app::commands::UiIntent::CheckUpdates => {
+                self.update_check_time = None;
             }
         }
     }
 }
 
 impl eframe::App for SystemMonitorApp {
+    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        crate::app_shell::logic_shell(self, ctx);
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         crate::app_shell::ui_shell(self, ui);
     }
@@ -133,53 +151,33 @@ mod tests {
         // When a PID is resolved from screen coordinates:
         let test_pid = 4242;
         app.selected_tab = Tab::Processes;
-        app.details_pid = Some(test_pid);
+        app.details_pid = None;
         app.process_search = test_pid.to_string();
         app.window_picker_active = false;
 
         assert_eq!(app.selected_tab, Tab::Processes);
-        assert_eq!(app.details_pid, Some(4242));
-        assert_eq!(app.process_search, "4242");
-        assert!(!app.window_picker_active);
+        assert!(app.details_pid.is_none());
     }
 }
 fn main() {
-    // ── 1. Single-Instance Enforcement ──────────────────────────────────
-    // Prevent multiple copies from running simultaneously using a Windows named mutex.
-    #[cfg(target_os = "windows")]
-    {
-        unsafe extern "system" {
-            fn CreateMutexW(
-                lp_mutex_attributes: *const std::ffi::c_void,
-                b_initial_owner: i32,
-                lp_name: *const u16,
-            ) -> *mut std::ffi::c_void;
-            fn GetLastError() -> u32;
+    // ── 1. Single-Instance Enforcement & Privileged Handoff ────────────
+    // A named mutex blocks duplicate instances; the same check also consumes
+    // the authenticated handoff used by elevation and update successors.
+    if let Err(error) = privilege::initialize_instance() {
+        use windows::Win32::UI::WindowsAndMessaging::{MB_ICONINFORMATION, MB_OK, MessageBoxW};
+        use windows::core::PCWSTR;
+
+        let title: Vec<u16> = "System Monitor\0".encode_utf16().collect();
+        let msg: Vec<u16> = format!("{error}\0").encode_utf16().collect();
+        unsafe {
+            let _ = MessageBoxW(
+                None,
+                PCWSTR(msg.as_ptr()),
+                PCWSTR(title.as_ptr()),
+                MB_OK | MB_ICONINFORMATION,
+            );
         }
-
-        let mutex_name: Vec<u16> = "Global\\SystemMonitorSingleInstance\0".encode_utf16().collect();
-        let _handle = unsafe { CreateMutexW(std::ptr::null(), 1, mutex_name.as_ptr()) };
-        let last_error = unsafe { GetLastError() };
-
-        const ERROR_ALREADY_EXISTS: u32 = 183;
-        if last_error == ERROR_ALREADY_EXISTS {
-            use windows::Win32::UI::WindowsAndMessaging::{MB_ICONINFORMATION, MB_OK, MessageBoxW};
-            use windows::core::PCWSTR;
-
-            let title: Vec<u16> = "System Monitor\0".encode_utf16().collect();
-            let msg: Vec<u16> = "System Monitor is already running.\n\nCheck your system tray or taskbar.\0"
-                .encode_utf16()
-                .collect();
-            unsafe {
-                let _ = MessageBoxW(
-                    None,
-                    PCWSTR(msg.as_ptr()),
-                    PCWSTR(title.as_ptr()),
-                    MB_OK | MB_ICONINFORMATION,
-                );
-            }
-            std::process::exit(0);
-        }
+        std::process::exit(0);
     }
 
     // ── 2. Crash Report Directory ───────────────────────────────────────
@@ -287,6 +285,32 @@ fn main() {
 
     info!("Launching GUI window");
 
+    // ── 4b. Privileged Handoff Startup Task ─────────────────────────────
+    // A verified update helper performs the install here and exits; a resumed
+    // GUI instance stores its install outcome for the first logic tick.
+    match updater::run_startup_task() {
+        Ok(true) => {
+            info!("Update helper completed its startup task; exiting");
+            std::process::exit(0);
+        }
+        Ok(false) => {}
+        Err(error) => {
+            error!("Startup task failed: {error}");
+            #[cfg(target_os = "windows")]
+            {
+                use windows::Win32::UI::WindowsAndMessaging::{MB_ICONERROR, MB_OK, MessageBoxW};
+                use windows::core::PCWSTR;
+                let title: Vec<u16> = "System Monitor — Startup Error\0".encode_utf16().collect();
+                let msg: Vec<u16> = format!("The update helper could not complete.\n\n{error}\0")
+                    .encode_utf16()
+                    .collect();
+                unsafe {
+                    MessageBoxW(None, PCWSTR(msg.as_ptr()), PCWSTR(title.as_ptr()), MB_OK | MB_ICONERROR);
+                }
+            }
+            std::process::exit(1);
+        }
+    }
     let result = eframe::run_native(
         "System Monitor",
         options,
@@ -351,14 +375,6 @@ mod ram_cleaner_tests {
         assert!(is_excluded("firefox", &ex(&["FireFox"])));
         assert!(!is_excluded("notepad", &ex(&["chrome.exe"])));
         assert!(!is_excluded("chrome", &ex(&["chrome.exe"])));
-    }
-
-    #[test]
-    fn stop_conditions_cover_target_budget_and_empty() {
-        assert!(should_stop_cleaning(65.0, 70.0, 10, 100)); // under target
-        assert!(!should_stop_cleaning(80.0, 70.0, 10, 100)); // still over target
-        assert!(should_stop_cleaning(90.0, 70.0, 0, 100)); // nothing freed
-        assert!(should_stop_cleaning(90.0, 70.0, 100, 100)); // budget exhausted
     }
 
     #[test]

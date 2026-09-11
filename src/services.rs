@@ -56,12 +56,63 @@ impl fmt::Display for ServiceControlAction {
 #[derive(Debug, Clone)]
 pub struct ServiceControlOutcome {
     pub action: ServiceControlAction,
+    pub initial_state: ServiceState,
+    pub transitioned: bool,
+    pub final_process: Option<crate::processes::ProcessIdentity>,
     pub final_state: ServiceState,
+}
+
+#[derive(Debug, Clone)]
+pub struct ServiceUndo {
+    pub expected_state: ServiceState,
+    pub expected_process: Option<crate::processes::ProcessIdentity>,
+    pub restore_state: ServiceState,
+}
+
+impl ServiceControlOutcome {
+    pub fn undo(&self) -> Option<ServiceUndo> {
+        if !self.transitioned || self.initial_state == self.final_state {
+            return None;
+        }
+        if self.final_state == ServiceState::Running && self.final_process.is_none() {
+            return None;
+        }
+        Some(ServiceUndo {
+            expected_state: self.final_state,
+            expected_process: self.final_process,
+            restore_state: self.initial_state,
+        })
+    }
+}
+
+fn validate_undo(
+    undo: &ServiceUndo,
+    state: ServiceState,
+    process: Option<crate::processes::ProcessIdentity>,
+) -> Result<(), ServiceControlError> {
+    if state != undo.expected_state || process != undo.expected_process {
+        return Err(ServiceControlError::RequestFailed {
+            phase: "undo",
+            detail: "Service changed since the original action; refusing stale Undo".into(),
+        });
+    }
+    Ok(())
 }
 
 impl fmt::Display for ServiceControlOutcome {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{} completed; service is {:?}", self.action, self.final_state)
+        write!(
+            f,
+            "{} completed; {:?} -> {:?}; {}",
+            self.action,
+            self.initial_state,
+            self.final_state,
+            if self.transitioned {
+                "transition observed"
+            } else {
+                "no change"
+            }
+        )
     }
 }
 
@@ -159,116 +210,187 @@ pub fn send_service_control(
     name: &str,
     action: ServiceControlAction,
 ) -> Result<ServiceControlOutcome, ServiceControlError> {
+    control_service(name, action, None)
+}
+
+pub fn undo_service_control(name: &str, undo: &ServiceUndo) -> Result<ServiceControlOutcome, ServiceControlError> {
+    let action = match undo.restore_state {
+        ServiceState::Stopped => ServiceControlAction::Stop,
+        ServiceState::Running => ServiceControlAction::Start,
+        _ => {
+            return Err(ServiceControlError::RequestFailed {
+                phase: "undo",
+                detail: "Unsupported original service state".into(),
+            });
+        }
+    };
+    control_service(name, action, Some(undo))
+}
+
+fn control_service(
+    name: &str,
+    action: ServiceControlAction,
+    undo: Option<&ServiceUndo>,
+) -> Result<ServiceControlOutcome, ServiceControlError> {
+    use windows_service::service::ServiceAccess;
     let manager = windows_service::service_manager::ServiceManager::local_computer(
         None::<&str>,
         windows_service::service_manager::ServiceManagerAccess::CONNECT,
     )
     .map_err(|error| ServiceControlError::OpenManager(error.to_string()))?;
-    let desired_access = windows_service::service::ServiceAccess::QUERY_STATUS
-        | windows_service::service::ServiceAccess::START
-        | windows_service::service::ServiceAccess::STOP;
+    let rights = match action {
+        ServiceControlAction::Start => ServiceAccess::START,
+        ServiceControlAction::Stop => ServiceAccess::STOP,
+        ServiceControlAction::Restart => ServiceAccess::START | ServiceAccess::STOP,
+    };
     let service = manager
-        .open_service(name, desired_access)
+        .open_service(name, ServiceAccess::QUERY_STATUS | rights)
         .map_err(|error| ServiceControlError::OpenService(error.to_string()))?;
-    match action {
-        ServiceControlAction::Start => {
-            if service
-                .query_status()
-                .is_ok_and(|status| status.current_state == ServiceState::Running)
-            {
-                return Ok(ServiceControlOutcome {
-                    action,
-                    final_state: ServiceState::Running,
-                });
-            }
-            let empty: Vec<String> = Vec::new();
-            service
-                .start(&empty)
-                .map_err(|error| ServiceControlError::RequestFailed {
-                    phase: "start",
-                    detail: error.to_string(),
-                })?;
-            let status = wait_for_state(&service, ServiceState::Running, "start")?;
-            Ok(ServiceControlOutcome {
-                action,
-                final_state: status.current_state,
-            })
-        }
-        ServiceControlAction::Stop => {
-            if service
-                .query_status()
-                .is_ok_and(|status| status.current_state == ServiceState::Stopped)
-            {
-                return Ok(ServiceControlOutcome {
-                    action,
-                    final_state: ServiceState::Stopped,
-                });
-            }
-            service.stop().map_err(|error| ServiceControlError::RequestFailed {
-                phase: "stop",
-                detail: error.to_string(),
-            })?;
-            let status = wait_for_state(&service, ServiceState::Stopped, "stop")?;
-            Ok(ServiceControlOutcome {
-                action,
-                final_state: status.current_state,
-            })
-        }
-        ServiceControlAction::Restart => {
-            if !service
-                .query_status()
-                .is_ok_and(|status| status.current_state == ServiceState::Stopped)
-            {
-                service.stop().map_err(|error| ServiceControlError::RequestFailed {
-                    phase: "restart stop",
-                    detail: error.to_string(),
-                })?;
-                wait_for_state(&service, ServiceState::Stopped, "restart stop")?;
-            }
-
-            let empty: Vec<String> = Vec::new();
-            service
-                .start(&empty)
-                .map_err(|error| ServiceControlError::PartialRestart {
-                    detail: error.to_string(),
-                })?;
-            let status = wait_for_state(&service, ServiceState::Running, "restart start").map_err(|error| {
-                ServiceControlError::PartialRestart {
-                    detail: error.to_string(),
-                }
-            })?;
-            Ok(ServiceControlOutcome {
-                action,
-                final_state: status.current_state,
-            })
-        }
+    let before = service
+        .query_status()
+        .map_err(|error| ServiceControlError::RequestFailed {
+            phase: "query",
+            detail: error.to_string(),
+        })?;
+    let identity = |status: &ServiceStatus| {
+        status
+            .process_id
+            .and_then(|pid| crate::processes::process_identity(pid).ok())
+    };
+    if let Some(undo) = undo {
+        validate_undo(undo, before.current_state, identity(&before))?;
     }
+    if !matches!(before.current_state, ServiceState::Running | ServiceState::Stopped) {
+        return Err(ServiceControlError::RequestFailed {
+            phase: "control",
+            detail: format!(
+                "Cannot apply {action} while service is {:?}; wait for a stable Running/Stopped state",
+                before.current_state
+            ),
+        });
+    }
+    let target = match action {
+        ServiceControlAction::Stop => ServiceState::Stopped,
+        _ => ServiceState::Running,
+    };
+    if before.current_state == target && !matches!(action, ServiceControlAction::Restart) {
+        return Ok(ServiceControlOutcome {
+            action,
+            initial_state: before.current_state,
+            final_state: before.current_state,
+            transitioned: false,
+            final_process: identity(&before),
+        });
+    }
+    let mut stopped = false;
+    if matches!(action, ServiceControlAction::Stop | ServiceControlAction::Restart)
+        && before.current_state == ServiceState::Running
+    {
+        service.stop().map_err(|error| ServiceControlError::RequestFailed {
+            phase: "stop",
+            detail: error.to_string(),
+        })?;
+        wait_for_state(&service, ServiceState::Stopped, "stop")?;
+        stopped = true;
+    }
+    if target == ServiceState::Running {
+        let start_error = |detail: String| {
+            if stopped {
+                ServiceControlError::PartialRestart { detail }
+            } else {
+                ServiceControlError::RequestFailed { phase: "start", detail }
+            }
+        };
+        service
+            .start::<&str>(&[])
+            .map_err(|error| start_error(error.to_string()))?;
+        wait_for_state(&service, ServiceState::Running, "start").map_err(|error| start_error(error.to_string()))?;
+    }
+    let after = service
+        .query_status()
+        .map_err(|error| ServiceControlError::RequestFailed {
+            phase: "final query",
+            detail: error.to_string(),
+        })?;
+    if after.current_state != target {
+        return Err(ServiceControlError::RequestFailed {
+            phase: "final query",
+            detail: format!("Service changed externally to {:?}", after.current_state),
+        });
+    }
+    Ok(ServiceControlOutcome {
+        action,
+        initial_state: before.current_state,
+        final_state: after.current_state,
+        transitioned: true,
+        final_process: identity(&after),
+    })
 }
 
-pub fn get_services() -> Vec<ServiceInfo> {
-    let mut result = Vec::new();
-
-    if let Ok(wmi_con) = WMIConnection::new() {
-        let results: Result<Vec<Win32_Service>, _> =
-            wmi_con.raw_query("SELECT Name, DisplayName, State FROM Win32_Service");
-        if let Ok(services) = results {
-            for svc in services {
-                result.push(ServiceInfo {
-                    name: svc.name,
-                    display_name: svc.display_name.unwrap_or_default(),
-                    state: svc.state,
-                });
-            }
-        }
-    }
-
+pub fn get_services() -> Result<Vec<ServiceInfo>, String> {
+    let connection = WMIConnection::new().map_err(|error| format!("Service inventory unavailable: {error}"))?;
+    let services: Vec<Win32_Service> = connection
+        .raw_query("SELECT Name, DisplayName, State FROM Win32_Service")
+        .map_err(|error| format!("Service inventory query failed: {error}"))?;
+    let mut result: Vec<_> = services
+        .into_iter()
+        .map(|svc| ServiceInfo {
+            display_name: svc.display_name.unwrap_or_else(|| svc.name.clone()),
+            name: svc.name,
+            state: svc.state,
+        })
+        .collect();
     result.sort_by(|a, b| a.display_name.cmp(&b.display_name));
-    result
+    Ok(result)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn noop_service_start_cannot_offer_stop_undo() {
+        let outcome = ServiceControlOutcome {
+            action: ServiceControlAction::Start,
+            initial_state: ServiceState::Running,
+            final_state: ServiceState::Running,
+            transitioned: false,
+            final_process: Some(crate::processes::ProcessIdentity {
+                pid: 99,
+                creation_time: 10,
+            }),
+        };
+        assert!(outcome.undo().is_none());
+    }
+
+    #[test]
+    fn service_undo_refuses_external_restart_or_state_change() {
+        let identity = crate::processes::ProcessIdentity {
+            pid: 99,
+            creation_time: 10,
+        };
+        let outcome = ServiceControlOutcome {
+            action: ServiceControlAction::Start,
+            initial_state: ServiceState::Stopped,
+            final_state: ServiceState::Running,
+            transitioned: true,
+            final_process: Some(identity),
+        };
+        let undo = outcome.undo().unwrap();
+        assert!(validate_undo(&undo, ServiceState::Running, Some(identity)).is_ok());
+        assert!(validate_undo(&undo, ServiceState::Stopped, None).is_err());
+        assert!(
+            validate_undo(
+                &undo,
+                ServiceState::Running,
+                Some(crate::processes::ProcessIdentity {
+                    creation_time: 11,
+                    ..identity
+                })
+            )
+            .is_err()
+        );
+    }
 
     #[test]
     fn test_sort_services_refs() {

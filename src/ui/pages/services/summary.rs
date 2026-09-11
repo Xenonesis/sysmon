@@ -48,7 +48,7 @@ pub(super) fn paint(
     intents: &mut Vec<UiIntent>,
 ) {
     card_frame(is_dark).show(ui, |ui| {
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing.x = 12.0;
             status_pill(
                 ui,
@@ -77,7 +77,7 @@ pub(super) fn paint(
                 );
             }
 
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.horizontal_wrapped(|ui| {
                 if is_elevated {
                     status_pill(ui, "ADMIN ELEVATED", ThemePalette::STATUS_HEALTHY, is_dark);
                 } else {

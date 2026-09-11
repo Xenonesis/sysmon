@@ -227,6 +227,7 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
             alert_type: AlertType::CpuHigh,
             source: AlertSource::Cpu,
             message: "Simulated Test Alert: CPU load threshold exceeded (Diagnostic Test)".to_string(),
+            resolved_at: None,
             value: 95.0,
         });
     }
@@ -270,6 +271,7 @@ mod tests {
                     alert_type: AlertType::CpuHigh,
                     source: AlertSource::Cpu,
                     message: "CPU usage exceeded 90% threshold (94.2%)".into(),
+                    resolved_at: None,
                     value: 94.2,
                 },
                 AlertInfo {
@@ -277,6 +279,7 @@ mod tests {
                     alert_type: AlertType::MemoryHigh,
                     source: AlertSource::Memory,
                     message: "RAM memory usage critical (92.5%)".into(),
+                    resolved_at: None,
                     value: 92.5,
                 },
                 AlertInfo {
@@ -287,6 +290,7 @@ mod tests {
                         name: "Test GPU".into(),
                     },
                     message: "GPU temperature high (88 °C)".into(),
+                    resolved_at: None,
                     value: 88.0,
                 },
                 AlertInfo {
@@ -297,6 +301,7 @@ mod tests {
                         name: "C:\\".into(),
                     },
                     message: "C:\\ disk volume almost full (93.1%)".into(),
+                    resolved_at: None,
                     value: 93.1,
                 },
                 AlertInfo {
@@ -304,6 +309,7 @@ mod tests {
                     alert_type: AlertType::StartupHighImpact,
                     source: AlertSource::Startup,
                     message: "High-impact startup apps detected".into(),
+                    resolved_at: None,
                     value: 3.0,
                 },
             ],

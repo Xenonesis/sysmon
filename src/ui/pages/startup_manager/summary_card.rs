@@ -6,11 +6,14 @@ use eframe::egui;
 
 pub(crate) fn paint_summary_card(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, is_dark: bool) {
     card_frame(is_dark).show(ui, |ui| {
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.heading(egui::RichText::new("Startup Telemetry").color(ThemePalette::text_primary(is_dark)));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui
-                    .button(egui::RichText::new("Refresh").strong())
+                    .add_enabled(
+                        !app.startup_items_loading,
+                        egui::Button::new(egui::RichText::new("Refresh").strong()),
+                    )
                     .on_hover_text("Re-scan startup programs and boot logs")
                     .clicked()
                 {
@@ -27,7 +30,7 @@ pub(crate) fn paint_summary_card(app: &mut crate::SystemMonitorApp, ui: &mut egu
         ui.separator();
 
         // Boot diagnostics benchmark summary readout
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             let total = app.startup_items.len();
             let high = startup::high_impact_count(&app.startup_items);
 

@@ -8,15 +8,11 @@ use std::time::Duration;
 
 pub struct WmiProvider {
     available: bool,
-    cached_data: Option<ProviderData>,
 }
 
 impl WmiProvider {
     pub fn new() -> Self {
-        Self {
-            available: true,
-            cached_data: None,
-        }
+        Self { available: true }
     }
 
     /// Perform a full WMI query and cache the results.
@@ -106,7 +102,6 @@ impl WmiProvider {
             }
         }
 
-        self.cached_data = Some(data.clone());
         Ok(data)
     }
 }
@@ -127,10 +122,6 @@ impl TelemetryProvider for WmiProvider {
     }
 
     fn poll(&mut self) -> Result<ProviderData, ProviderError> {
-        // Return cached data if available (WMI data is static hardware info)
-        if let Some(ref cached) = self.cached_data {
-            return Ok(cached.clone());
-        }
         self.query_hardware_info()
     }
 

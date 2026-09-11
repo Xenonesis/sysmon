@@ -22,17 +22,16 @@ pub(super) fn paint(
     let selected = state.selected_name.as_deref() == Some(service.name.as_str());
     let (row_rect, response) = ui.allocate_exact_size(
         egui::vec2(ui.available_width().max(widths.total), row_height),
-        egui::Sense::click(),
+        egui::Sense::hover(),
     );
-    if response.clicked() {
-        state.toggle_selected(&service.name);
-    }
     paint_background(ui, row_rect, &response, index, selected, is_dark);
 
     ui.new_child(egui::UiBuilder::new().max_rect(row_rect)).scope(|ui| {
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = widths.spacing;
-            paint_display_name(ui, service, selected, widths.display, row_height, is_dark);
+            if paint_display_name(ui, service, selected, widths.display, row_height, is_dark) {
+                state.toggle_selected(&service.name);
+            }
             paint_identifier(ui, service, widths.identifier, row_height, is_dark);
             paint_state(ui, service, widths.state, row_height, is_dark);
             paint_actions(ui, service, widths.actions, row_height, is_dark, is_elevated, intents);
@@ -82,7 +81,7 @@ fn paint_display_name(
     width: f32,
     height: f32,
     is_dark: bool,
-) {
+) -> bool {
     ui.allocate_ui_with_layout(
         egui::vec2(width, height),
         egui::Layout::left_to_right(egui::Align::Center),
@@ -93,13 +92,18 @@ fn paint_display_name(
             } else {
                 ThemePalette::text_primary(is_dark)
             };
-            ui.add(egui::Label::new(egui::RichText::new(&service.display_name).strong().color(color)).truncate())
-                .on_hover_text(format!(
-                    "{}\nClick row to inspect / copy commands",
-                    service.display_name
-                ));
+            ui.add(
+                egui::Button::new(egui::RichText::new(&service.display_name).strong().color(color))
+                    .selected(selected)
+                    .truncate()
+                    .fill(egui::Color32::TRANSPARENT)
+                    .stroke(egui::Stroke::NONE),
+            )
+            .on_hover_text(format!("{}\nInspect / copy commands", service.display_name))
+            .clicked()
         },
-    );
+    )
+    .inner
 }
 
 fn paint_identifier(ui: &mut egui::Ui, service: &ServiceInfo, width: f32, height: f32, is_dark: bool) {

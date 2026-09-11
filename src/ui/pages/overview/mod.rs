@@ -144,17 +144,19 @@ mod tests {
             crate::CpuCoreInfo {
                 core_id: 0,
                 usage: 30.0,
+                frequency_mhz: None,
                 name: "Core 0".to_string(),
             },
             crate::CpuCoreInfo {
                 core_id: 1,
                 usage: 21.0,
+                frequency_mhz: None,
                 name: "Core 1".to_string(),
             },
         ];
         data.gpu_info = vec![crate::GpuInfo {
             name: "NVIDIA RTX 4070".to_string(),
-            utilization: 15.0,
+            utilization: Some(15.0),
             memory_used: Some(2048 * 1024 * 1024),
             memory_total: Some(12288 * 1024 * 1024),
             temperature: Some(42),
@@ -173,6 +175,7 @@ mod tests {
         data.top_processes = vec![crate::processes::ProcessInfo {
             parent_pid: None,
             pid: 1234,
+            identity: None,
             start_time: 0,
             name: "sysmon.exe".to_string(),
             cpu_usage: 1.2,
@@ -180,6 +183,8 @@ mod tests {
             vram_bytes: None,
             disk_read_bytes: 1000,
             disk_written_bytes: 2000,
+            disk_read_bytes_per_second: None,
+            disk_written_bytes_per_second: None,
             status: "Running".to_string(),
         }];
 

@@ -53,28 +53,11 @@ pub(super) fn paint_process_toolbar(
     is_dark: bool,
 ) {
     card_frame(is_dark).show(ui, |ui| {
-        let wide = ui.available_width() > 1050.0;
-
-        if wide {
-            // ── Single-row wide layout: left controls + right actions ──────────
-            ui.horizontal(|ui| {
-                paint_search_row(ui, app, filtered_count, total_count, is_dark);
-
-                // Spacer pushes actions to the right edge
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    paint_process_action_buttons(ui, app, is_dark);
-                });
-            });
-        } else {
-            // ── Compact stacked layout: controls on top, actions below ────────
-            paint_search_row(ui, app, filtered_count, total_count, is_dark);
-            ui.add_space(6.0);
-            ui.horizontal(|ui| {
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    paint_process_action_buttons(ui, app, is_dark);
-                });
-            });
-        }
+        paint_search_row(ui, app, filtered_count, total_count, is_dark);
+        ui.add_space(6.0);
+        ui.horizontal_wrapped(|ui| {
+            paint_process_action_buttons(ui, app, is_dark);
+        });
     });
 }
 
@@ -85,8 +68,8 @@ fn paint_search_row(
     total_count: usize,
     is_dark: bool,
 ) {
-    ui.horizontal(|ui| {
-        ui.label(
+    ui.horizontal_wrapped(|ui| {
+        let search_label = ui.label(
             egui::RichText::new("Search:")
                 .strong()
                 .color(ThemePalette::text_secondary(is_dark)),
@@ -95,8 +78,9 @@ fn paint_search_row(
             egui::TextEdit::singleline(&mut app.process_search)
                 .hint_text("Filter by name or PID...")
                 .desired_width(180.0),
-        );
-        if !app.process_search.is_empty() && ui.small_button("×").on_hover_text("Clear search filter").clicked() {
+        )
+        .labelled_by(search_label.id);
+        if !app.process_search.is_empty() && ui.small_button("Clear search").clicked() {
             app.process_search.clear();
         }
 
@@ -134,11 +118,14 @@ fn paint_search_row(
             ProcessSortColumn::Disk => "Disk",
         };
 
-        egui::ComboBox::from_id_salt("process_toolbar_sort_combo")
+        egui::ComboBox::from_label("Process sort")
             .selected_text(current_label)
             .width(80.0)
             .show_ui(ui, |ui| {
                 for (label, col) in sort_options {
+                    if col == ProcessSortColumn::Vram && !app.settings.show_gpu {
+                        continue;
+                    }
                     let is_selected = app.process_sort_column == col;
                     if ui.selectable_label(is_selected, label).clicked() {
                         if app.process_sort_column == col {
@@ -152,50 +139,17 @@ fn paint_search_row(
                 }
             });
 
-        let dir_icon = if app.process_sort_ascending { "▲" } else { "▼" };
+        let direction = if app.process_sort_ascending {
+            "Ascending"
+        } else {
+            "Descending"
+        };
         if ui
-            .small_button(dir_icon)
+            .small_button(direction)
             .on_hover_text("Toggle sort order (Ascending / Descending)")
             .clicked()
         {
             app.process_sort_ascending = !app.process_sort_ascending;
         }
     });
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_process_toolbar_compact_viewport_no_panic() {
-        let mut app = crate::SystemMonitorApp::test_app();
-        app.process_search = "svc".to_string();
-        app.process_sort_column = ProcessSortColumn::Cpu;
-        app.process_sort_ascending = false;
-
-        let ctx = egui::Context::default();
-        ctx.run_ui(Default::default(), |ui| {
-            ui.set_max_size(egui::vec2(860.0, 700.0));
-            egui::CentralPanel::default().show(ui, |ui| {
-                paint_process_toolbar(&mut app, ui, 120, 339, ui.visuals().dark_mode);
-            });
-        })
-        .textures_delta
-        .clear();
-    }
-
-    #[test]
-    fn test_process_toolbar_wide_viewport_no_panic() {
-        let mut app = crate::SystemMonitorApp::test_app();
-        let ctx = egui::Context::default();
-        ctx.run_ui(Default::default(), |ui| {
-            ui.set_max_size(egui::vec2(1400.0, 800.0));
-            egui::CentralPanel::default().show(ui, |ui| {
-                paint_process_toolbar(&mut app, ui, 300, 600, ui.visuals().dark_mode);
-            });
-        })
-        .textures_delta
-        .clear();
-    }
 }

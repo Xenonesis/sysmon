@@ -203,7 +203,7 @@ pub(crate) fn paint_network_interfaces(ui: &mut egui::Ui, data: &SystemData, is_
     ui.add_space(6.0);
 
     for network in &data.network_info {
-        let is_active = network.received_rate > 0.001 || network.transmitted_rate > 0.001;
+        let is_active = network.received_rate > 1024.0 || network.transmitted_rate > 1024.0;
 
         card_frame(is_dark).show(ui, |ui| {
             // Header row
@@ -262,9 +262,9 @@ pub(crate) fn paint_network_interfaces(ui: &mut egui::Ui, data: &SystemData, is_
                             .size(11.5)
                             .color(ThemePalette::text_secondary(is_dark)),
                     );
-                    let rx_color = if network.received_rate > 10.0 {
+                    let rx_color = if network.received_rate > 10.0 * 1_048_576.0 {
                         ThemePalette::STATUS_CRITICAL
-                    } else if network.received_rate > 1.0 {
+                    } else if network.received_rate > 1_048_576.0 {
                         ThemePalette::STATUS_WARNING
                     } else {
                         ThemePalette::STATUS_HEALTHY
@@ -294,9 +294,9 @@ pub(crate) fn paint_network_interfaces(ui: &mut egui::Ui, data: &SystemData, is_
                             .size(11.5)
                             .color(ThemePalette::text_secondary(is_dark)),
                     );
-                    let tx_color = if network.transmitted_rate > 10.0 {
+                    let tx_color = if network.transmitted_rate > 10.0 * 1_048_576.0 {
                         ThemePalette::STATUS_CRITICAL
-                    } else if network.transmitted_rate > 1.0 {
+                    } else if network.transmitted_rate > 1_048_576.0 {
                         ThemePalette::STATUS_WARNING
                     } else {
                         ThemePalette::STATUS_HEALTHY

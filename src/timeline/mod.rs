@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{self, Sender, SyncSender};
+use std::sync::mpsc::{self, Receiver, Sender, SyncSender, TryRecvError};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 mod export;
@@ -17,7 +17,7 @@ pub(crate) use export::export_window;
 pub(crate) use query::analyze_window;
 use worker::{run_worker, timeline_db_path};
 
-const SCHEMA_VERSION: i64 = 1;
+const SCHEMA_VERSION: i64 = 2;
 const SAMPLE_INTERVAL: Duration = Duration::from_secs(5);
 const MAX_DATABASE_BYTES: u64 = 512 * 1024 * 1024;
 const DAY_MS: i64 = 86_400_000;
@@ -29,15 +29,17 @@ pub(crate) enum TimelineRange {
     SixHours,
     OneDay,
     SevenDays,
+    ThirtyDays,
 }
 
 impl TimelineRange {
-    pub(crate) const ALL: [Self; 5] = [
+    pub(crate) const ALL: [Self; 6] = [
         Self::FifteenMinutes,
         Self::OneHour,
         Self::SixHours,
         Self::OneDay,
         Self::SevenDays,
+        Self::ThirtyDays,
     ];
 
     pub(crate) fn label(self) -> &'static str {
@@ -47,16 +49,18 @@ impl TimelineRange {
             Self::SixHours => "6h",
             Self::OneDay => "24h",
             Self::SevenDays => "7d",
+            Self::ThirtyDays => "30d",
         }
     }
 
-    fn duration_ms(self) -> i64 {
+    pub(crate) fn duration_ms(self) -> i64 {
         match self {
             Self::FifteenMinutes => 15 * 60_000,
             Self::OneHour => 60 * 60_000,
             Self::SixHours => 6 * 60 * 60_000,
             Self::OneDay => DAY_MS,
             Self::SevenDays => 7 * DAY_MS,
+            Self::ThirtyDays => 30 * DAY_MS,
         }
     }
 }
@@ -68,14 +72,6 @@ pub(crate) struct TimelineQuery {
 }
 
 impl TimelineQuery {
-    pub(crate) fn latest(range: TimelineRange) -> Self {
-        let end_ms = now_ms();
-        Self {
-            start_ms: end_ms.saturating_sub(range.duration_ms()),
-            end_ms,
-        }
-    }
-
     fn validated(self) -> Self {
         if self.start_ms <= self.end_ms {
             self
@@ -163,29 +159,90 @@ impl TimelineEvent {
             id: None,
             timestamp_ms: now_ms(),
             kind,
-            source: sanitize_text(source.into(), 128),
-            severity: sanitize_text(severity.into(), 32),
-            summary: sanitize_text(summary.into(), 512),
-            evidence: sanitize_text(evidence.into(), 2_048),
+            source: source.into(),
+            severity: severity.into(),
+            summary: summary.into(),
+            evidence: evidence.into(),
         }
+        .privacy_safe()
     }
 
     pub(crate) fn from_audit(record: &crate::app::actions::ActionAuditRecord) -> Self {
         let timestamp_ms = chrono::DateTime::parse_from_rfc3339(&record.timestamp)
             .map(|timestamp| timestamp.timestamp_millis())
             .unwrap_or_else(|_| now_ms());
-        Self {
-            id: None,
-            timestamp_ms,
-            kind: if record.succeeded {
+        let mut event = Self::new(
+            if record.succeeded {
                 TimelineEventKind::ActionSucceeded
             } else {
                 TimelineEventKind::ActionFailed
             },
-            source: "guarded_action".into(),
-            severity: record.risk.label().to_ascii_lowercase(),
-            summary: sanitize_text(record.action.clone(), 512),
-            evidence: sanitize_text(record.message.clone(), 2_048),
+            "guarded_action",
+            record.risk.label().to_ascii_lowercase(),
+            "",
+            "",
+        );
+        event.timestamp_ms = timestamp_ms;
+        event.evidence = serde_json::json!({
+            "version": 1,
+            "initiator": if record.initiator == "automatic policy" { "automatic policy" } else { "user" }
+        })
+        .to_string();
+        event
+    }
+
+    /// Never retain arbitrary producer text, including errors and legacy payloads.
+    pub(crate) fn privacy_safe(&self) -> Self {
+        let (source, summary) = match self.kind {
+            TimelineEventKind::AlertTriggered => ("alerts", "Resource alert triggered"),
+            TimelineEventKind::AlertResolved => ("alerts", "Resource alert resolved"),
+            TimelineEventKind::ActionSucceeded => ("guarded_action", "Guarded action succeeded"),
+            TimelineEventKind::ActionFailed => ("guarded_action", "Guarded action failed"),
+            TimelineEventKind::ProviderUnavailable => ("telemetry", "Telemetry provider unavailable"),
+            TimelineEventKind::ProviderRecovered => ("telemetry", "Telemetry provider recovered"),
+            TimelineEventKind::MonitoringPaused => ("monitoring", "Monitoring paused"),
+            TimelineEventKind::MonitoringResumed => ("monitoring", "Monitoring resumed"),
+            TimelineEventKind::PowerChanged => ("power", "Power state changed"),
+            TimelineEventKind::ServiceChanged => ("services", "Service inventory changed"),
+            TimelineEventKind::StartupChanged => ("startup", "Startup inventory changed"),
+            TimelineEventKind::System => ("system", "System event"),
+        };
+        let payload = serde_json::from_str::<serde_json::Value>(&self.evidence).ok();
+        let mut evidence = serde_json::json!({"version": 1});
+        if let Some(payload) = payload.filter(|p| p.get("version").and_then(|v| v.as_u64()) == Some(1)) {
+            if matches!(
+                self.kind,
+                TimelineEventKind::ActionSucceeded | TimelineEventKind::ActionFailed
+            ) && let Some(initiator @ ("user" | "automatic policy")) =
+                payload.get("initiator").and_then(|v| v.as_str())
+            {
+                evidence["initiator"] = initiator.into();
+            }
+            if matches!(
+                self.kind,
+                TimelineEventKind::ServiceChanged | TimelineEventKind::StartupChanged
+            ) {
+                for key in ["added", "removed", "changed"] {
+                    if let Some(count) = payload.get(key).and_then(|v| v.as_u64()) {
+                        evidence[key] = count.into();
+                    }
+                }
+            }
+        }
+        Self {
+            id: self.id,
+            timestamp_ms: self.timestamp_ms,
+            kind: self.kind,
+            source: source.into(),
+            severity: match self.severity.as_str() {
+                "info" | "low" => "info",
+                "warning" | "medium" => "warning",
+                "critical" | "high" => "critical",
+                _ => "info",
+            }
+            .into(),
+            summary: summary.into(),
+            evidence: evidence.to_string(),
         }
     }
 }
@@ -243,6 +300,8 @@ pub(crate) struct TimelineWindow {
     pub(crate) metrics: Vec<TimelineMetricSample>,
     pub(crate) processes: Vec<TimelineProcessSample>,
     pub(crate) events: Vec<TimelineEvent>,
+    pub(crate) total_events: u64,
+    pub(crate) events_offset: u64,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -256,8 +315,11 @@ pub(crate) struct TimelineStatus {
 
 pub(crate) struct TimelineUiState {
     pub(crate) range: TimelineRange,
-    pub(crate) window: Option<TimelineWindow>,
+    pub(crate) window: Option<Arc<TimelineWindow>>,
     pub(crate) selected_timestamp_ms: Option<i64>,
+    pub(crate) selected_event_id: Option<i64>,
+    pub(crate) range_end_ms: Option<i64>,
+    pub(crate) events_offset: u64,
     pub(crate) last_refresh: Option<Instant>,
     pub(crate) clear_confirmation: bool,
     pub(crate) message: Option<String>,
@@ -272,6 +334,9 @@ impl Default for TimelineUiState {
             range: TimelineRange::OneHour,
             window: None,
             selected_timestamp_ms: None,
+            selected_event_id: None,
+            range_end_ms: None,
+            events_offset: 0,
             last_refresh: None,
             clear_confirmation: false,
             message: None,
@@ -280,6 +345,65 @@ impl Default for TimelineUiState {
             startup_states: None,
         }
     }
+}
+
+impl TimelineUiState {
+    pub(crate) fn query(&self) -> TimelineQuery {
+        let end_ms = self.range_end_ms.unwrap_or_else(now_ms);
+        TimelineQuery {
+            start_ms: end_ms.saturating_sub(self.range.duration_ms()),
+            end_ms,
+        }
+    }
+
+    pub(crate) fn service_inventory_event(
+        &mut self,
+        current: Option<HashMap<String, String>>,
+    ) -> Option<TimelineEvent> {
+        inventory_event(&mut self.service_states, current?, TimelineEventKind::ServiceChanged)
+    }
+
+    pub(crate) fn startup_inventory_event(&mut self, current: Option<HashMap<String, bool>>) -> Option<TimelineEvent> {
+        inventory_event(&mut self.startup_states, current?, TimelineEventKind::StartupChanged)
+    }
+}
+
+fn inventory_event<T: PartialEq>(
+    previous: &mut Option<HashMap<String, T>>,
+    current: HashMap<String, T>,
+    kind: TimelineEventKind,
+) -> Option<TimelineEvent> {
+    let old = previous.replace(current)?;
+    let current = previous.as_ref()?;
+    let added = current.keys().filter(|key| !old.contains_key(*key)).count();
+    let removed = old.keys().filter(|key| !current.contains_key(*key)).count();
+    let changed = current
+        .iter()
+        .filter(|(key, value)| old.get(*key).is_some_and(|old| old != *value))
+        .count();
+    if added + removed + changed == 0 {
+        return None;
+    }
+    let mut event = TimelineEvent::new(kind, "", "info", "", "");
+    event.evidence =
+        serde_json::json!({"version": 1, "added": added, "removed": removed, "changed": changed}).to_string();
+    Some(event)
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+pub(crate) struct IncidentSelection {
+    pub(crate) query: TimelineQuery,
+    pub(crate) timestamp_ms: i64,
+    pub(crate) event_id: Option<i64>,
+    pub(crate) events_offset: u64,
+}
+
+#[derive(Default)]
+struct QueryState {
+    generation: u64,
+    active: Option<(u64, Receiver<Result<TimelineWindow, String>>)>,
+    desired: Option<(TimelineQuery, u64)>,
+    result: Option<Result<TimelineWindow, String>>,
 }
 
 pub(crate) enum TimelineCommand {
@@ -291,14 +415,17 @@ pub(crate) enum TimelineCommand {
     },
     Query {
         query: TimelineQuery,
+        events_offset: u64,
         reply: SyncSender<Result<TimelineWindow, String>>,
     },
     Export {
-        query: TimelineQuery,
+        selection: IncidentSelection,
         destination: PathBuf,
         reply: SyncSender<Result<PathBuf, String>>,
     },
-    Clear,
+    Clear {
+        reply: SyncSender<Result<(), String>>,
+    },
     Shutdown,
 }
 
@@ -306,13 +433,15 @@ pub(crate) enum TimelineCommand {
 pub(crate) struct TimelineHandle {
     sender: Sender<TimelineCommand>,
     status: Arc<Mutex<TimelineStatus>>,
-    query_result: Arc<Mutex<Option<Result<TimelineWindow, String>>>>,
-    query_in_flight: Arc<AtomicBool>,
+    query: Arc<Mutex<QueryState>>,
+    clear_result: ClearResultSlot,
+    monitoring_paused: Arc<Mutex<bool>>,
     export_result: Arc<Mutex<Option<Result<PathBuf, String>>>>,
     export_in_flight: Arc<AtomicBool>,
     last_snapshot_queued: Arc<Mutex<Option<Instant>>>,
 }
 
+type ClearResultSlot = Arc<Mutex<Option<Receiver<Result<(), String>>>>>;
 impl TimelineHandle {
     pub(crate) fn start(enabled: bool, retention_days: u16) -> Self {
         Self::start_at(timeline_db_path(), enabled, retention_days)
@@ -339,8 +468,9 @@ impl TimelineHandle {
         Self {
             sender,
             status,
-            query_result: Arc::new(Mutex::new(None)),
-            query_in_flight: Arc::new(AtomicBool::new(false)),
+            query: Arc::new(Mutex::new(QueryState::default())),
+            clear_result: Arc::new(Mutex::new(None)),
+            monitoring_paused: Arc::new(Mutex::new(false)),
             export_result: Arc::new(Mutex::new(None)),
             export_in_flight: Arc::new(AtomicBool::new(false)),
             last_snapshot_queued: Arc::new(Mutex::new(None)),
@@ -370,6 +500,24 @@ impl TimelineHandle {
         }
     }
 
+    pub(crate) fn record_monitoring_transition(&self, paused: bool) {
+        let mut previous = self.monitoring_paused.lock();
+        if *previous != paused {
+            *previous = paused;
+            self.record_event(TimelineEvent::new(
+                if paused {
+                    TimelineEventKind::MonitoringPaused
+                } else {
+                    TimelineEventKind::MonitoringResumed
+                },
+                "monitoring",
+                "info",
+                "",
+                "",
+            ));
+        }
+    }
+
     pub(crate) fn set_policy(&self, enabled: bool, retention_days: u16) {
         let retention_days = validate_retention(retention_days);
         {
@@ -387,46 +535,68 @@ impl TimelineHandle {
     }
 
     pub(crate) fn request_window(&self, query: TimelineQuery) {
-        if self.query_in_flight.swap(true, Ordering::AcqRel) {
+        self.request_window_page(query, 0);
+    }
+
+    pub(crate) fn request_window_page(&self, query: TimelineQuery, offset: u64) {
+        let mut state = self.query.lock();
+        state.generation = state.generation.wrapping_add(1);
+        state.result = None;
+        state.desired = Some((query.validated(), offset));
+        if !self.clear_in_flight() {
+            self.dispatch_query(&mut state);
+        }
+    }
+
+    fn dispatch_query(&self, state: &mut QueryState) {
+        if state.active.is_some() {
             return;
         }
-        let sender = self.sender.clone();
-        let result_slot = self.query_result.clone();
-        let in_flight = self.query_in_flight.clone();
-        let spawn = std::thread::Builder::new()
-            .name("timeline_query".into())
-            .spawn(move || {
-                let (reply, receiver) = mpsc::sync_channel(1);
-                let result = sender
-                    .send(TimelineCommand::Query {
-                        query: query.validated(),
-                        reply,
-                    })
-                    .map_err(|_| "Timeline worker is unavailable".to_string())
-                    .and_then(|_| {
-                        receiver
-                            .recv()
-                            .map_err(|_| "Timeline query was interrupted".to_string())
-                    })
-                    .and_then(|result| result);
-                *result_slot.lock() = Some(result);
-                in_flight.store(false, Ordering::Release);
-            });
-        if spawn.is_err() {
-            self.query_in_flight.store(false, Ordering::Release);
-            *self.query_result.lock() = Some(Err("Could not start timeline query".into()));
+        if let Some((query, events_offset)) = state.desired.take() {
+            let (reply, receiver) = mpsc::sync_channel(1);
+            if self
+                .sender
+                .send(TimelineCommand::Query {
+                    query,
+                    events_offset,
+                    reply,
+                })
+                .is_err()
+            {
+                state.result = Some(Err("Timeline worker is unavailable".into()));
+            } else {
+                state.active = Some((state.generation, receiver));
+            }
         }
     }
 
     pub(crate) fn query_in_flight(&self) -> bool {
-        self.query_in_flight.load(Ordering::Acquire)
+        let state = self.query.lock();
+        state.active.is_some() || state.desired.is_some()
     }
 
     pub(crate) fn take_query_result(&self) -> Option<Result<TimelineWindow, String>> {
-        self.query_result.lock().take()
+        let mut state = self.query.lock();
+        if let Some((generation, receiver)) = &state.active {
+            let result = match receiver.try_recv() {
+                Ok(result) => Some(result),
+                Err(TryRecvError::Disconnected) => Some(Err("Timeline query was interrupted".into())),
+                Err(TryRecvError::Empty) => None,
+            };
+            if let Some(result) = result {
+                if *generation == state.generation {
+                    state.result = Some(result);
+                }
+                state.active = None;
+            }
+        }
+        if !self.clear_in_flight() {
+            self.dispatch_query(&mut state);
+        }
+        state.result.take()
     }
 
-    pub(crate) fn request_export(&self, query: TimelineQuery, destination: PathBuf) {
+    pub(crate) fn request_export(&self, selection: IncidentSelection, destination: PathBuf) {
         if self.export_in_flight.swap(true, Ordering::AcqRel) {
             return;
         }
@@ -439,7 +609,7 @@ impl TimelineHandle {
                 let (reply, receiver) = mpsc::sync_channel(1);
                 let result = sender
                     .send(TimelineCommand::Export {
-                        query: query.validated(),
+                        selection,
                         destination,
                         reply,
                     })
@@ -468,7 +638,40 @@ impl TimelineHandle {
     }
 
     pub(crate) fn clear(&self) {
-        let _ = self.sender.send(TimelineCommand::Clear);
+        // Lock order matches query polling. Reject every result begun before this request.
+        let mut state = self.query.lock();
+        let mut pending = self.clear_result.lock();
+        if pending.is_some() {
+            return;
+        }
+        state.generation = state.generation.wrapping_add(1);
+        state.result = None;
+        state.desired = None;
+        let (reply, receiver) = mpsc::sync_channel(1);
+        if self
+            .sender
+            .send(TimelineCommand::Clear { reply: reply.clone() })
+            .is_err()
+        {
+            let _ = reply.send(Err("Timeline worker is unavailable".into()));
+        }
+        *pending = Some(receiver);
+    }
+
+    pub(crate) fn clear_in_flight(&self) -> bool {
+        self.clear_result.lock().is_some()
+    }
+
+    pub(crate) fn take_clear_result(&self) -> Option<Result<(), String>> {
+        let mut pending = self.clear_result.lock();
+        let receiver = pending.as_ref()?;
+        let result = match receiver.try_recv() {
+            Ok(result) => result,
+            Err(TryRecvError::Empty) => return None,
+            Err(TryRecvError::Disconnected) => Err("Timeline clear was interrupted".into()),
+        };
+        *pending = None;
+        Some(result)
     }
 
     pub(crate) fn shutdown(&self) {
@@ -537,6 +740,7 @@ mod tests {
             processes: vec![ProcessSnapshot {
                 pid: 42,
                 start_time: 1234,
+                identity: None,
                 name: "worker.exe".into(),
                 cpu_usage: 50.0,
                 memory: 100,
@@ -635,10 +839,12 @@ mod tests {
             "GPU telemetry recovered",
             "The provider returned a valid sample.",
         );
-        let encoded = serde_json::to_string(&event).unwrap();
+        let safe = event.privacy_safe();
+        let encoded = serde_json::to_string(&safe).unwrap();
         let decoded: TimelineEvent = serde_json::from_str(&encoded).unwrap();
         assert_eq!(decoded.kind, TimelineEventKind::ProviderRecovered);
-        assert_eq!(decoded.source, "gpu");
+        assert_eq!(decoded.source, "telemetry");
+        assert_eq!(decoded.summary, "Telemetry provider recovered");
     }
 
     #[test]

@@ -39,7 +39,13 @@ impl SystemMonitorApp {
         // GPU
         for gpu in &data.gpu_info {
             wtr.write_record(["GPU", "Name", &gpu.name])?;
-            wtr.write_record(["GPU", "Usage %", &format!("{:.2}", gpu.utilization)])?;
+            wtr.write_record([
+                "GPU",
+                "Usage %",
+                &gpu.utilization
+                    .map(|v| format!("{v:.2}"))
+                    .unwrap_or_else(|| "N/A".into()),
+            ])?;
             if let Some(temp) = gpu.temperature {
                 wtr.write_record(["GPU", "Temperature C", &format!("{}", temp)])?;
             }
@@ -126,12 +132,13 @@ impl SystemMonitorApp {
         Ok(serde_json::to_string_pretty(&export)?)
     }
 
-    pub fn queue_action(&mut self, command: crate::app::commands::ActionCommand) {
+    pub fn queue_action(&mut self, command: crate::app::commands::ActionCommand) -> bool {
         if self.action_pending || self.pending_action_plan.is_some() {
             self.action_status = Some("Another system action is already pending.".into());
-            return;
+            return false;
         }
         self.pending_action_plan = Some(crate::app::actions::ActionPlan::from_command(command));
+        true
     }
 
     pub fn start_ram_clean(&mut self, _ctx: &egui::Context) {
@@ -152,6 +159,7 @@ mod csv_export_tests {
             top_processes: vec![crate::processes::ProcessInfo {
                 pid: 1234,
                 start_time: 0,
+                identity: None,
                 name: "test_a.exe".into(),
                 parent_pid: Some(4),
                 cpu_usage: 3.2,
@@ -160,6 +168,8 @@ mod csv_export_tests {
                 status: "Running".into(),
                 disk_read_bytes: 0,
                 disk_written_bytes: 0,
+                disk_read_bytes_per_second: None,
+                disk_written_bytes_per_second: None,
             }],
             ..Default::default()
         };

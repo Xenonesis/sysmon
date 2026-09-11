@@ -11,6 +11,11 @@ use std::time::{Duration, Instant};
 pub struct MetricPoint {
     pub timestamp: Instant,
     pub value: f64,
+    minimum: f64,
+    maximum: f64,
+    sum: f64,
+    count: u64,
+    peak_time: Instant,
 }
 
 /// Running statistics over a metric history window.
@@ -52,7 +57,13 @@ impl MetricHistory {
     /// Push a new metric value. Automatically evicts the oldest point
     /// if the buffer is at capacity.
     pub fn push(&mut self, value: f64) {
-        let now = Instant::now();
+        self.push_at(value, Instant::now());
+    }
+
+    pub fn push_at(&mut self, value: f64, now: Instant) {
+        if !value.is_finite() || self.capacity == 0 {
+            return;
+        }
 
         // Evict oldest if at capacity
         if self.buffer.len() >= self.capacity
@@ -61,7 +72,15 @@ impl MetricHistory {
             self.sum -= old.value;
         }
 
-        self.buffer.push_back(MetricPoint { timestamp: now, value });
+        self.buffer.push_back(MetricPoint {
+            timestamp: now,
+            value,
+            minimum: value,
+            maximum: value,
+            sum: value,
+            count: 1,
+            peak_time: now,
+        });
 
         // Update running statistics. Min/max are recalculated from the bounded
         // window so evicted peaks do not leak into current-window summaries.
@@ -69,6 +88,27 @@ impl MetricHistory {
         self.stats.current = value;
         self.stats.sample_count += 1;
         self.recalculate_window_stats();
+    }
+
+    fn push_bucket(&mut self, value: f64, now: Instant, width: Duration) {
+        if !value.is_finite() {
+            return;
+        }
+        if let Some(point) = self.buffer.back_mut()
+            && now.saturating_duration_since(point.timestamp) < width
+        {
+            point.value = value;
+            point.minimum = point.minimum.min(value);
+            if value > point.maximum {
+                point.maximum = value;
+                point.peak_time = now;
+            }
+            point.sum += value;
+            point.count += 1;
+            self.recalculate_window_stats();
+        } else {
+            self.push_at(value, now);
+        }
     }
 
     /// Current running statistics.
@@ -127,7 +167,11 @@ impl MetricHistory {
 
     /// Trim entries older than the given duration from now.
     pub fn trim_older_than(&mut self, max_age: std::time::Duration) {
-        let Some(cutoff) = Instant::now().checked_sub(max_age) else {
+        self.trim_at(Instant::now(), max_age);
+    }
+
+    pub fn trim_at(&mut self, now: Instant, max_age: Duration) {
+        let Some(cutoff) = now.checked_sub(max_age) else {
             return;
         };
         while let Some(front) = self.buffer.front() {
@@ -144,6 +188,7 @@ impl MetricHistory {
 
     fn recalculate_window_stats(&mut self) {
         if self.buffer.is_empty() {
+            self.stats.sample_count = 0;
             self.stats.current = 0.0;
             self.stats.min = 0.0;
             self.stats.max = 0.0;
@@ -153,13 +198,15 @@ impl MetricHistory {
         }
 
         self.stats.current = self.buffer.back().map_or(0.0, |point| point.value);
-        self.stats.avg = self.sum / self.buffer.len() as f64;
-        if let Some(minimum) = self.buffer.iter().min_by(|a, b| a.value.total_cmp(&b.value)) {
-            self.stats.min = minimum.value;
+        self.stats.sample_count = self.buffer.iter().map(|p| p.count).sum();
+        self.sum = self.buffer.iter().map(|p| p.sum).sum();
+        self.stats.avg = self.sum / self.stats.sample_count as f64;
+        if let Some(minimum) = self.buffer.iter().min_by(|a, b| a.minimum.total_cmp(&b.minimum)) {
+            self.stats.min = minimum.minimum;
         }
-        if let Some(maximum) = self.buffer.iter().max_by(|a, b| a.value.total_cmp(&b.value)) {
-            self.stats.max = maximum.value;
-            self.stats.peak_time = Some(maximum.timestamp);
+        if let Some(maximum) = self.buffer.iter().max_by(|a, b| a.maximum.total_cmp(&b.maximum)) {
+            self.stats.max = maximum.maximum;
+            self.stats.peak_time = Some(maximum.peak_time);
         }
     }
 }
@@ -175,44 +222,36 @@ pub struct MultiResolutionHistory {
     pub long: MetricHistory,
     /// Last hour (~0.1Hz = 360 points)
     pub extended: MetricHistory,
-    last_medium: Option<Instant>,
-    last_long: Option<Instant>,
-    last_extended: Option<Instant>,
 }
 
 impl MultiResolutionHistory {
     pub fn new() -> Self {
         Self {
-            short: MetricHistory::new(300),    // 60s @ 5Hz
-            medium: MetricHistory::new(300),   // 5min @ 1Hz
-            long: MetricHistory::new(360),     // 30min @ 0.2Hz
-            extended: MetricHistory::new(360), // 1hr @ 0.1Hz
-            last_medium: None,
-            last_long: None,
-            last_extended: None,
+            short: MetricHistory::new(301),
+            medium: MetricHistory::new(301),
+            long: MetricHistory::new(361),
+            extended: MetricHistory::new(361),
         }
     }
 
     /// Push at the native rate and downsample longer windows automatically.
     pub fn push(&mut self, value: f64) {
-        let now = Instant::now();
-        self.short.push(value);
-        if Self::due(self.last_medium, now, Duration::from_secs(1)) {
-            self.medium.push(value);
-            self.last_medium = Some(now);
-        }
-        if Self::due(self.last_long, now, Duration::from_secs(5)) {
-            self.long.push(value);
-            self.last_long = Some(now);
-        }
-        if Self::due(self.last_extended, now, Duration::from_secs(10)) {
-            self.extended.push(value);
-            self.last_extended = Some(now);
-        }
+        self.push_at(value, Instant::now());
     }
 
-    fn due(previous: Option<Instant>, now: Instant, interval: Duration) -> bool {
-        previous.is_none_or(|sampled| now.saturating_duration_since(sampled) >= interval)
+    pub fn push_at(&mut self, value: f64, now: Instant) {
+        self.short.push_at(value, now);
+        self.medium.push_bucket(value, now, Duration::from_secs(1));
+        self.long.push_bucket(value, now, Duration::from_secs(5));
+        self.extended.push_bucket(value, now, Duration::from_secs(10));
+        self.trim_at(now);
+    }
+
+    pub fn trim_at(&mut self, now: Instant) {
+        self.short.trim_at(now, Duration::from_secs(60));
+        self.medium.trim_at(now, Duration::from_secs(300));
+        self.long.trim_at(now, Duration::from_secs(1800));
+        self.extended.trim_at(now, Duration::from_secs(3600));
     }
 }
 
@@ -225,6 +264,30 @@ impl Default for MultiResolutionHistory {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn elapsed_windows_evict_after_gaps_and_keep_bucket_peaks() {
+        let start = Instant::now();
+        for step_ms in [200, 1000] {
+            let mut history = MultiResolutionHistory::new();
+            for elapsed in (0..=120_000).step_by(step_ms) {
+                history.push_at(
+                    if elapsed == 60_000 { 99.0 } else { 1.0 },
+                    start + Duration::from_millis(elapsed as u64),
+                );
+            }
+            assert!(
+                history
+                    .short
+                    .iter()
+                    .all(|p| p.timestamp >= start + Duration::from_secs(60))
+            );
+            assert_eq!(history.long.stats().max, 99.0);
+            history.trim_at(start + Duration::from_secs(4000));
+            assert_eq!(history.short.stats().sample_count, 0);
+            assert_eq!(history.extended.stats().sample_count, 0);
+        }
+    }
 
     #[test]
     fn push_and_stats() {
@@ -275,15 +338,6 @@ mod tests {
         for (age, _) in &data {
             assert!(*age <= 0.0);
         }
-    }
-
-    #[test]
-    fn multi_resolution_creates_all_tiers() {
-        let mr = MultiResolutionHistory::new();
-        assert_eq!(mr.short.capacity(), 300);
-        assert_eq!(mr.medium.capacity(), 300);
-        assert_eq!(mr.long.capacity(), 360);
-        assert_eq!(mr.extended.capacity(), 360);
     }
 
     #[test]

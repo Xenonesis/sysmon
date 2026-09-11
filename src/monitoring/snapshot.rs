@@ -3,17 +3,48 @@ use std::time::SystemTime;
 
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MetricState {
+    Available,
+    #[default]
+    Unsupported,
+    Error,
+    Stale,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MetricObservation {
+    pub observed_at: Option<SystemTime>,
+    pub state: MetricState,
+    pub error: Option<String>,
+}
+
+impl MetricObservation {
+    pub fn available(observed_at: SystemTime) -> Self {
+        Self {
+            observed_at: Some(observed_at),
+            state: MetricState::Available,
+            error: None,
+        }
+    }
+
+    pub fn is_fresh(&self) -> bool {
+        self.state == MetricState::Available && self.observed_at.is_some()
+    }
+}
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProviderStatus {
     pub available: bool,
     pub stale: bool,
     pub error: Option<String>,
+    #[serde(default)]
+    pub observed_at: Option<SystemTime>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct GpuSnapshot {
     pub name: String,
-    pub utilization: f32,
+    pub utilization: Option<f32>,
     pub memory_used: Option<u64>,
     pub memory_total: Option<u64>,
     pub temperature: Option<u32>,
@@ -30,8 +61,8 @@ pub struct DiskSnapshot {
     pub available_space: u64,
     pub usage_percentage: f32,
     pub file_system: String,
-    pub read_bytes_per_second: f64,
-    pub written_bytes_per_second: f64,
+    pub read_bytes_per_second: Option<f64>,
+    pub written_bytes_per_second: Option<f64>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -47,6 +78,8 @@ pub struct NetworkSnapshot {
 pub struct ProcessSnapshot {
     pub pid: u32,
     pub start_time: u64,
+    #[serde(default)]
+    pub identity: Option<crate::processes::ProcessIdentity>,
     pub name: String,
     pub cpu_usage: f32,
     pub memory: u64,
@@ -79,6 +112,8 @@ pub struct SystemInfoSnapshot {
     pub hostname: String,
     pub uptime: u64,
     pub cpu_count: usize,
+    #[serde(default)]
+    pub physical_core_count: Option<usize>,
     pub cpu_brand: String,
     pub motherboard: Option<String>,
     pub bios_version: Option<String>,
@@ -89,6 +124,12 @@ pub struct SystemInfoSnapshot {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SystemSnapshot {
     pub sampled_at: SystemTime,
+    #[serde(default)]
+    pub disk_read_bytes_per_second: Option<f64>,
+    #[serde(default)]
+    pub disk_written_bytes_per_second: Option<f64>,
+    #[serde(default)]
+    pub metric_status: HashMap<String, MetricObservation>,
     pub cpu_usage: f32,
     pub cpu_cores: Vec<f32>,
     pub cpu_temperature: Option<f32>,
@@ -110,6 +151,9 @@ impl Default for SystemSnapshot {
     fn default() -> Self {
         Self {
             sampled_at: SystemTime::UNIX_EPOCH,
+            disk_read_bytes_per_second: None,
+            disk_written_bytes_per_second: None,
+            metric_status: HashMap::new(),
             cpu_usage: 0.0,
             cpu_cores: Vec::new(),
             cpu_temperature: None,

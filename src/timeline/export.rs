@@ -3,21 +3,51 @@ use super::*;
 use chrono::Utc;
 use std::path::{Path, PathBuf};
 
-pub(crate) fn export_window(window: &TimelineWindow, destination: &Path) -> Result<PathBuf, String> {
+pub(crate) fn export_window(
+    window: &TimelineWindow,
+    selection: IncidentSelection,
+    destination: &Path,
+) -> Result<PathBuf, String> {
+    if window.query != selection.query
+        || window.events_offset != selection.events_offset
+        || selection.timestamp_ms < window.query.start_ms
+        || selection.timestamp_ms > window.query.end_ms
+        || selection.event_id.is_some_and(|id| {
+            !window
+                .events
+                .iter()
+                .any(|event| event.id == Some(id) && event.timestamp_ms == selection.timestamp_ms)
+        })
+    {
+        return Err("Export selection no longer matches the displayed incident".into());
+    }
     std::fs::create_dir_all(destination).map_err(|error| format!("Could not create export directory: {error}"))?;
-    let directory = destination.join(format!("sysmon-incident-{}", Utc::now().format("%Y%m%d-%H%M%S")));
+    let directory = destination.join(format!("sysmon-incident-{}", Utc::now().format("%Y%m%d-%H%M%S-%f")));
     std::fs::create_dir(&directory).map_err(|error| format!("Could not create incident directory: {error}"))?;
 
-    let selected = window
-        .events
-        .first()
-        .map_or(window.query.end_ms, |event| event.timestamp_ms);
-    let analysis = analyze_window(window, selected);
-    let summary =
-        serde_json::to_vec_pretty(&analysis).map_err(|error| format!("Could not encode incident summary: {error}"))?;
+    let mut analysis = analyze_window(window, selection.timestamp_ms);
+    for contributor in &mut analysis.contributors {
+        contributor.name = super::records::safe_process_name(&contributor.name);
+    }
+    let summary = serde_json::to_vec_pretty(&serde_json::json!({
+        "format_version": 2,
+        "selection": selection,
+        "analysis": analysis,
+        "event_scope": {
+            "total_in_range": window.total_events,
+            "exported": window.events.len(),
+            "offset": window.events_offset,
+            "page_limit": 500,
+            "truncated": window.total_events > window.events.len() as u64,
+        },
+        "process_scope": "Near displayed events and latest recorded metric only; not a full process history",
+        "privacy": "Allowlisted event metadata; raw action/provider errors and legacy event text removed"
+    }))
+    .map_err(|error| format!("Could not encode incident summary: {error}"))?;
     std::fs::write(directory.join("summary.json"), summary)
         .map_err(|error| format!("Could not write incident summary: {error}"))?;
-    let events = serde_json::to_vec_pretty(&window.events)
+    let safe_events: Vec<_> = window.events.iter().map(TimelineEvent::privacy_safe).collect();
+    let events = serde_json::to_vec_pretty(&safe_events)
         .map_err(|error| format!("Could not encode incident events: {error}"))?;
     std::fs::write(directory.join("events.json"), events)
         .map_err(|error| format!("Could not write incident events: {error}"))?;
@@ -80,7 +110,7 @@ pub(crate) fn export_window(window: &TimelineWindow, destination: &Path) -> Resu
                 timestamp_rfc3339(process.timestamp_ms),
                 process.pid,
                 process.start_time,
-                &process.name,
+                super::records::safe_process_name(&process.name),
                 process.cpu_pct,
                 process.memory_bytes,
                 process.disk_read_bytes,

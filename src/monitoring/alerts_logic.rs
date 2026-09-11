@@ -14,6 +14,7 @@ impl SystemMonitor {
                 alert_type: AlertType::CpuHigh,
                 source: AlertSource::Cpu,
                 message: format!("CPU usage is high: {:.1}%", data.cpu_usage),
+                resolved_at: None,
                 value: data.cpu_usage,
             });
         }
@@ -25,6 +26,7 @@ impl SystemMonitor {
                 alert_type: AlertType::MemoryHigh,
                 source: AlertSource::Memory,
                 message: format!("Memory usage is high: {:.1}%", data.memory_percentage),
+                resolved_at: None,
                 value: data.memory_percentage,
             });
         }
@@ -42,6 +44,7 @@ impl SystemMonitor {
                         name: gpu.name.clone(),
                     },
                     message: format!("GPU temperature is high: {}°C ({})", temp, gpu.name),
+                    resolved_at: None,
                     value: temp as f32,
                 });
             }
@@ -58,6 +61,7 @@ impl SystemMonitor {
                         name: disk.name.clone(),
                     },
                     message: format!("Disk {} is almost full: {:.1}%", disk.name, disk.usage_percentage),
+                    resolved_at: None,
                     value: disk.usage_percentage,
                 });
             }
@@ -73,6 +77,7 @@ impl SystemMonitor {
                     "{} startup item(s) have High impact on boot time",
                     data.high_impact_startup_count
                 ),
+                resolved_at: None,
                 value: data.high_impact_startup_count as f32,
             });
         }
@@ -127,6 +132,6 @@ mod alert_tests {
                 name: "Data".into(),
             }
         );
-        assert_eq!(alerts[0].key(), "disk:D:\\");
+        assert_eq!(alerts[0].key(), "DiskSpaceLow:disk:D:\\");
     }
 }

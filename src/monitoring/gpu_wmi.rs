@@ -13,7 +13,7 @@ impl SystemMonitor {
             for i in 0..device_count {
                 if let Ok(device) = nvml.device_by_index(i) {
                     let name = device.name().unwrap_or_else(|_| "Unknown GPU".to_string());
-                    let utilization = device.utilization_rates().map(|u| u.gpu).unwrap_or(0);
+                    let utilization = device.utilization_rates().ok().map(|u| u.gpu as f32);
                     let memory = device.memory_info().ok();
                     let temperature = device
                         .temperature(nvml_wrapper::enum_wrappers::device::TemperatureSensor::Gpu)
@@ -27,7 +27,7 @@ impl SystemMonitor {
                     nvml_names.push(name.clone());
                     gpus.push(GpuInfo {
                         name,
-                        utilization: utilization as f32,
+                        utilization,
                         memory_used: memory.as_ref().map(|m| m.used),
                         memory_total: memory.as_ref().map(|m| m.total),
                         temperature,
@@ -94,66 +94,10 @@ impl SystemMonitor {
                 _ => None,
             });
 
-            let mut utilization = 0.0;
-            if let Some(ref engine_class) = self.wmi_gpu_engine_class {
-                let q = format!("SELECT Name, UtilizationPercentage FROM {}", engine_class);
-                if let Ok(perf_results) = wmi.raw_query::<std::collections::HashMap<String, wmi::Variant>>(&q) {
-                    let mut max_util = 0u64;
-                    for engine in perf_results {
-                        if let Some(val) = engine.get("UtilizationPercentage") {
-                            let u = match val {
-                                wmi::Variant::UI1(n) => *n as u64,
-                                wmi::Variant::UI2(n) => *n as u64,
-                                wmi::Variant::UI4(n) => *n as u64,
-                                wmi::Variant::UI8(n) => *n,
-                                wmi::Variant::I1(n) => *n as u64,
-                                wmi::Variant::I2(n) => *n as u64,
-                                wmi::Variant::I4(n) => *n as u64,
-                                wmi::Variant::I8(n) => *n as u64,
-                                wmi::Variant::String(s) => s.parse().unwrap_or(0),
-                                _ => 0,
-                            };
-                            if u > max_util {
-                                max_util = u;
-                            }
-                        }
-                    }
-                    utilization = (max_util as f32).min(100.0);
-                }
-            }
-
-            let mut memory_used = None;
-            if let Some(ref mem_class) = self.wmi_gpu_memory_class {
-                let q = format!("SELECT LocalUsage FROM {}", mem_class);
-                if let Ok(mem_results) = wmi.raw_query::<std::collections::HashMap<String, wmi::Variant>>(&q) {
-                    let mut total_used = 0u64;
-                    for instance in mem_results {
-                        if let Some(val) = instance.get("LocalUsage") {
-                            let u = match val {
-                                wmi::Variant::UI1(n) => *n as u64,
-                                wmi::Variant::UI2(n) => *n as u64,
-                                wmi::Variant::UI4(n) => *n as u64,
-                                wmi::Variant::UI8(n) => *n,
-                                wmi::Variant::I1(n) => *n as u64,
-                                wmi::Variant::I2(n) => *n as u64,
-                                wmi::Variant::I4(n) => *n as u64,
-                                wmi::Variant::I8(n) => *n as u64,
-                                wmi::Variant::String(s) => s.parse().unwrap_or(0),
-                                _ => 0,
-                            };
-                            total_used = total_used.saturating_add(u);
-                        }
-                    }
-                    if total_used > 0 {
-                        memory_used = Some(total_used);
-                    }
-                }
-            }
-
             gpus.push(GpuInfo {
                 name,
-                utilization,
-                memory_used,
+                utilization: None,
+                memory_used: None,
                 memory_total: adapter_ram,
                 temperature: None,
                 clock_mhz: None,

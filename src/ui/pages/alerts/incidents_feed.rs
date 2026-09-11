@@ -40,15 +40,27 @@ pub(super) fn paint_active_incidents_feed(
 
             // Header row: Status badges and Peak value on left, Dismiss button on right
             ui.horizontal(|ui| {
-                status_pill(ui, severity_label, color, is_dark);
-                status_pill(ui, cat_label, ThemePalette::text_secondary(is_dark), is_dark);
-                ui.label(
-                    egui::RichText::new(format!("Peak: {:.1}", alert.value))
-                        .monospace()
-                        .strong()
-                        .size(11.5)
-                        .color(color),
-                );
+                if alert.resolved_at.is_some() {
+                    status_pill(ui, "RESOLVED", ThemePalette::STATUS_HEALTHY, is_dark);
+                    status_pill(ui, cat_label, ThemePalette::text_secondary(is_dark), is_dark);
+                    ui.label(
+                        egui::RichText::new(format!("Peak: {:.1}", alert.value))
+                            .monospace()
+                            .strong()
+                            .size(11.5)
+                            .color(ThemePalette::text_secondary(is_dark)),
+                    );
+                } else {
+                    status_pill(ui, severity_label, color, is_dark);
+                    status_pill(ui, cat_label, ThemePalette::text_secondary(is_dark), is_dark);
+                    ui.label(
+                        egui::RichText::new(format!("Peak: {:.1}", alert.value))
+                            .monospace()
+                            .strong()
+                            .size(11.5)
+                            .color(color),
+                    );
+                }
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui
@@ -76,10 +88,13 @@ pub(super) fn paint_active_incidents_feed(
             // Sub-row: Timestamp on left & Contextual Remediation Actions on right
             ui.horizontal(|ui| {
                 ui.label(
-                    egui::RichText::new(format!("Triggered: {}", alert.timestamp))
-                        .monospace()
-                        .size(11.0)
-                        .color(ThemePalette::text_dimmed(is_dark)),
+                    egui::RichText::new(match &alert.resolved_at {
+                        Some(resolved_at) => format!("Triggered: {} · Resolved: {resolved_at}", alert.timestamp),
+                        None => format!("Triggered: {}", alert.timestamp),
+                    })
+                    .monospace()
+                    .size(11.0)
+                    .color(ThemePalette::text_dimmed(is_dark)),
                 );
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {

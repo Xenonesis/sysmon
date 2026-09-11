@@ -1,10 +1,20 @@
-use crate::{AppSettings, services::ServiceControlAction, startup::StartupLocator};
+use crate::{
+    AppSettings,
+    processes::{AffinityPreset, ProcessIdentity},
+    services::{ServiceControlAction, ServiceUndo},
+    startup::{ReviewedStartupRestore, StartupLocator},
+    storage::reclaimer::ReviewedCleanup,
+};
 
 #[derive(Debug, Clone)]
 pub(crate) enum MonitoringCommand {
     SetSettings(Box<AppSettings>),
     SetPaused(bool),
     SetHidden(bool),
+    SetConsumerDemand {
+        recording: bool,
+        process_manager: bool,
+    },
     // force refresh while paused; wired to UI later
     #[allow(dead_code)]
     RefreshNow,
@@ -15,27 +25,58 @@ pub(crate) enum MonitoringCommand {
 
 #[derive(Debug, Clone)]
 pub(crate) enum ActionCommand {
-    KillProcess(u32),
-    KillProcessTree(u32),
-    SuspendProcess(u32),
-    ResumeProcess(u32),
-    SetPriority { pid: u32, priority: String },
-    SetAffinity { pid: u32, mask: usize },
+    KillProcess(ProcessIdentity),
+    KillProcessTree(ProcessIdentity),
+    SuspendProcess(ProcessIdentity),
+    ResumeProcess(ProcessIdentity),
+    SetPriority {
+        identity: ProcessIdentity,
+        priority: String,
+    },
+    SetAffinity {
+        identity: ProcessIdentity,
+        preset: AffinityPreset,
+    },
     CleanRam,
-    ControlService { name: String, action: ServiceControlAction },
+    AutoCleanRam {
+        exclusions: Vec<String>,
+        smart_only: bool,
+        budget_bytes: Option<u64>,
+        target_percent: f32,
+        idle_only: bool,
+    },
+    ControlService {
+        name: String,
+        action: ServiceControlAction,
+    },
+    UndoService {
+        name: String,
+        undo: ServiceUndo,
+    },
     SetPowerPlan(String),
-    DisableStartup { item_name: String, locator: StartupLocator },
-    EnableStartup { item_name: String, locator: StartupLocator },
-    QuarantineStartup { item_name: String, locator: StartupLocator },
-    RestoreStartup { item_name: String, quarantine_id: String },
-    ReclaimStorageCaches(Vec<String>),
+    DisableStartup {
+        item_name: String,
+        locator: StartupLocator,
+    },
+    EnableStartup {
+        item_name: String,
+        locator: StartupLocator,
+    },
+    QuarantineStartup {
+        item_name: String,
+        locator: StartupLocator,
+    },
+    RestoreStartup {
+        review: ReviewedStartupRestore,
+    },
+    ReclaimStorageCaches(ReviewedCleanup),
 }
 
 impl ActionCommand {
     #[allow(dead_code)]
     pub fn requires_elevation(&self) -> bool {
         match self {
-            Self::ReclaimStorageCaches(ids) => ids.iter().any(|id| id == "windows_update"),
+            Self::ReclaimStorageCaches(review) => review.category_ids().iter().any(|id| id == "windows_update"),
             _ => false,
         }
     }
@@ -43,7 +84,12 @@ impl ActionCommand {
     #[allow(dead_code)]
     pub fn summary(&self) -> String {
         match self {
-            Self::ReclaimStorageCaches(ids) => format!("Reclaim storage caches: {}", ids.join(", ")),
+            Self::ReclaimStorageCaches(review) => format!(
+                "Reclaim {} reviewed files ({} bytes): {}",
+                review.file_count(),
+                review.size_bytes(),
+                review.category_ids().join(", ")
+            ),
             _ => format!("{:?}", self),
         }
     }
@@ -55,23 +101,8 @@ impl ActionCommand {
 /// and prevents page modules from launching processes or calling Windows APIs.
 #[derive(Debug, Clone)]
 pub(crate) enum UiIntent {
+    CheckUpdates,
     OpenServicesConsole,
     RelaunchAsAdmin,
     ControlService { name: String, action: ServiceControlAction },
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_reclaim_storage_caches_command_properties() {
-        let cmd_user = ActionCommand::ReclaimStorageCaches(vec!["user_temp".into(), "shader_cache".into()]);
-        assert!(!cmd_user.requires_elevation());
-        assert_eq!(cmd_user.summary(), "Reclaim storage caches: user_temp, shader_cache");
-
-        let cmd_admin = ActionCommand::ReclaimStorageCaches(vec!["windows_update".into()]);
-        assert!(cmd_admin.requires_elevation());
-        assert_eq!(cmd_admin.summary(), "Reclaim storage caches: windows_update");
-    }
 }

@@ -72,6 +72,13 @@ mod tests {
         let exe = std::env::current_exe().expect("current exe");
         state.lock_path = exe.to_str().unwrap().to_string();
         state.inspect_locks();
+        assert!(state.lock_busy());
+        let ctx = egui::Context::default();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        while state.lock_busy() && std::time::Instant::now() < deadline {
+            state.poll_background(&ctx);
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
         assert!(state.lock_result.is_some());
     }
 
@@ -92,13 +99,20 @@ mod tests {
 
         app.storage_page.lock_result = Some(crate::storage::file_locks::FileLockResult {
             path: "C:\\test\\locked.dll".into(),
+            kind: crate::storage::file_locks::InspectionKind::File,
             processes: vec![crate::storage::file_locks::LockingProcess {
+                identity: None,
                 pid: 1234,
                 name: "test_process.exe".into(),
                 app_type: "Desktop App".into(),
                 is_service: false,
             }],
             error: None,
+            files_scanned: 1,
+            entries_skipped: 0,
+            partial: false,
+            cancelled: false,
+            coverage: Vec::new(),
         });
 
         let ctx = egui::Context::default();

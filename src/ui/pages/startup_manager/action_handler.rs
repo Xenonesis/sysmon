@@ -17,7 +17,7 @@ pub(crate) fn paint_action_history(app: &crate::SystemMonitorApp, ui: &mut egui:
             let history = &app.settings.startup_optimization_history;
             let show_count = history.len().min(10);
             for entry in history.iter().rev().take(show_count) {
-                ui.horizontal(|ui| {
+                ui.horizontal_wrapped(|ui| {
                     ui.label(
                         egui::RichText::new(&entry.timestamp)
                             .monospace()

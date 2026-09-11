@@ -263,7 +263,8 @@ impl SystemMonitorApp {
                                 *shared_settings_clone.lock() = *new_settings;
                             }
                             crate::app::commands::MonitoringCommand::SetPaused(paused) => {
-                                data_clone.write().monitoring_paused = paused
+                                data_clone.write().monitoring_paused = paused;
+                                let _ = monitoring_events.send(crate::app::events::AppEvent::MonitoringPaused(paused));
                             }
                             crate::app::commands::MonitoringCommand::SetHidden(hidden) => {
                                 data_clone.write().is_hidden = hidden;
@@ -278,6 +279,17 @@ impl SystemMonitorApp {
                             crate::app::commands::MonitoringCommand::Shutdown => {
                                 let _ = telemetry_commands_for_monitor.try_send(crate::telemetry::HubCommand::Shutdown);
                                 return;
+                            }
+                            crate::app::commands::MonitoringCommand::SetConsumerDemand {
+                                recording,
+                                process_manager,
+                            } => {
+                                let _ = telemetry_commands_for_monitor.try_send(
+                                    crate::telemetry::HubCommand::SetConsumerDemand {
+                                        recording,
+                                        process_manager,
+                                    },
+                                );
                             }
                         }
                     }
@@ -474,17 +486,20 @@ impl SystemMonitorApp {
 
                     // Poll services every 60 ticks (~30s) — WMI queries are expensive
                     if !is_hidden && selected_tab == Tab::Services {
-                        let services_list = if last_selected_tab != Tab::Services
+                        let should_fetch = last_selected_tab != Tab::Services
                             || data_clone.read().services.is_empty()
-                            || service_check_counter.is_multiple_of(60)
-                        {
-                            services::get_services()
-                        } else {
-                            Vec::new()
-                        };
-                        if !services_list.is_empty() {
-                            let mut data = data_clone.write();
-                            data.services = services_list;
+                            || service_check_counter.is_multiple_of(60);
+                        if should_fetch {
+                            match services::get_services() {
+                                Ok(services_list) if !services_list.is_empty() => {
+                                    let mut data = data_clone.write();
+                                    data.services = services_list;
+                                }
+                                Ok(_) => {}
+                                Err(error) => {
+                                    tracing::warn!(%error, "Service enumeration failed");
+                                }
+                            }
                         }
                     }
                     service_check_counter = service_check_counter.wrapping_add(1);
@@ -494,10 +509,15 @@ impl SystemMonitorApp {
                         && (selected_tab == Tab::Storage || selected_tab == Tab::Overview)
                         && (disk_smart_check_counter.is_multiple_of(60) || data_clone.read().physical_disks.is_empty())
                     {
-                        let drives = crate::storage::get_physical_disks();
-                        if !drives.is_empty() {
-                            let mut data = data_clone.write();
-                            data.physical_disks = drives;
+                        match crate::storage::get_physical_disks() {
+                            Ok(drives) if !drives.is_empty() => {
+                                let mut data = data_clone.write();
+                                data.physical_disks = drives;
+                            }
+                            Ok(_) => {}
+                            Err(error) => {
+                                tracing::warn!(%error, "Physical disk enumeration failed");
+                            }
                         }
                     }
                     disk_smart_check_counter = disk_smart_check_counter.wrapping_add(1);
@@ -507,9 +527,14 @@ impl SystemMonitorApp {
                         && selected_tab == Tab::Storage
                         && (disk_perf_check_counter.is_multiple_of(10) || data_clone.read().disk_perf.is_empty())
                     {
-                        let perf = crate::storage::get_disk_perf();
-                        if !perf.is_empty() {
-                            data_clone.write().disk_perf = perf;
+                        match crate::storage::get_disk_perf() {
+                            Ok(perf) if !perf.is_empty() => {
+                                data_clone.write().disk_perf = perf;
+                            }
+                            Ok(_) => {}
+                            Err(error) => {
+                                tracing::warn!(%error, "Disk performance counters failed");
+                            }
                         }
                     }
                     disk_perf_check_counter = disk_perf_check_counter.wrapping_add(1);
@@ -539,7 +564,9 @@ impl SystemMonitorApp {
                         let plans = crate::power::get_power_plans();
                         let bat_health = crate::power::get_battery_health();
                         let mut data = data_clone.write();
-                        data.power_plans = plans;
+                        if let Ok(plans) = plans {
+                            data.power_plans = plans;
+                        }
                         data.battery_health = bat_health;
                     }
                     power_plans_check_counter = power_plans_check_counter.wrapping_add(1);
@@ -626,37 +653,53 @@ impl SystemMonitorApp {
 
                         data.alerts.extend(new_alerts);
 
-                        // Auto-clear resolved alerts
+                        // Auto-clear resolved alerts, keeping each resolution visible
+                        // for one sampling cycle so users see it flip back to normal.
                         if settings_snapshot.auto_clear_alerts {
+                            let timestamp = Local::now().format("%H:%M:%S").to_string();
                             let temp_gpu_info = data.gpu_info.clone();
                             let disk_info = data.disk_info.clone();
                             let high_impact_count = data.high_impact_startup_count;
-                            data.alerts.retain(|alert| match alert.alert_type {
-                                AlertType::CpuHigh => cpu_usage > settings_snapshot.notification_cpu_threshold,
-                                AlertType::MemoryHigh => {
-                                    mem_percentage > settings_snapshot.notification_memory_threshold
+                            let mut resolved_now: Vec<String> = Vec::new();
+                            for alert in &mut data.alerts {
+                                if alert.resolved_at.is_some() {
+                                    continue;
                                 }
-                                AlertType::GpuTempHigh => match &alert.source {
-                                    AlertSource::Gpu { index, name } => temp_gpu_info.get(*index).is_some_and(|gpu| {
-                                        gpu.name == *name
-                                            && gpu.temperature.is_some_and(|temperature| {
-                                                temperature > settings_snapshot.notification_temp_threshold
+                                let still_active = match alert.alert_type {
+                                    AlertType::CpuHigh => cpu_usage > settings_snapshot.notification_cpu_threshold,
+                                    AlertType::MemoryHigh => {
+                                        mem_percentage > settings_snapshot.notification_memory_threshold
+                                    }
+                                    AlertType::GpuTempHigh => match &alert.source {
+                                        AlertSource::Gpu { index, name } => {
+                                            temp_gpu_info.get(*index).is_some_and(|gpu| {
+                                                gpu.name == *name
+                                                    && gpu.temperature.is_some_and(|temperature| {
+                                                        temperature > settings_snapshot.notification_temp_threshold
+                                                    })
                                             })
-                                    }),
-                                    _ => false,
-                                },
-                                AlertType::DiskSpaceLow => match &alert.source {
-                                    AlertSource::Disk { mount_point, .. } => disk_info.iter().any(|disk| {
-                                        disk.mount_point == *mount_point
-                                            && disk.usage_percentage > settings_snapshot.notification_disk_threshold
-                                    }),
-                                    _ => false,
-                                },
-                                AlertType::StartupHighImpact => high_impact_count > 0,
-                            });
+                                        }
+                                        _ => false,
+                                    },
+                                    AlertType::DiskSpaceLow => match &alert.source {
+                                        AlertSource::Disk { mount_point, .. } => disk_info.iter().any(|disk| {
+                                            disk.mount_point == *mount_point
+                                                && disk.usage_percentage > settings_snapshot.notification_disk_threshold
+                                        }),
+                                        _ => false,
+                                    },
+                                    AlertType::StartupHighImpact => high_impact_count > 0,
+                                };
+                                if !still_active {
+                                    alert.resolved_at = Some(timestamp.clone());
+                                    resolved_now.push(alert.key());
+                                }
+                            }
+                            // Alerts resolved in a previous cycle age out now.
+                            data.alerts
+                                .retain(|alert| alert.resolved_at.as_deref().is_none_or(|time| time != timestamp));
                         }
 
-                        // Keep only last 10 alerts
                         while data.alerts.len() > 10 {
                             data.alerts.remove(0);
                         }
@@ -671,7 +714,11 @@ impl SystemMonitorApp {
                         });
 
                         if need_gpu_info {
-                            let gpu_util = data.gpu_info.first().map(|gpu| gpu.utilization as f64);
+                            let gpu_util = data
+                                .gpu_info
+                                .first()
+                                .and_then(|gpu| gpu.utilization)
+                                .map(|value| value as f64);
                             if let Some(val) = gpu_util {
                                 data.gpu_history.push(DataPoint {
                                     time: elapsed,
@@ -679,7 +726,6 @@ impl SystemMonitorApp {
                                 });
                             }
                         }
-
                         // Network history — skip first sample (inflated rates)
                         if need_network && data.network_sample_count > 1 {
                             data.network_download_history.push_back(DataPoint {
@@ -725,19 +771,19 @@ impl SystemMonitorApp {
                         let d = data_clone.read();
                         d.selected_process_pid
                     };
-                    if let Some(pid) = selected_pid {
+                    if let Some(identity) = selected_pid {
                         let cached = {
                             let d = data_clone.read();
-                            d.selected_process_details.as_ref().map(|(p, _)| *p)
+                            d.selected_process_details.as_ref().map(|(i, _)| *i)
                         };
-                        if cached != Some(pid)
-                            && let Some(details) = processes::lookup_details(&monitor.sys, pid)
+                        if cached != Some(identity)
+                            && let Some(details) = processes::lookup_details(&monitor.sys, identity.pid)
+                            && processes::process_identity(identity.pid) == Ok(identity)
                         {
                             let mut d = data_clone.write();
-                            d.selected_process_details = Some((pid, details));
+                            d.selected_process_details = Some((identity, details));
                         }
                     }
-
                     if is_hidden {
                         // Minimized: sleep 10s
                         thread::sleep(Duration::from_millis(10000));
@@ -794,7 +840,7 @@ impl SystemMonitorApp {
             let pause_item = pause_i.clone();
             let menu_handle = tray_menu.clone();
 
-            let power_plans = power::get_power_plans();
+            let power_plans = power::get_power_plans().unwrap_or_default();
             if !power_plans.is_empty() {
                 let mut owned_power_items: Vec<CheckMenuItem> = Vec::new();
                 for plan in &power_plans {
@@ -865,15 +911,19 @@ impl SystemMonitorApp {
                 .map(|record| {
                     let undo = record
                         .quarantine_id
-                        .as_ref()
-                        .filter(|quarantine_id| crate::startup::quarantine_exists(quarantine_id))
-                        .map(|quarantine_id| crate::app::commands::ActionCommand::RestoreStartup {
-                            item_name: record.action.clone(),
-                            quarantine_id: quarantine_id.clone(),
-                        });
+                        .as_deref()
+                        .and_then(|id| crate::startup::prepare_startup_restore(id).ok())
+                        .map(|review| crate::app::commands::ActionCommand::RestoreStartup { review });
                     crate::app::actions::ActionHistoryEntry { record, undo }
                 })
                 .collect(),
+            quit_requested: false,
+            settings_save_error: None,
+            settings_integration_error: None,
+            last_monitoring_paused: false,
+            update_check_result_share: Arc::new(Mutex::new(None)),
+            update_check_pending: false,
+            update_check_status: None,
             show_action_history: false,
             session_recorder: crate::persistence::session::SessionRecorder::default(),
             session_status: None,
@@ -942,7 +992,7 @@ impl SystemMonitorApp {
             network_socket_search: String::new(),
             service_page: crate::app::page_state::ServicePageState::default(),
             storage_page: crate::app::page_state::StoragePageState::default(),
-            crash_reports: None,
+            crash_reports: Default::default(),
             window_picker_active: false,
             #[cfg(target_os = "windows")]
             tray_icon,
@@ -991,6 +1041,13 @@ impl SystemMonitorApp {
             action_status: None,
             pending_action_plan: None,
             action_history: Vec::new(),
+            quit_requested: false,
+            settings_save_error: None,
+            settings_integration_error: None,
+            last_monitoring_paused: false,
+            update_check_result_share: Arc::new(Mutex::new(None)),
+            update_check_pending: false,
+            update_check_status: None,
             show_action_history: false,
             session_recorder: crate::persistence::session::SessionRecorder::default(),
             session_status: None,
@@ -1059,7 +1116,7 @@ impl SystemMonitorApp {
             network_socket_search: String::new(),
             service_page: crate::app::page_state::ServicePageState::default(),
             storage_page: crate::app::page_state::StoragePageState::default(),
-            crash_reports: None,
+            crash_reports: Default::default(),
             window_picker_active: false,
             #[cfg(target_os = "windows")]
             tray_icon: None,

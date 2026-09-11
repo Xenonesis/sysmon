@@ -25,43 +25,6 @@ impl SystemMonitor {
         #[cfg(target_os = "windows")]
         let nvml = Nvml::init().ok();
 
-        // Probe which WMI GPU performance counter class name is available on this system.
-        // Windows versions differ: some use "GPUPerformanceMonitors", others use "GPUPerformanceCounters".
-        #[cfg(target_os = "windows")]
-        let (wmi_gpu_engine_class, wmi_gpu_memory_class) = {
-            let mut engine_class = None;
-            let mut memory_class = None;
-            if let Ok(wmi) = wmi::WMIConnection::new() {
-                for prefix in &["GPUPerformanceCounters", "GPUPerformanceMonitors"] {
-                    if engine_class.is_none() {
-                        let q = format!(
-                            "SELECT UtilizationPercentage FROM Win32_PerfFormattedData_{}_GPUEngine",
-                            prefix
-                        );
-                        if wmi
-                            .raw_query::<std::collections::HashMap<String, wmi::Variant>>(&q)
-                            .is_ok()
-                        {
-                            engine_class = Some(format!("Win32_PerfFormattedData_{}_GPUEngine", prefix));
-                        }
-                    }
-                    if memory_class.is_none() {
-                        let q = format!(
-                            "SELECT LocalUsage FROM Win32_PerfFormattedData_{}_GPULocalAdapterMemory",
-                            prefix
-                        );
-                        if wmi
-                            .raw_query::<std::collections::HashMap<String, wmi::Variant>>(&q)
-                            .is_ok()
-                        {
-                            memory_class = Some(format!("Win32_PerfFormattedData_{}_GPULocalAdapterMemory", prefix));
-                        }
-                    }
-                }
-            }
-            (engine_class, memory_class)
-        };
-
         #[cfg(target_os = "windows")]
         let wmi_thermal = wmi::WMIConnection::with_namespace_path("ROOT\\WMI").ok();
 
@@ -73,20 +36,23 @@ impl SystemMonitor {
             nvml,
             #[cfg(target_os = "windows")]
             wmi_thermal,
-            #[cfg(target_os = "windows")]
-            wmi_gpu_engine_class,
-            #[cfg(target_os = "windows")]
-            wmi_gpu_memory_class,
             last_network_update: Instant::now(),
             last_disk_update: Instant::now(),
             previous_network_totals: std::collections::HashMap::new(),
-            previous_disk_totals: (0, 0),
+            previous_disk_totals: std::collections::HashMap::new(),
         }
     }
 }
 
 pub(crate) struct SystemMonitorApp {
     pub(crate) data: Arc<RwLock<SystemData>>,
+    pub(crate) quit_requested: bool,
+    pub(crate) settings_save_error: Option<String>,
+    pub(crate) settings_integration_error: Option<String>,
+    pub(crate) last_monitoring_paused: bool,
+    pub(crate) update_check_result_share: Arc<Mutex<Option<Result<crate::updater::UpdateInfo, String>>>>,
+    pub(crate) update_check_pending: bool,
+    pub(crate) update_check_status: Option<String>,
     pub(crate) app_channels: crate::app::AppChannels,
     pub(crate) latest_snapshot: Option<monitoring::SystemSnapshot>,
     pub(crate) action_pending: bool,
@@ -106,12 +72,12 @@ pub(crate) struct SystemMonitorApp {
     pub(crate) show_export: bool,
     pub(crate) show_alerts: bool,
     pub(crate) show_process_manager: bool,
-    pub(crate) selected_process_pid: Option<u32>,
-    pub(crate) details_pid: Option<u32>,
-    pub(crate) kill_tree_pid: Option<u32>,
+    pub(crate) selected_process_pid: Option<crate::processes::ProcessIdentity>,
+    pub(crate) details_pid: Option<crate::processes::ProcessIdentity>,
+    pub(crate) kill_tree_pid: Option<crate::processes::ProcessIdentity>,
     pub(crate) service_page: crate::app::page_state::ServicePageState,
     pub(crate) storage_page: crate::app::page_state::StoragePageState,
-    pub(crate) crash_reports: Option<Vec<crate::diagnostics::minidump::MinidumpCrashReport>>,
+    pub(crate) crash_reports: crate::diagnostics::minidump::CrashScanState,
     pub(crate) window_picker_active: bool,
     pub(crate) process_search: String,
     pub(crate) process_sort_column: crate::processes::ProcessSortColumn,
@@ -126,7 +92,7 @@ pub(crate) struct SystemMonitorApp {
     /// Last error from a failed install attempt; shown in the banner.
     pub(crate) update_error: Option<String>,
     /// Background thread writes `Some(Ok(()))` or `Some(Err(msg))` here when done.
-    pub(crate) update_result_share: Arc<Mutex<Option<Result<(), String>>>>,
+    pub(crate) update_result_share: Arc<Mutex<Option<Result<crate::updater::InstallOutcome, String>>>>,
     pub(crate) ram_cleaner_state: RamCleanerState,
     pub(crate) startup_items: Vec<crate::startup::StartupItem>,
     pub(crate) startup_items_loaded: bool,
@@ -143,12 +109,12 @@ pub(crate) struct SystemMonitorApp {
     pub(crate) boot_diagnostics_loaded: bool,
     pub(crate) boot_diagnostics_share: Arc<Mutex<Option<crate::startup::BootDiagnostics>>>,
     pub(crate) show_shortcuts: bool,
-    pub(crate) suspend_process_pid: Option<u32>,
-    pub(crate) resume_process_pid: Option<u32>,
-    pub(crate) suspended_pids: std::collections::HashSet<u32>,
-    pub(crate) priority_change: Option<(u32, String)>,
+    pub(crate) suspend_process_pid: Option<crate::processes::ProcessIdentity>,
+    pub(crate) resume_process_pid: Option<crate::processes::ProcessIdentity>,
+    pub(crate) suspended_pids: std::collections::HashSet<crate::processes::ProcessIdentity>,
+    pub(crate) priority_change: Option<(crate::processes::ProcessIdentity, String)>,
     pub(crate) process_tree_view: bool,
-    pub(crate) affinity_change: Option<(u32, usize)>,
+    pub(crate) affinity_change: Option<(crate::processes::ProcessIdentity, crate::processes::AffinityPreset)>,
     pub(crate) network_socket_search: String,
     #[allow(dead_code)]
     #[cfg(target_os = "windows")]

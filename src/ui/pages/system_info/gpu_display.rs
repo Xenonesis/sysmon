@@ -30,16 +30,26 @@ pub(crate) fn paint_gpu_display_card(ui: &mut egui::Ui, data: &SystemData, is_da
                             .color(ThemePalette::text_primary(is_dark)),
                     );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        let gpu_color = get_usage_color(gpu_info.utilization);
+                        let gpu_color = gpu_info
+                            .utilization
+                            .map(get_usage_color)
+                            .unwrap_or_else(|| ThemePalette::text_dimmed(is_dark));
                         ui.label(
-                            egui::RichText::new(format!("{:.1}%", gpu_info.utilization))
-                                .monospace()
-                                .strong()
-                                .color(gpu_color),
+                            egui::RichText::new(
+                                gpu_info
+                                    .utilization
+                                    .map(|value| format!("{value:.1}%"))
+                                    .unwrap_or_else(|| "N/A".into()),
+                            )
+                            .monospace()
+                            .strong()
+                            .color(gpu_color),
                         );
                         status_pill(
                             ui,
-                            if gpu_info.utilization >= 90.0 {
+                            if gpu_info.utilization.is_none() {
+                                "N/A"
+                            } else if gpu_info.utilization.is_some_and(|value| value >= 90.0) {
                                 "HIGH LOAD"
                             } else {
                                 "ONLINE"
@@ -128,13 +138,9 @@ pub(crate) fn paint_gpu_display_card(ui: &mut egui::Ui, data: &SystemData, is_da
                     });
 
                 ui.add_space(6.0);
-                paint_progress_bar(
-                    ui,
-                    gpu_info.utilization / 100.0,
-                    get_usage_color(gpu_info.utilization),
-                    6.0,
-                    is_dark,
-                );
+                if let Some(utilization) = gpu_info.utilization {
+                    paint_progress_bar(ui, utilization / 100.0, get_usage_color(utilization), 6.0, is_dark);
+                }
             });
             ui.add_space(8.0);
         }

@@ -1,4 +1,4 @@
-use crate::timeline::{TimelineEventKind, TimelineQuery, TimelineRange, analyze_window};
+use crate::timeline::{IncidentSelection, TimelineEventKind, TimelineRange, analyze_window};
 use crate::ui::components::*;
 use crate::ui::theme::ThemePalette;
 use eframe::egui;
@@ -24,10 +24,13 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui) {
             if ui.button("Enable 7-day Timeline").clicked() {
                 app.settings.timeline_enabled = true;
                 app.settings.timeline_retention_days = 7;
-                let _ = app.settings.save();
-                app.timeline.set_policy(true, 7);
+                let saved = crate::ui::pages::settings::commit_settings(app);
                 app.timeline_ui.window = None;
-                app.timeline_ui.message = Some("Timeline recording enabled.".into());
+                app.timeline_ui.message = Some(if saved {
+                    "Timeline recording enabled.".into()
+                } else {
+                    "Timeline enabled for this run; settings could not be saved. Retry in Settings.".into()
+                });
             }
         });
         return;
@@ -38,9 +41,9 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui) {
             .timeline_ui
             .last_refresh
             .is_some_and(|last| last.elapsed() >= Duration::from_secs(10));
-    if needs_refresh && !app.timeline.query_in_flight() {
+    if needs_refresh && !app.timeline.query_in_flight() && !app.timeline.clear_in_flight() {
         app.timeline
-            .request_window(TimelineQuery::latest(app.timeline_ui.range));
+            .request_window_page(app.timeline_ui.query(), app.timeline_ui.events_offset);
     }
 
     card_frame(is_dark).show(ui, |ui| {
@@ -53,21 +56,75 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui) {
                 {
                     app.timeline_ui.window = None;
                     app.timeline_ui.selected_timestamp_ms = None;
-                    app.timeline.request_window(TimelineQuery::latest(range));
+                    app.timeline_ui.selected_event_id = None;
+                    app.timeline_ui.events_offset = 0;
+                    app.timeline.request_window(app.timeline_ui.query());
                 }
             }
             if ui.button("Refresh").clicked() {
                 app.timeline
-                    .request_window(TimelineQuery::latest(app.timeline_ui.range));
+                    .request_window_page(app.timeline_ui.query(), app.timeline_ui.events_offset);
             }
+            let selection = app.timeline_ui.window.as_ref().map(|window| IncidentSelection {
+                query: window.query,
+                timestamp_ms: app.timeline_ui.selected_timestamp_ms.unwrap_or_else(|| {
+                    window
+                        .metrics
+                        .last()
+                        .map_or(window.query.end_ms, |sample| sample.timestamp_ms)
+                }),
+                event_id: app.timeline_ui.selected_event_id,
+                events_offset: window.events_offset,
+            });
             if ui
-                .add_enabled(!app.timeline.export_in_flight(), egui::Button::new("Export Incident"))
+                .add_enabled(
+                    selection.is_some() && !app.timeline.export_in_flight() && !app.timeline.clear_in_flight(),
+                    egui::Button::new("Export Selected Incident"),
+                )
                 .clicked()
+                && let Some(selection) = selection
                 && let Some(folder) = rfd::FileDialog::new().pick_folder()
             {
-                app.timeline
-                    .request_export(TimelineQuery::latest(app.timeline_ui.range), folder);
+                app.timeline.request_export(selection, folder);
             }
+        });
+        ui.horizontal_wrapped(|ui| {
+            let query = app.timeline_ui.query();
+            let oldest =
+                crate::timeline::now_ms().saturating_sub(i64::from(app.settings.timeline_retention_days) * 86_400_000);
+            let mut navigate = false;
+            if ui
+                .add_enabled(query.start_ms > oldest, egui::Button::new("Earlier"))
+                .clicked()
+            {
+                app.timeline_ui.range_end_ms = Some(
+                    query
+                        .start_ms
+                        .max(oldest.saturating_add(app.timeline_ui.range.duration_ms())),
+                );
+                navigate = true;
+            }
+            if ui
+                .add_enabled(app.timeline_ui.range_end_ms.is_some(), egui::Button::new("Later"))
+                .clicked()
+            {
+                let next = query.end_ms.saturating_add(app.timeline_ui.range.duration_ms());
+                app.timeline_ui.range_end_ms = (next < crate::timeline::now_ms()).then_some(next);
+                navigate = true;
+            }
+            if ui.button("Now").clicked() {
+                app.timeline_ui.range_end_ms = None;
+                navigate = true;
+            }
+            if navigate {
+                app.timeline_ui.events_offset = 0;
+                app.timeline_ui.selected_timestamp_ms = None;
+                app.timeline_ui.selected_event_id = None;
+                app.timeline_ui.window = None;
+                app.timeline.request_window(app.timeline_ui.query());
+            }
+            let query = app.timeline_ui.query();
+            ui.label(format!("{} – {}", event_time(query.start_ms), event_time(query.end_ms)));
         });
         let status = app.timeline.status();
         ui.label(
@@ -93,6 +150,12 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui) {
             ui.label("Writing sanitized incident export…");
         });
     }
+    if app.timeline.clear_in_flight() {
+        ui.horizontal(|ui| {
+            ui.spinner();
+            ui.label("Clearing timeline; waiting for storage acknowledgement…");
+        });
+    }
     if let Some(message) = &app.timeline_ui.message {
         ui.label(
             egui::RichText::new(message)
@@ -109,12 +172,11 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui) {
             ui.label("No samples have been recorded in this range yet.");
             ui.label("Leave SysMon running for at least ten seconds, then refresh.");
         });
-        return;
     }
 
     egui::ScrollArea::vertical().show(ui, |ui| {
         let origin = window.query.start_ms;
-        let plot_step = (window.metrics.len() / 2_000).max(1);
+        // Preserve each bucket's extrema rather than dropping single-sample spikes.
         card_frame(is_dark).show(ui, |ui| {
             ui.label(
                 egui::RichText::new("UTILIZATION")
@@ -122,29 +184,10 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui) {
                     .size(11.0)
                     .color(ThemePalette::ACCENT_PRIMARY),
             );
-            let cpu: PlotPoints = window
-                .metrics
-                .iter()
-                .step_by(plot_step)
-                .map(|sample| [seconds_from(origin, sample.timestamp_ms), sample.cpu_pct])
-                .collect();
-            let memory: PlotPoints = window
-                .metrics
-                .iter()
-                .step_by(plot_step)
-                .map(|sample| [seconds_from(origin, sample.timestamp_ms), sample.memory_pct])
-                .collect();
+            let cpu: PlotPoints = envelope(&window.metrics, origin, |sample| Some(sample.cpu_pct)).into();
+            let memory: PlotPoints = envelope(&window.metrics, origin, |sample| Some(sample.memory_pct)).into();
             let has_gpu = window.metrics.iter().any(|sample| sample.gpu_pct.is_some());
-            let gpu: PlotPoints = window
-                .metrics
-                .iter()
-                .step_by(plot_step)
-                .filter_map(|sample| {
-                    sample
-                        .gpu_pct
-                        .map(|value| [seconds_from(origin, sample.timestamp_ms), value])
-                })
-                .collect();
+            let gpu: PlotPoints = envelope(&window.metrics, origin, |sample| sample.gpu_pct).into();
             Plot::new("timeline_utilization")
                 .height(220.0)
                 .legend(Legend::default())
@@ -170,28 +213,8 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui) {
                     .size(11.0)
                     .color(ThemePalette::STATUS_WARNING),
             );
-            let disk: PlotPoints = window
-                .metrics
-                .iter()
-                .step_by(plot_step)
-                .map(|sample| {
-                    [
-                        seconds_from(origin, sample.timestamp_ms),
-                        (sample.disk_read_bps + sample.disk_write_bps) / 1_048_576.0,
-                    ]
-                })
-                .collect();
-            let network: PlotPoints = window
-                .metrics
-                .iter()
-                .step_by(plot_step)
-                .map(|sample| {
-                    [
-                        seconds_from(origin, sample.timestamp_ms),
-                        (sample.network_down_bps + sample.network_up_bps) / 1_048_576.0,
-                    ]
-                })
-                .collect();
+            let disk: PlotPoints = envelope(&window.metrics, origin, |sample| Some((sample.disk_read_bps + sample.disk_write_bps) / 1_048_576.0)).into();
+            let network: PlotPoints = envelope(&window.metrics, origin, |sample| Some((sample.network_down_bps + sample.network_up_bps) / 1_048_576.0)).into();
             Plot::new("timeline_io")
                 .height(190.0)
                 .legend(Legend::default())
@@ -213,15 +236,35 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui) {
                         .size(11.0)
                         .color(ThemePalette::text_secondary(is_dark)),
                 );
+                ui.label(format!("Events {}–{} of {} (500 per page). Exports include this page; omissions are declared in summary.json.",
+                    if window.events.is_empty() { 0 } else { window.events_offset + 1 },
+                    window.events_offset + window.events.len() as u64, window.total_events));
+                ui.horizontal(|ui| {
+                    let mut offset = window.events_offset;
+                    if ui.add_enabled(offset > 0, egui::Button::new("Newer events")).clicked() {
+                        offset = offset.saturating_sub(500);
+                    }
+                    if ui.add_enabled(offset + (window.events.len() as u64) < window.total_events, egui::Button::new("Older events")).clicked() {
+                        offset = offset.saturating_add(500);
+                    }
+                    if offset != window.events_offset {
+                        app.timeline_ui.events_offset = offset;
+                        app.timeline_ui.selected_timestamp_ms = None;
+                        app.timeline_ui.selected_event_id = None;
+                        app.timeline_ui.range_end_ms = Some(window.query.end_ms);
+                        app.timeline.request_window_page(window.query, offset);
+                    }
+                });
                 if window.events.is_empty() {
                     ui.label("No alert, action, provider, or power events in this range.");
                 } else {
                     egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
                         for event in &window.events {
-                            let selected = app.timeline_ui.selected_timestamp_ms == Some(event.timestamp_ms);
+                            let selected = app.timeline_ui.selected_event_id == event.id && app.timeline_ui.selected_timestamp_ms == Some(event.timestamp_ms);
                             let label = format!("{}  {}", event_time(event.timestamp_ms), event.summary);
                             if ui.selectable_label(selected, label).clicked() {
                                 app.timeline_ui.selected_timestamp_ms = Some(event.timestamp_ms);
+                                app.timeline_ui.selected_event_id = event.id;
                             }
                             ui.label(
                                 egui::RichText::new(format!(
@@ -281,6 +324,43 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui) {
             });
         });
     });
+}
+
+fn envelope(
+    samples: &[crate::timeline::TimelineMetricSample],
+    origin: i64,
+    value: impl Fn(&crate::timeline::TimelineMetricSample) -> Option<f64>,
+) -> Vec<[f64; 2]> {
+    let bucket_size = samples.len().div_ceil(1_000).max(1);
+    let mut points = Vec::with_capacity(2_000);
+    for bucket in samples.chunks(bucket_size) {
+        let mut extrema: Option<([f64; 2], [f64; 2])> = None;
+        for sample in bucket {
+            let Some(y) = value(sample).filter(|value| value.is_finite()) else {
+                continue;
+            };
+            let point = [seconds_from(origin, sample.timestamp_ms), y];
+            match &mut extrema {
+                None => extrema = Some((point, point)),
+                Some((min, max)) => {
+                    if y < min[1] {
+                        *min = point;
+                    }
+                    if y > max[1] {
+                        *max = point;
+                    }
+                }
+            }
+        }
+        if let Some((a, b)) = extrema {
+            if a[0] <= b[0] {
+                points.extend([a, b]);
+            } else {
+                points.extend([b, a]);
+            }
+        }
+    }
+    points
 }
 
 fn seconds_from(origin_ms: i64, timestamp_ms: i64) -> f64 {

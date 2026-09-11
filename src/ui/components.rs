@@ -182,14 +182,16 @@ pub(crate) fn details_row(ui: &mut egui::Ui, label: &str, value: &str, is_dark: 
 }
 
 pub(crate) use crate::ui::format::*;
-pub(crate) fn format_rate(mb_per_sec: f64) -> String {
-    let bytes_per_sec = mb_per_sec * 1024.0 * 1024.0;
+pub(crate) fn format_rate(bytes_per_sec: f64) -> String {
+    if !bytes_per_sec.is_finite() || bytes_per_sec < 0.0 {
+        return "N/A".into();
+    }
     if bytes_per_sec >= 1_073_741_824.0 {
-        format!("{:.2} GB/s", bytes_per_sec / 1_073_741_824.0)
+        format!("{:.2} GiB/s", bytes_per_sec / 1_073_741_824.0)
     } else if bytes_per_sec >= 1_048_576.0 {
-        format!("{:.2} MB/s", bytes_per_sec / 1_048_576.0)
+        format!("{:.2} MiB/s", bytes_per_sec / 1_048_576.0)
     } else if bytes_per_sec >= 1024.0 {
-        format!("{:.0} KB/s", bytes_per_sec / 1024.0)
+        format!("{:.0} KiB/s", bytes_per_sec / 1024.0)
     } else {
         format!("{:.0} B/s", bytes_per_sec)
     }
@@ -206,15 +208,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn rate_and_byte_formatting_are_monospace_safe() {
-        assert_eq!(format_rate(0.0), "0 B/s");
-        assert_eq!(format_rate(0.0005), "524 B/s");
-        assert_eq!(format_rate(0.5), "512 KB/s");
-        assert_eq!(format_rate(1.5), "1.50 MB/s");
-        assert_eq!(format_rate(1024.0), "1.00 GB/s");
-
-        assert_eq!(bytes_to_mb(1_048_576), 1.0);
-        assert_eq!(bytes_to_gb(1_073_741_824), 1.0);
+    fn rate_formatter_consumes_bytes_per_second_and_rejects_invalid_rates() {
+        assert_eq!(format_rate(1_572_864.0), "1.50 MiB/s");
+        assert_eq!(format_rate(524_288.0), "512 KiB/s");
+        assert_eq!(format_rate(f64::NAN), "N/A");
+        assert_eq!(format_rate(-1.0), "N/A");
     }
 
     #[test]

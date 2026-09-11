@@ -57,7 +57,8 @@ pub(crate) fn paint_history_summary(ui: &mut egui::Ui, data: &SystemData, is_dar
                 let gpu_key = data
                     .telemetry_history_stats
                     .keys()
-                    .find(|key| key.starts_with("gpu.") && key.ends_with(".utilization"));
+                    .filter(|key| key.starts_with("gpu.") && key.ends_with(".utilization"))
+                    .min();
                 if let Some(key) = gpu_key {
                     show_metric_stats(ui, data, "GPU Util", key, "%", 1.0, is_dark);
                 }
@@ -89,6 +90,10 @@ pub(crate) fn show_metric_stats(
         &history.thirty_minutes,
         &history.one_hour,
     ] {
+        if stats.sample_count == 0 {
+            ui.label("N/A");
+            continue;
+        }
         ui.label(
             egui::RichText::new(format!(
                 "min {:.1} · avg {:.1} · max {:.1}{unit}",

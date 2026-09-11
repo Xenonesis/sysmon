@@ -25,7 +25,7 @@ pub(super) fn paint(
     let state_color = super::service_state_color(&service.state, is_dark);
 
     card_frame(is_dark).show(ui, |ui| {
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.label(
                 egui::RichText::new("SERVICE INSPECTOR")
                     .size(11.0)
@@ -45,7 +45,7 @@ pub(super) fn paint(
         ui.separator();
         ui.add_space(6.0);
 
-        ui.horizontal(|ui| {
+        ui.vertical(|ui| {
             paint_identity(ui, service, is_dark);
             ui.add_space(24.0);
             paint_copy_commands(ui, service, is_dark);
@@ -59,7 +59,7 @@ pub(super) fn paint(
 
 fn paint_identity(ui: &mut egui::Ui, service: &ServiceInfo, is_dark: bool) {
     ui.vertical(|ui| {
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.label(
                 egui::RichText::new("Display Name:")
                     .strong()
@@ -71,7 +71,7 @@ fn paint_identity(ui: &mut egui::Ui, service: &ServiceInfo, is_dark: bool) {
                     .color(ThemePalette::text_primary(is_dark)),
             );
         });
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.label(
                 egui::RichText::new("Service Identifier:")
                     .strong()
@@ -94,7 +94,7 @@ fn paint_copy_commands(ui: &mut egui::Ui, service: &ServiceInfo, is_dark: bool) 
                 .strong()
                 .color(ThemePalette::text_secondary(is_dark)),
         );
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             if ui
                 .small_button("📋 Copy Name")
                 .on_hover_text("Copy service identifier to clipboard")
@@ -137,7 +137,7 @@ fn paint_actions(
     is_elevated: bool,
     intents: &mut Vec<UiIntent>,
 ) {
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         let tooltip = if is_elevated {
             "Execute service control action"
         } else {

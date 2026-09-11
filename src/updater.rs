@@ -18,35 +18,79 @@ fn http_agent() -> ureq::Agent {
     ureq::Agent::new_with_config(config)
 }
 
+fn canonical_version(version: &str) -> Result<[u32; 3], String> {
+    let mut components = version.split('.');
+    let mut parsed = [0; 3];
+    for slot in &mut parsed {
+        let part = components.next().ok_or("Version must contain major.minor.patch")?;
+        if part.is_empty() || !part.bytes().all(|b| b.is_ascii_digit()) || (part.len() > 1 && part.starts_with('0')) {
+            return Err("Version is not canonical major.minor.patch".into());
+        }
+        *slot = part.parse().map_err(|_| "Version component exceeds supported range")?;
+    }
+    if components.next().is_some() {
+        return Err("Version must contain exactly three components".into());
+    }
+    Ok(parsed)
+}
+
 pub(crate) fn validate_asset_url(url: &str) -> Result<(), String> {
-    let lower = url.to_ascii_lowercase();
-    if !lower.starts_with("https://github.com/xenonesis/sysmon/releases/download/") || !lower.ends_with(".exe") {
-        return Err("Unexpected update asset URL".into());
+    let suffix = url
+        .strip_prefix("https://github.com/Xenonesis/sysmon/releases/download/")
+        .ok_or("Unexpected update asset URL")?;
+    let (tag, filename) = suffix.split_once('/').ok_or("Missing release tag or filename")?;
+    let version = tag.strip_prefix('v').ok_or("Release tag must start with one v")?;
+    canonical_version(version)?;
+    if filename != format!("SystemMonitor-{version}-setup.exe") {
+        return Err("Installer filename must match the canonical release tag".into());
     }
     Ok(())
 }
 
 fn validate_checksum_url(url: &str) -> Result<(), String> {
-    let lower = url.to_ascii_lowercase();
-    if !lower.starts_with("https://github.com/xenonesis/sysmon/releases/download/") || !lower.ends_with(".exe.sha256") {
-        return Err("Unexpected checksum asset URL".into());
-    }
-    Ok(())
+    validate_asset_url(url.strip_suffix(".sha256").ok_or("Unexpected checksum asset URL")?)
 }
 
 fn validate_release_pair(download_url: &str, checksum_url: &str) -> Result<String, String> {
     validate_asset_url(download_url)?;
     validate_checksum_url(checksum_url)?;
-    let expected_checksum_url = format!("{download_url}.sha256");
-    if !checksum_url.eq_ignore_ascii_case(&expected_checksum_url) {
+    if checksum_url != format!("{download_url}.sha256") {
         return Err("Installer and checksum must be matching assets from the same release".into());
     }
-    let filename = download_url
-        .rsplit('/')
-        .next()
-        .filter(|name| !name.is_empty() && !name.contains(['\\', '/']))
-        .ok_or_else(|| "Update installer filename is invalid".to_string())?;
-    Ok(filename.to_string())
+    Ok(download_url.rsplit('/').next().unwrap().to_string())
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum InstallOutcome {
+    /// A verified helper is ready. The UI must exit gracefully; installation has NOT completed.
+    Launched,
+    Completed {
+        reboot_required: bool,
+    },
+    Canceled,
+    Failed {
+        code: u32,
+    },
+    Error(String),
+}
+
+fn installer_outcome(code: u32) -> InstallOutcome {
+    match code {
+        0 => InstallOutcome::Completed { reboot_required: false },
+        3010 => InstallOutcome::Completed { reboot_required: true },
+        2 | 5 => InstallOutcome::Canceled,
+        code => InstallOutcome::Failed { code },
+    }
+}
+
+fn matches_install_location(exe: &std::path::Path, location: &std::path::Path) -> bool {
+    match (
+        fs::canonicalize(exe),
+        fs::canonicalize(location.join("system-monitor.exe")),
+    ) {
+        (Ok(actual), Ok(registered)) => actual == registered,
+        _ => false,
+    }
 }
 
 // Must match the AppId in installer.iss.
@@ -113,16 +157,20 @@ impl Updater {
         // Updates apply to installed apps only — portable builds are no longer
         // published, so a portable exe would have nothing safe to download.
         if !self.is_installed() {
-            return Ok(UpdateInfo::default());
+            return Err("Updates are only available for the executable at the registered installation location".into());
         }
 
         match self.fetch_latest_release() {
             Ok(release) => {
-                let latest_version = release.tag_name.trim_start_matches('v');
-                let current_version = CURRENT_VERSION;
+                let latest_version = release
+                    .tag_name
+                    .strip_prefix('v')
+                    .ok_or("Release tag must start with one v")?;
+                let latest = canonical_version(latest_version)?;
+                let current = canonical_version(CURRENT_VERSION)?;
 
                 self.update_info.latest_version = latest_version.to_string();
-                self.update_info.update_available = self.is_newer_version(current_version, latest_version);
+                self.update_info.update_available = latest > current;
 
                 // Clear any URLs from a previous check in this session.
                 self.update_info.download_url.clear();
@@ -132,20 +180,20 @@ impl Updater {
                 // offered, and only together with the SHA-256 checksum file
                 // published next to it. Without a published checksum the
                 // download cannot be verified, so no update is offered.
-                let expected_installer = format!("systemmonitor-{latest_version}-setup.exe");
+                let expected_installer = format!("SystemMonitor-{latest_version}-setup.exe");
                 let expected_checksum = format!("{expected_installer}.sha256");
                 for asset in release.assets {
-                    let name = asset.name.to_ascii_lowercase();
+                    let name = asset.name;
                     if name == expected_checksum {
                         self.update_info.checksum_url = asset.browser_download_url;
                     } else if name == expected_installer {
                         self.update_info.download_url = asset.browser_download_url;
                     }
                 }
-                self.update_info.update_available = self.update_info.update_available
-                    && !self.update_info.download_url.is_empty()
-                    && !self.update_info.checksum_url.is_empty()
-                    && validate_release_pair(&self.update_info.download_url, &self.update_info.checksum_url).is_ok();
+                if self.update_info.update_available {
+                    validate_release_pair(&self.update_info.download_url, &self.update_info.checksum_url)
+                        .map_err(|e| format!("New release is not installable: {e}"))?;
+                }
 
                 Ok(self.update_info.clone())
             }
@@ -171,45 +219,18 @@ impl Updater {
         serde_json::from_str(&body).map_err(|e| format!("Failed to parse GitHub response: {}", e))
     }
 
-    fn is_newer_version(&self, current: &str, latest: &str) -> bool {
-        let current_parts: Vec<u32> = current.split('.').filter_map(|s| s.parse().ok()).collect();
-        let latest_parts: Vec<u32> = latest.split('.').filter_map(|s| s.parse().ok()).collect();
-
-        for i in 0..3 {
-            let curr = current_parts.get(i).unwrap_or(&0);
-            let lat = latest_parts.get(i).unwrap_or(&0);
-
-            match lat.cmp(curr) {
-                std::cmp::Ordering::Greater => return true,
-                std::cmp::Ordering::Less => return false,
-                std::cmp::Ordering::Equal => {}
-            }
-        }
-
-        false
-    }
-
-    fn is_installed(&self) -> bool {
-        if let Ok(exe) = std::env::current_exe() {
-            let path = exe.to_string_lossy().to_lowercase();
-            if path.contains("\\program files\\") || path.contains("\\program files (x86)\\") {
-                return true;
-            }
-        }
-        #[cfg(target_os = "windows")]
+    pub(crate) fn is_installed(&self) -> bool {
+        #[cfg(windows)]
         {
-            use winreg::RegKey;
-            use winreg::enums::*;
-            let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
-            let key = format!(
-                r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{}_is1",
-                INSTALLER_APP_ID
-            );
-            if hklm.open_subkey(&key).is_ok() {
-                return true;
-            }
+            let Ok(exe) = std::env::current_exe() else {
+                return false;
+            };
+            registered_install_location().is_ok_and(|location| matches_install_location(&exe, &location))
         }
-        false
+        #[cfg(not(windows))]
+        {
+            false
+        }
     }
 
     fn fetch_expected_checksum(&self, checksum_url: &str, expected_filename: &str) -> Result<String, String> {
@@ -230,8 +251,29 @@ impl Updater {
             .ok_or_else(|| "Checksum file does not contain the expected installer hash and filename".to_string())
     }
 
-    pub fn download_and_install_update(&self, download_url: &str, checksum_url: &str) -> Result<(), String> {
+    pub fn download_and_install_update(
+        &self,
+        download_url: &str,
+        checksum_url: &str,
+    ) -> Result<InstallOutcome, String> {
+        if !self.is_installed() {
+            return Err("This executable is not the registered installed copy".into());
+        }
+        if !crate::privilege::is_app_elevated() {
+            return Err(
+                "Restart System Monitor as administrator before installing an update; no installer was launched".into(),
+            );
+        }
+        configured_signer_pin()?;
         let installer_filename = validate_release_pair(download_url, checksum_url)?;
+        let version = installer_filename
+            .strip_prefix("SystemMonitor-")
+            .unwrap()
+            .strip_suffix("-setup.exe")
+            .unwrap();
+        if canonical_version(version)? <= canonical_version(CURRENT_VERSION)? {
+            return Err("Updater refuses a non-newer release".into());
+        }
         let expected_sha256 = self.fetch_expected_checksum(checksum_url, &installer_filename)?;
 
         // Download the update using ureq
@@ -259,39 +301,15 @@ impl Updater {
             .read_to_end(&mut bytes)
             .map_err(|e| format!("Failed to read update file: {e}"))?;
 
-        // Verify the downloaded installer against the SHA-256 checksum
-        // published with the release before writing or executing it.
+        // GitHub's adjacent checksum supplies integrity, NOT independent authenticity.
         verify_sha256(&bytes, &expected_sha256)?;
-
-        let unique = format!(
-            "system-monitor-setup-{}-{}.exe",
-            std::process::id(),
-            chrono::Utc::now().timestamp_millis()
-        );
-        let installer_path = std::env::temp_dir().join(unique);
-        fs::write(&installer_path, &bytes).map_err(|e| format!("Failed to write update file: {}", e))?;
-
-        // Silent install — replaces the exe, shortcuts, and uninstall entry in
-        // one pass. Only installer assets are offered; the process exits so the
-        // installer can replace files freely.
-        #[cfg(target_os = "windows")]
+        #[cfg(windows)]
         {
-            use std::os::windows::process::CommandExt;
-            use std::process::Command;
-            Command::new(&installer_path)
-                .creation_flags(0x08000000)
-                .args(["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"])
-                .spawn()
-                .map_err(|e| {
-                    let _ = fs::remove_file(&installer_path);
-                    format!("Failed to spawn installer: {}", e)
-                })?;
-            Ok(())
+            stage_and_launch_helper(&bytes, &expected_sha256)
         }
-        #[cfg(not(target_os = "windows"))]
+        #[cfg(not(windows))]
         {
-            let _ = fs::remove_file(&installer_path);
-            Err("Installer updates are only supported on Windows".to_string())
+            Err("Installer updates are only supported on Windows".into())
         }
     }
 
@@ -353,9 +371,499 @@ fn verify_sha256(bytes: &[u8], expected_hex: &str) -> Result<(), String> {
     }
 }
 
+// Public release configuration, never a secret and never supplied by downloaded
+// metadata. This is SHA-256 over the DER leaf code-signing certificate.
+fn configured_signer_pin() -> Result<&'static str, String> {
+    let pin = option_env!("SYSMON_SIGNER_CERT_SHA256").unwrap_or("");
+    if pin.len() != 64 || !pin.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(
+            "Automatic installation is unavailable: this build has no configured publisher certificate SHA-256 pin"
+                .into(),
+        );
+    }
+    Ok(pin)
+}
+
+#[cfg(windows)]
+fn registered_install_location() -> Result<std::path::PathBuf, String> {
+    use winreg::{RegKey, enums::*};
+    let key = RegKey::predef(HKEY_LOCAL_MACHINE)
+        .open_subkey_with_flags(
+            format!(
+                r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{}_is1",
+                INSTALLER_APP_ID
+            ),
+            KEY_READ | KEY_WOW64_64KEY,
+        )
+        .map_err(|e| format!("Registered installation is unavailable: {e}"))?;
+    let location: String = key.get_value("InstallLocation").map_err(|e| e.to_string())?;
+    if location.is_empty() {
+        return Err("Registered InstallLocation is empty".into());
+    }
+    fs::canonicalize(location).map_err(|e| e.to_string())
+}
+
+#[cfg(windows)]
+pub(crate) use native_update::{run_startup_task, take_install_outcome, verify_authenticode_path};
+#[cfg(not(windows))]
+pub(crate) fn take_install_outcome() -> Option<InstallOutcome> {
+    None
+}
+#[cfg(windows)]
+use native_update::stage_and_launch_helper;
+
+#[cfg(windows)]
+mod native_update {
+    use super::*;
+    use crate::privilege::{self, ElevationOutcome, StartupMessage};
+    use std::{
+        cell::RefCell,
+        fs::{File, OpenOptions},
+        io::{Seek, Write},
+        os::windows::{
+            ffi::{OsStrExt, OsStringExt},
+            fs::OpenOptionsExt,
+            io::{AsRawHandle, FromRawHandle},
+        },
+        path::{Path, PathBuf},
+    };
+    use windows::{
+        Win32::{
+            Foundation::*,
+            Security::{Authorization::*, PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES, WinTrust::*},
+            Storage::FileSystem::*,
+            System::SystemInformation::GetWindowsDirectoryW,
+        },
+        core::{PCWSTR, w},
+    };
+
+    thread_local! { static INSTALL_RESULT: RefCell<Option<(InstallOutcome, PathBuf)>> = const { RefCell::new(None) }; }
+
+    fn wide(path: &Path) -> Vec<u16> {
+        path.as_os_str().encode_wide().chain(Some(0)).collect()
+    }
+    fn locked_file(path: &Path) -> Result<File, String> {
+        OpenOptions::new()
+            .read(true)
+            .share_mode(FILE_SHARE_READ.0)
+            .open(path)
+            .map_err(|e| format!("Could not lock {}: {e}", path.display()))
+    }
+    fn check_file_hash(file: &mut File, expected: &str) -> Result<(), String> {
+        file.rewind().map_err(|e| e.to_string())?;
+        let mut hasher = Sha256::new();
+        let mut block = [0u8; 65536];
+        loop {
+            let count = file.read(&mut block).map_err(|e| e.to_string())?;
+            if count == 0 {
+                break;
+            }
+            hasher.update(&block[..count]);
+        }
+        if !hex_digest(&hasher.finalize()).eq_ignore_ascii_case(expected) {
+            return Err("Staged installer content changed".into());
+        }
+        file.rewind().map_err(|e| e.to_string())
+    }
+
+    pub(crate) fn verify_authenticode_path(path: &Path) -> Result<(), String> {
+        verify_authenticode(path, &locked_file(path)?)
+    }
+
+    fn verify_authenticode(path: &Path, file: &File) -> Result<(), String> {
+        let expected = configured_signer_pin()?;
+        let name = wide(path);
+        let mut file_info = WINTRUST_FILE_INFO {
+            cbStruct: std::mem::size_of::<WINTRUST_FILE_INFO>() as u32,
+            pcwszFilePath: PCWSTR(name.as_ptr()),
+            hFile: HANDLE(file.as_raw_handle()),
+            ..Default::default()
+        };
+        let mut trust = WINTRUST_DATA {
+            cbStruct: std::mem::size_of::<WINTRUST_DATA>() as u32,
+            dwUIChoice: WTD_UI_NONE,
+            fdwRevocationChecks: WTD_REVOKE_WHOLECHAIN,
+            dwUnionChoice: WTD_CHOICE_FILE,
+            Anonymous: WINTRUST_DATA_0 { pFile: &mut file_info },
+            dwStateAction: WTD_STATEACTION_VERIFY,
+            dwProvFlags: WTD_REVOCATION_CHECK_CHAIN_EXCLUDE_ROOT | WTD_DISABLE_MD2_MD4,
+            ..Default::default()
+        };
+        let mut action = WINTRUST_ACTION_GENERIC_VERIFY_V2;
+        // The provider verifies the already-open file, including chain, code-signing
+        // usage, timestamp and revocation. A valid but different publisher is rejected.
+        let status = unsafe {
+            WinVerifyTrust(
+                HWND(-1isize as *mut _),
+                &mut action,
+                (&mut trust as *mut WINTRUST_DATA).cast(),
+            )
+        };
+        let verified = (|| {
+            if status != 0 {
+                return Err(format!(
+                    "Authenticode trust verification failed (0x{:08x})",
+                    status as u32
+                ));
+            }
+            unsafe {
+                let provider = WTHelperProvDataFromStateData(trust.hWVTStateData);
+                if provider.is_null() {
+                    return Err("Authenticode provider supplied no signer".into());
+                }
+                let signer = WTHelperGetProvSignerFromChain(provider, 0, false, 0);
+                if signer.is_null() || (*signer).csCertChain == 0 || (*signer).pasCertChain.is_null() {
+                    return Err("Authenticode signer chain is missing".into());
+                }
+                let cert = (*(*signer).pasCertChain).pCert;
+                if cert.is_null() || (*cert).pbCertEncoded.is_null() || (*cert).cbCertEncoded == 0 {
+                    return Err("Authenticode signer certificate is missing".into());
+                }
+                let der = std::slice::from_raw_parts((*cert).pbCertEncoded, (*cert).cbCertEncoded as usize);
+                if !hex_digest(&Sha256::digest(der)).eq_ignore_ascii_case(expected) {
+                    return Err("Installer signer does not match the configured publisher certificate".into());
+                }
+            }
+            Ok(())
+        })();
+        trust.dwStateAction = WTD_STATEACTION_CLOSE;
+        unsafe {
+            WinVerifyTrust(
+                HWND(-1isize as *mut _),
+                &mut action,
+                (&mut trust as *mut WINTRUST_DATA).cast(),
+            );
+        }
+        verified
+    }
+
+    fn staging_root() -> Result<PathBuf, String> {
+        let mut buffer = vec![0u16; 32768];
+        let length = unsafe { GetWindowsDirectoryW(Some(&mut buffer)) } as usize;
+        if length == 0 || length >= buffer.len() {
+            return Err("Windows directory is unavailable".into());
+        }
+        Ok(PathBuf::from(std::ffi::OsString::from_wide(&buffer[..length])).join("Temp"))
+    }
+
+    struct Stage {
+        path: PathBuf,
+        directory: Option<File>,
+        keep: bool,
+    }
+    impl Stage {
+        fn create() -> Result<Self, String> {
+            let path = staging_root()?.join(format!("SysMonUpdate-{}", privilege::random_id()?));
+            let name = wide(&path);
+            let mut descriptor = PSECURITY_DESCRIPTOR::default();
+            // Protected DACL and high integrity: medium-integrity same-user code
+            // cannot rewrite installer/helper bytes or grant itself access.
+            unsafe {
+                ConvertStringSecurityDescriptorToSecurityDescriptorW(
+                    w!("D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)S:(ML;OICI;NW;;;HI)"),
+                    SDDL_REVISION_1,
+                    &mut descriptor,
+                    None,
+                )
+                .map_err(|e| e.to_string())?;
+            }
+            let attributes = SECURITY_ATTRIBUTES {
+                nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
+                lpSecurityDescriptor: descriptor.0,
+                bInheritHandle: false.into(),
+            };
+            let created = unsafe { CreateDirectoryW(PCWSTR(name.as_ptr()), Some(&attributes)) };
+            unsafe {
+                let _ = LocalFree(Some(HLOCAL(descriptor.0)));
+            }
+            created.map_err(|e| format!("Could not create protected update staging: {e}"))?;
+            let mut stage = Self {
+                path,
+                directory: None,
+                keep: false,
+            };
+            let handle = unsafe {
+                CreateFileW(
+                    PCWSTR(name.as_ptr()),
+                    FILE_READ_ATTRIBUTES.0,
+                    FILE_SHARE_READ | FILE_SHARE_WRITE,
+                    None,
+                    OPEN_EXISTING,
+                    FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+                    None,
+                )
+                .map_err(|e| e.to_string())?
+            };
+            stage.directory = Some(unsafe { File::from_raw_handle(handle.0) });
+            Ok(stage)
+        }
+        fn write_locked(&self, name: &str, bytes: &[u8]) -> Result<File, String> {
+            let path = self.path.join(name);
+            let mut file = OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .share_mode(0)
+                .open(&path)
+                .map_err(|e| e.to_string())?;
+            file.write_all(bytes)
+                .and_then(|_| file.sync_all())
+                .map_err(|e| e.to_string())?;
+            drop(file);
+            // This transition occurs inside our new admin-only directory. The
+            // resulting read-only handle denies writes AND deletion until exit.
+            locked_file(&path)
+        }
+    }
+    impl Drop for Stage {
+        fn drop(&mut self) {
+            self.directory.take();
+            if !self.keep {
+                cleanup_stage(&self.path);
+            }
+        }
+    }
+    fn cleanup_stage(path: &Path) {
+        // Never recurse or accept a caller-selected directory for cleanup.
+        let Ok(root) = staging_root() else {
+            return;
+        };
+        let Some(name) = path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .and_then(|s| s.strip_prefix("SysMonUpdate-"))
+        else {
+            return;
+        };
+        if path.parent() != Some(root.as_path()) || name.len() != 32 || !name.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return;
+        }
+        for name in ["installer.exe", "helper.exe"] {
+            let _ = fs::remove_file(path.join(name));
+        }
+        let _ = fs::remove_dir(path);
+    }
+
+    pub(super) fn stage_and_launch_helper(bytes: &[u8], expected: &str) -> Result<InstallOutcome, String> {
+        let target =
+            fs::canonicalize(std::env::current_exe().map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+        let mut source = locked_file(&target)?;
+        verify_authenticode(&target, &source)?;
+        let mut stage = Stage::create()?;
+        let mut installer = stage.write_locked("installer.exe", bytes)?;
+        check_file_hash(&mut installer, expected)?;
+        verify_authenticode(&stage.path.join("installer.exe"), &installer)?;
+        let mut helper_bytes = Vec::new();
+        source.read_to_end(&mut helper_bytes).map_err(|e| e.to_string())?;
+        let _helper = stage.write_locked("helper.exe", &helper_bytes)?;
+        let result = privilege::launch_successor(
+            &stage.path.join("helper.exe"),
+            &StartupMessage::Install {
+                installer: stage.path.join("installer.exe"),
+                target,
+                sha256: expected.to_string(),
+            },
+            false,
+        )?;
+        if result != ElevationOutcome::Ready {
+            return Ok(InstallOutcome::Canceled);
+        }
+        // The authenticated helper now independently holds both installer and
+        // directory locks. They overlap these guards: there is no unlocked gap.
+        stage.keep = true;
+        Ok(InstallOutcome::Launched)
+    }
+
+    pub(crate) fn run_startup_task() -> Result<bool, String> {
+        match privilege::take_startup_message() {
+            Some(StartupMessage::Install {
+                installer,
+                target,
+                sha256,
+            }) => {
+                run_install_helper(&installer, &target, &sha256)?;
+                Ok(true)
+            }
+            Some(StartupMessage::Resume(outcome, stage)) => {
+                INSTALL_RESULT.with(|result| *result.borrow_mut() = Some((outcome, stage)));
+                Ok(false)
+            }
+            _ => Ok(false),
+        }
+    }
+
+    fn run_install_helper(installer: &Path, target: &Path, expected: &str) -> Result<(), String> {
+        let own = fs::canonicalize(std::env::current_exe().map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+        let stage_path = own.parent().ok_or("Update helper has no parent directory")?;
+        if installer != stage_path.join("installer.exe") {
+            return Err("Installer is outside the authenticated helper staging directory".into());
+        }
+        let installed = registered_install_location()?.join("system-monitor.exe");
+        if fs::canonicalize(target).map_err(|e| e.to_string())?
+            != fs::canonicalize(&installed).map_err(|e| e.to_string())?
+        {
+            return Err("Update target no longer matches the registered installation".into());
+        }
+        // The helper keeps the parent directory and exact verified file open
+        // throughout installer execution; parent exits only after these succeed.
+        let name = wide(stage_path);
+        let directory = unsafe {
+            CreateFileW(
+                PCWSTR(name.as_ptr()),
+                FILE_READ_ATTRIBUTES.0,
+                FILE_SHARE_READ | FILE_SHARE_WRITE,
+                None,
+                OPEN_EXISTING,
+                FILE_FLAG_BACKUP_SEMANTICS,
+                None,
+            )
+            .map_err(|e| e.to_string())?
+        };
+        let directory = unsafe { File::from_raw_handle(directory.0) };
+        let mut file = locked_file(installer)?;
+        check_file_hash(&mut file, expected)?;
+        verify_authenticode(installer, &file)?;
+        privilege::complete_startup()?;
+        let outcome = match std::process::Command::new(installer)
+            .args([
+                "/SILENT",
+                "/SUPPRESSMSGBOXES",
+                "/NORESTART",
+                "/RESTARTEXITCODE=3010",
+                "/NOCLOSEAPPLICATIONS",
+                "/NORESTARTAPPLICATIONS",
+            ])
+            .arg(format!("/DIR={}", installed.parent().unwrap().display()))
+            .status()
+        {
+            Ok(status) => installer_outcome(status.code().unwrap_or(-1) as u32),
+            Err(error) => InstallOutcome::Error(format!("Installer launch failed: {error}")),
+        };
+        drop(file);
+        // Even cancellation/failure reopens the retained installed application.
+        // Refuse to execute replacement content that lacks the publisher identity.
+        verify_authenticode_path(&installed)?;
+        privilege::launch_successor(
+            &installed,
+            &StartupMessage::Resume(outcome, stage_path.to_path_buf()),
+            false,
+        )?;
+        drop(directory);
+        Ok(())
+    }
+
+    pub(crate) fn take_install_outcome() -> Option<InstallOutcome> {
+        INSTALL_RESULT
+            .with(|result| result.borrow_mut().take())
+            .map(|(outcome, stage)| {
+                // First GUI logic runs after complete_startup observed helper exit.
+                cleanup_stage(&stage);
+                outcome
+            })
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        #[test]
+        fn locked_staged_bytes_deny_replacement_and_mutation() {
+            let path = std::env::temp_dir().join(format!("sysmon-lock-{}.exe", privilege::random_id().unwrap()));
+            fs::write(&path, b"fixture").unwrap();
+            let mut held = locked_file(&path).unwrap();
+            assert!(OpenOptions::new().write(true).open(&path).is_err());
+            assert!(fs::remove_file(&path).is_err());
+            check_file_hash(&mut held, &hex_digest(&Sha256::digest(b"fixture"))).unwrap();
+            assert!(check_file_hash(&mut held, &hex_digest(&Sha256::digest(b"tampered"))).is_err());
+            drop(held);
+            fs::remove_file(path).unwrap();
+        }
+        #[test]
+        fn exclusive_staging_write_never_overwrites_existing_content() {
+            let path = std::env::temp_dir().join(format!("sysmon-exclusive-{}", privilege::random_id().unwrap()));
+            fs::create_dir(&path).unwrap();
+            let stage = Stage {
+                path: path.clone(),
+                directory: None,
+                keep: true,
+            };
+            fs::write(path.join("installer.exe"), b"sentinel").unwrap();
+            assert!(stage.write_locked("installer.exe", b"replacement").is_err());
+            assert_eq!(fs::read(path.join("installer.exe")).unwrap(), b"sentinel");
+            fs::remove_file(path.join("installer.exe")).unwrap();
+            fs::remove_dir(path).unwrap();
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn canonical_versions_reject_lossy_comparison_inputs() {
+        for version in [
+            "1.2",
+            "1.2.3.4",
+            "01.2.3",
+            "1.x.3",
+            "v1.2.3",
+            "1.2.3-beta",
+            " 1.2.3",
+            "1.2.3+build",
+        ] {
+            assert!(canonical_version(version).is_err(), "{version}");
+        }
+        assert!(canonical_version("3.10.0").unwrap() > canonical_version("3.9.99").unwrap());
+    }
+
+    #[test]
+    fn release_path_must_bind_canonical_tag_and_filename() {
+        for suffix in [
+            "v3.8.0/SystemMonitor-3.9.0-setup.exe",
+            "v3.8.0/../SystemMonitor-3.8.0-setup.exe",
+            "vv3.8.0/SystemMonitor-3.8.0-setup.exe",
+            "v3.8.0/SystemMonitor-3.8.0-setup.exe?x=.exe",
+        ] {
+            let url = format!("https://github.com/Xenonesis/sysmon/releases/download/{suffix}");
+            assert!(validate_release_pair(&url, &format!("{url}.sha256")).is_err());
+        }
+    }
+
+    #[test]
+    fn completion_distinguishes_cancellation_failure_and_reboot() {
+        assert_eq!(
+            installer_outcome(0),
+            InstallOutcome::Completed { reboot_required: false }
+        );
+        assert_eq!(
+            installer_outcome(3010),
+            InstallOutcome::Completed { reboot_required: true }
+        );
+        assert_eq!(installer_outcome(2), InstallOutcome::Canceled);
+        assert_eq!(installer_outcome(5), InstallOutcome::Canceled);
+        assert_eq!(installer_outcome(4), InstallOutcome::Failed { code: 4 });
+    }
+
+    #[test]
+    fn registered_install_does_not_identify_a_portable_copy() {
+        let root = std::env::temp_dir().join(format!("sysmon-path-test-{}", std::process::id()));
+        fs::create_dir_all(root.join("installed")).unwrap();
+        fs::create_dir_all(root.join("portable")).unwrap();
+        fs::write(root.join("installed/system-monitor.exe"), b"installed").unwrap();
+        fs::write(root.join("portable/system-monitor.exe"), b"portable").unwrap();
+        assert!(matches_install_location(
+            &root.join("installed/system-monitor.exe"),
+            &root.join("installed")
+        ));
+        assert!(!matches_install_location(
+            &root.join("portable/system-monitor.exe"),
+            &root.join("installed")
+        ));
+        assert!(!matches_install_location(
+            &root.join("missing/system-monitor.exe"),
+            &root.join("installed")
+        ));
+        fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn accepts_expected_release_asset() {

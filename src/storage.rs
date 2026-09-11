@@ -1,7 +1,6 @@
-//! Physical storage disk drive health, S.M.A.R.T. predictive status, and SSD diagnostics.
+//! Physical storage identity and measured performance. Device Status is not a SMART test.
 pub mod file_locks;
 pub mod reclaimer;
-
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -16,194 +15,192 @@ pub struct PhysicalDiskHealth {
     pub wear_percentage: Option<u32>,
 }
 
-#[cfg(target_os = "windows")]
-mod windows_impl {
-    use super::*;
-    use wmi::WMIConnection;
-
-    #[derive(Deserialize, Debug)]
-    #[serde(rename_all = "PascalCase")]
-    struct Win32DiskDriveRow {
-        device_id: Option<String>,
-        model: Option<String>,
-        media_type: Option<String>,
-        size: Option<u64>,
-        status: Option<String>,
-        interface_type: Option<String>,
-    }
-
-    pub fn get_physical_disks_internal() -> Vec<PhysicalDiskHealth> {
-        let wmi_con = match WMIConnection::new() {
-            Ok(con) => con,
-            Err(_) => return Vec::new(),
-        };
-
-        let rows: Vec<Win32DiskDriveRow> = match wmi_con
-            .raw_query("SELECT DeviceID, Model, MediaType, Size, Status, InterfaceType FROM Win32_DiskDrive")
-        {
-            Ok(r) => r,
-            Err(_) => return Vec::new(),
-        };
-
-        rows.into_iter()
-            .map(|row| {
-                let model = row.model.unwrap_or_else(|| "Generic Physical Disk".into());
-                let interface = row.interface_type.unwrap_or_default();
-                let raw_media = row.media_type.unwrap_or_default();
-
-                let media_type = if interface.to_uppercase().contains("NVME") || model.to_uppercase().contains("NVME") {
-                    "NVMe SSD".to_string()
-                } else if raw_media.to_uppercase().contains("SSD") || model.to_uppercase().contains("SSD") {
-                    "SATA SSD".to_string()
-                } else if raw_media.to_uppercase().contains("FIXED") {
-                    "Hard Disk Drive (HDD)".to_string()
-                } else {
-                    "Fixed Storage Media".to_string()
-                };
-
-                let raw_status = row.status.unwrap_or_else(|| "OK".into());
-                let (status, smart_status) = if raw_status.eq_ignore_ascii_case("OK") {
-                    ("HEALTHY".to_string(), "PASSED (GOOD)".to_string())
-                } else if raw_status.to_uppercase().contains("PRED") || raw_status.to_uppercase().contains("FAIL") {
-                    ("CRITICAL".to_string(), "PREDICTIVE FAILURE".to_string())
-                } else {
-                    ("WARNING".to_string(), "DEGRADED".to_string())
-                };
-
-                PhysicalDiskHealth {
-                    device_id: row.device_id.unwrap_or_default(),
-                    model,
-                    media_type,
-                    size_bytes: row.size.unwrap_or(0),
-                    status,
-                    smart_status,
-                    temperature_c: None,
-                    wear_percentage: Some(100),
-                }
-            })
-            .collect()
-    }
-}
-
-/// Retrieve physical disk drive health and SMART status.
-pub fn get_physical_disks() -> Vec<PhysicalDiskHealth> {
-    #[cfg(target_os = "windows")]
-    {
-        windows_impl::get_physical_disks_internal()
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    {
-        Vec::new()
-    }
-}
-
-/// Live per-physical-disk performance counters (latency, queue depth, IOPS).
 #[derive(Debug, Clone, Default)]
 pub struct DiskPerfStats {
     pub name: String,
-    pub read_latency_ms: f32,
-    pub write_latency_ms: f32,
-    pub queue_depth: f32,
-    pub active_pct: f32,
-    pub read_iops: u32,
-    pub write_iops: u32,
+    pub read_latency_ms: Option<f64>,
+    pub write_latency_ms: Option<f64>,
+    pub queue_depth: Option<f64>,
+    /// Disk busy time weighted by queued operations; may exceed 100%.
+    pub disk_time_pct: Option<f64>,
+    pub read_iops: Option<f64>,
+    pub write_iops: Option<f64>,
+    pub observed_at: Option<std::time::SystemTime>,
 }
 
-#[cfg(target_os = "windows")]
-mod perf_impl {
-    use super::DiskPerfStats;
-    use serde::Deserialize;
-    use wmi::WMIConnection;
-
-    #[derive(Deserialize, Debug)]
-    #[serde(rename_all = "PascalCase")]
-    struct PerfRow {
-        name: Option<String>,
-        avg_disk_sec_per_read: Option<u32>,
-        avg_disk_sec_per_write: Option<u32>,
-        avg_disk_queue_length: Option<u32>,
-        percent_disk_time: Option<u32>,
-        disk_reads_persec: Option<u32>,
-        disk_writes_persec: Option<u32>,
-    }
-
-    pub fn get_disk_perf_internal() -> Vec<DiskPerfStats> {
-        let Ok(wmi_con) = WMIConnection::new() else {
-            return Vec::new();
-        };
-        let Ok(rows) = wmi_con.raw_query::<PerfRow>(
-            "SELECT Name, AvgDiskSecPerRead, AvgDiskSecPerWrite, AvgDiskQueueLength, PercentDiskTime, DiskReadsPersec, DiskWritesPersec FROM Win32_PerfFormattedData_PerfDisk_PhysicalDisk",
-        ) else {
-            return Vec::new();
-        };
-        rows.into_iter()
-            .filter_map(|row| {
-                let name = row.name?;
-                if name.eq_ignore_ascii_case("_Total") {
-                    return None;
-                }
-                Some(DiskPerfStats {
-                    name,
-                    read_latency_ms: row.avg_disk_sec_per_read.unwrap_or(0) as f32,
-                    write_latency_ms: row.avg_disk_sec_per_write.unwrap_or(0) as f32,
-                    queue_depth: row.avg_disk_queue_length.unwrap_or(0) as f32,
-                    active_pct: row.percent_disk_time.unwrap_or(0) as f32,
-                    read_iops: row.disk_reads_persec.unwrap_or(0),
-                    write_iops: row.disk_writes_persec.unwrap_or(0),
-                })
-            })
-            .collect()
-    }
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+struct RawDisk {
+    name: String,
+    avg_disk_sec_per_read: Option<u64>,
+    #[serde(rename = "AvgDiskSecPerRead_Base")]
+    read_base: Option<u32>,
+    avg_disk_sec_per_write: Option<u64>,
+    #[serde(rename = "AvgDiskSecPerWrite_Base")]
+    write_base: Option<u32>,
+    avg_disk_queue_length: Option<u64>,
+    percent_disk_time: Option<u64>,
+    disk_reads_persec: Option<u32>,
+    disk_writes_persec: Option<u32>,
+    #[serde(rename = "Timestamp_PerfTime")]
+    timestamp: Option<u64>,
+    #[serde(rename = "Frequency_PerfTime")]
+    frequency: Option<u64>,
+    #[serde(rename = "Timestamp_Sys100NS")]
+    timestamp_100ns: Option<u64>,
 }
 
-/// Retrieve live disk latency, queue depth and IOPS per physical disk.
-pub fn get_disk_perf() -> Vec<DiskPerfStats> {
-    #[cfg(target_os = "windows")]
-    {
-        perf_impl::get_disk_perf_internal()
+fn delta(a: Option<u64>, b: Option<u64>) -> Option<f64> {
+    Some(a?.checked_sub(b?)? as f64)
+}
+fn ratio(numerator: Option<f64>, denominator: Option<f64>) -> Option<f64> {
+    let denominator = denominator?;
+    (denominator > 0.0)
+        .then(|| numerator.map(|n| n / denominator))
+        .flatten()
+}
+fn performance(current: &RawDisk, previous: Option<&RawDisk>) -> DiskPerfStats {
+    let mut result = DiskPerfStats {
+        name: current.name.clone(),
+        ..Default::default()
+    };
+    let Some(previous) = previous else { return result };
+    if current.frequency != previous.frequency {
+        return result;
     }
+    let frequency = current.frequency.filter(|f| *f > 0).map(|f| f as f64);
+    let elapsed = ratio(delta(current.timestamp, previous.timestamp), frequency);
+    let elapsed_100ns = delta(current.timestamp_100ns, previous.timestamp_100ns);
+    let latency = |n, old, base: Option<u32>, old_base: Option<u32>| {
+        ratio(
+            ratio(delta(n, old), frequency),
+            delta(base.map(u64::from), old_base.map(u64::from)),
+        )
+        .map(|s| s * 1000.0)
+    };
+    result.read_latency_ms = latency(
+        current.avg_disk_sec_per_read,
+        previous.avg_disk_sec_per_read,
+        current.read_base,
+        previous.read_base,
+    );
+    result.write_latency_ms = latency(
+        current.avg_disk_sec_per_write,
+        previous.avg_disk_sec_per_write,
+        current.write_base,
+        previous.write_base,
+    );
+    result.queue_depth = ratio(
+        delta(current.avg_disk_queue_length, previous.avg_disk_queue_length),
+        elapsed_100ns,
+    );
+    result.disk_time_pct = ratio(
+        delta(current.percent_disk_time, previous.percent_disk_time),
+        elapsed_100ns,
+    )
+    .map(|v| v * 100.0);
+    result.read_iops = ratio(
+        delta(
+            current.disk_reads_persec.map(u64::from),
+            previous.disk_reads_persec.map(u64::from),
+        ),
+        elapsed,
+    );
+    result.write_iops = ratio(
+        delta(
+            current.disk_writes_persec.map(u64::from),
+            previous.disk_writes_persec.map(u64::from),
+        ),
+        elapsed,
+    );
+    result.observed_at = Some(std::time::SystemTime::now());
+    result
+}
 
+pub fn get_physical_disks() -> Result<Vec<PhysicalDiskHealth>, String> {
     #[cfg(not(target_os = "windows"))]
     {
-        Vec::new()
+        Err("Physical disk health requires Windows".into())
+    }
+    #[cfg(target_os = "windows")]
+    {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "PascalCase")]
+        struct Row {
+            device_id: String,
+            model: Option<String>,
+            media_type: Option<String>,
+            size: Option<u64>,
+            status: Option<String>,
+        }
+        let connection = wmi::WMIConnection::new().map_err(|e| e.to_string())?;
+        let rows: Vec<Row> = connection
+            .raw_query("SELECT DeviceID, Model, MediaType, Size, Status FROM Win32_DiskDrive")
+            .map_err(|e| e.to_string())?;
+        Ok(rows
+            .into_iter()
+            .map(|row| PhysicalDiskHealth {
+                device_id: row.device_id,
+                model: row.model.unwrap_or_else(|| "Unknown disk model".into()),
+                // Win32_DiskDrive.MediaType=Fixed is not evidence of an HDD/SSD or bus type.
+                media_type: row.media_type.unwrap_or_else(|| "Unknown media type".into()),
+                size_bytes: row.size.unwrap_or_default(),
+                status: row.status.unwrap_or_else(|| "Unknown device status".into()),
+                smart_status: "Not acquired (device status is not SMART)".into(),
+                temperature_c: None,
+                wear_percentage: None,
+            })
+            .collect())
+    }
+}
+
+/// Raw timer/base counters preserve sub-millisecond latency; first acquisition warms a baseline.
+pub fn get_disk_perf() -> Result<Vec<DiskPerfStats>, String> {
+    #[cfg(not(target_os = "windows"))]
+    {
+        Err("Disk performance counters require Windows".into())
+    }
+    #[cfg(target_os = "windows")]
+    {
+        use std::{cell::RefCell, collections::HashMap};
+        thread_local! { static PREVIOUS: RefCell<HashMap<String, RawDisk>> = RefCell::new(HashMap::new()); }
+        let connection = wmi::WMIConnection::new().map_err(|e| e.to_string())?;
+        let rows: Vec<RawDisk> = connection.raw_query("SELECT Name, AvgDiskSecPerRead, AvgDiskSecPerRead_Base, AvgDiskSecPerWrite, AvgDiskSecPerWrite_Base, AvgDiskQueueLength, PercentDiskTime, DiskReadsPersec, DiskWritesPersec, Timestamp_PerfTime, Frequency_PerfTime, Timestamp_Sys100NS FROM Win32_PerfRawData_PerfDisk_PhysicalDisk").map_err(|e| e.to_string())?;
+        PREVIOUS.with(|previous| {
+            let mut previous = previous.borrow_mut();
+            let mut current = HashMap::new();
+            let mut output = Vec::new();
+            for row in rows.into_iter().filter(|row| !row.name.eq_ignore_ascii_case("_Total")) {
+                output.push(performance(&row, previous.get(&row.name)));
+                current.insert(row.name.clone(), row);
+            }
+            *previous = current;
+            Ok(output)
+        })
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
     #[test]
-    fn physical_disk_health_creation() {
-        let disk = PhysicalDiskHealth {
-            device_id: "\\\\.\\PHYSICALDRIVE0".into(),
-            model: "Samsung SSD 980 PRO 1TB".into(),
-            media_type: "NVMe SSD".into(),
-            size_bytes: 1_000_204_886_016,
-            status: "HEALTHY".into(),
-            smart_status: "PASSED (GOOD)".into(),
-            temperature_c: Some(38),
-            wear_percentage: Some(99),
+    fn fractional_latency_and_reset_are_not_manufactured() {
+        let previous = RawDisk {
+            name: "0 C:".into(),
+            avg_disk_sec_per_read: Some(1000),
+            read_base: Some(10),
+            frequency: Some(10_000_000),
+            timestamp: Some(10_000_000),
+            ..Default::default()
         };
-        assert_eq!(disk.media_type, "NVMe SSD");
-        assert_eq!(disk.status, "HEALTHY");
-    }
-
-    #[test]
-    fn get_physical_disks_does_not_panic() {
-        let disks = get_physical_disks();
-        for d in disks {
-            assert!(!d.model.is_empty());
-        }
-    }
-
-    #[test]
-    fn get_disk_perf_does_not_panic() {
-        let perf = get_disk_perf();
-        for p in perf {
-            assert!(!p.name.is_empty());
-            assert!(!p.name.eq_ignore_ascii_case("_Total"));
-        }
+        let current = RawDisk {
+            avg_disk_sec_per_read: Some(6000),
+            read_base: Some(12),
+            timestamp: Some(20_000_000),
+            ..previous.clone()
+        };
+        assert_eq!(performance(&current, Some(&previous)).read_latency_ms, Some(0.25));
+        assert_eq!(performance(&previous, Some(&current)).read_latency_ms, None);
+        assert_eq!(performance(&current, None).read_latency_ms, None);
     }
 }

@@ -17,7 +17,7 @@ pub(super) struct ColumnWidths {
 
 impl ColumnWidths {
     fn for_width(available: f32) -> Self {
-        let total = available.max(680.0);
+        let total = available.max(740.0);
         let spacing = 8.0;
         let actions = 175.0;
         let state = 110.0;
@@ -44,35 +44,41 @@ pub(super) fn paint(
 ) {
     card_frame(is_dark).show(ui, |ui| {
         let widths = ColumnWidths::for_width(ui.available_width());
-        paint_header(ui, state, widths, is_dark);
-        ui.add_space(4.0);
-        ui.separator();
-        ui.add_space(4.0);
-
-        if services.is_empty() {
-            paint_empty(ui, state, is_dark);
-            return;
-        }
-
-        let row_height = 28.0;
-        ui.spacing_mut().item_spacing.y = 0.0;
-        egui::ScrollArea::both()
+        egui::ScrollArea::horizontal()
+            .id_salt("services_columns")
             .auto_shrink([false, false])
-            .max_height(520.0)
-            .show_rows(ui, row_height, services.len(), |ui, row_range| {
-                for index in row_range {
-                    super::row::paint(
-                        ui,
-                        state,
-                        services[index],
-                        index,
-                        row_height,
-                        widths,
-                        is_dark,
-                        is_elevated,
-                        intents,
-                    );
+            .show(ui, |ui| {
+                ui.set_min_width(widths.total);
+                paint_header(ui, state, widths, is_dark);
+                ui.add_space(4.0);
+                ui.separator();
+                ui.add_space(4.0);
+
+                if services.is_empty() {
+                    paint_empty(ui, state, is_dark);
+                    return;
                 }
+
+                let row_height = 28.0;
+                ui.spacing_mut().item_spacing.y = 0.0;
+                egui::ScrollArea::vertical()
+                    .auto_shrink([false, false])
+                    .max_height(520.0)
+                    .show_rows(ui, row_height, services.len(), |ui, row_range| {
+                        for index in row_range {
+                            super::row::paint(
+                                ui,
+                                state,
+                                services[index],
+                                index,
+                                row_height,
+                                widths,
+                                is_dark,
+                                is_elevated,
+                                intents,
+                            );
+                        }
+                    });
             });
     });
 }
@@ -162,6 +168,7 @@ fn header_button(
             response = Some(
                 ui.add(
                     egui::Button::new(egui::RichText::new(text).strong().size(11.5).color(color))
+                        .selected(column == current)
                         .fill(egui::Color32::TRANSPARENT)
                         .stroke(egui::Stroke::NONE),
                 ),

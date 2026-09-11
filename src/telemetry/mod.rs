@@ -9,12 +9,14 @@ pub(crate) mod quality;
 pub mod ring_buffer;
 pub mod scheduler;
 
+use crate::monitoring::snapshot::{MetricObservation, MetricState};
 use crate::providers::TelemetryProvider;
 use ring_buffer::{MetricStats, MultiResolutionHistory};
 use scheduler::PollingScheduler;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock, mpsc};
 use std::time::Duration;
+use std::time::SystemTime;
 
 #[derive(Clone, Debug, Default)]
 pub struct HistoryStats {
@@ -35,6 +37,7 @@ pub struct TelemetrySnapshot {
     pub provider_status: HashMap<String, bool>,
     /// Bounded statistics calculated independently for each time range.
     pub history_stats: HashMap<String, HistoryStats>,
+    pub metric_status: HashMap<String, MetricObservation>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -67,6 +70,8 @@ impl LatestSnapshotReader {
 /// Commands sent from the application to the telemetry worker.
 pub enum HubCommand {
     SetBackgroundMode(bool),
+    SetPaused(bool),
+    SetConsumerDemand { recording: bool, process_manager: bool },
     ForceRefresh,
     Shutdown,
 }
@@ -80,6 +85,9 @@ pub struct TelemetryHub {
     command_receiver: mpsc::Receiver<HubCommand>,
     /// Consecutive poll failures per provider; used to disable broken providers.
     consecutive_failures: HashMap<String, u32>,
+    paused: bool,
+    consumer_demand: (bool, bool),
+    metric_owners: HashMap<String, String>,
 }
 
 impl TelemetryHub {
@@ -93,7 +101,10 @@ impl TelemetryHub {
             latest: TelemetrySnapshot::default(),
             snapshot_slot: Arc::clone(&snapshot_slot),
             command_receiver: command_rx,
+            paused: false,
             consecutive_failures: HashMap::new(),
+            consumer_demand: (false, false),
+            metric_owners: HashMap::new(),
         };
         let reader = LatestSnapshotReader {
             slot: snapshot_slot,
@@ -117,12 +128,34 @@ impl TelemetryHub {
                     HubCommand::SetBackgroundMode(background) => {
                         self.scheduler.set_background_mode(background);
                     }
+                    HubCommand::SetConsumerDemand {
+                        recording,
+                        process_manager,
+                    } => {
+                        self.consumer_demand = (recording, process_manager);
+                    }
+                    HubCommand::SetPaused(paused) => {
+                        self.paused = paused;
+                        if paused {
+                            for observation in self.latest.metric_status.values_mut() {
+                                if observation.state == MetricState::Available {
+                                    observation.state = MetricState::Stale;
+                                }
+                            }
+                            self.latest.metrics.clear();
+                            self.publish_snapshot();
+                        }
+                    }
                     HubCommand::ForceRefresh => self.poll_all(),
                     HubCommand::Shutdown => {
                         self.shutdown_providers();
                         return;
                     }
                 }
+            }
+            if self.paused {
+                std::thread::sleep(Duration::from_millis(50));
+                continue;
             }
 
             let mut updated = false;
@@ -149,8 +182,12 @@ impl TelemetryHub {
     }
 
     pub fn poll_all(&mut self) {
+        if self.paused {
+            return;
+        }
         for index in 0..self.providers.len() {
             let name = self.providers[index].name().to_string();
+            self.providers[index].reinitialize();
             let result = self.providers[index].poll();
             self.apply_provider_result(&name, result);
             self.scheduler.mark_polled(&name);
@@ -166,6 +203,17 @@ impl TelemetryHub {
         provider_name: &str,
         result: Result<crate::providers::ProviderData, crate::providers::ProviderError>,
     ) {
+        let observed_at = SystemTime::now();
+        for (key, owner) in &self.metric_owners {
+            if owner == provider_name {
+                self.latest.metrics.remove(key);
+                self.latest.labels.remove(key);
+                if let Some(observation) = self.latest.metric_status.get_mut(key) {
+                    observation.state = MetricState::Stale;
+                    observation.error = Some("Metric omitted by the latest provider poll".into());
+                }
+            }
+        }
         match result {
             Ok(data) => {
                 self.consecutive_failures.remove(provider_name);
@@ -174,7 +222,21 @@ impl TelemetryHub {
                     self.scheduler.enable(provider_name);
                 }
                 self.latest.provider_status.insert(provider_name.to_string(), true);
+                self.latest
+                    .metric_status
+                    .insert(provider_name.into(), MetricObservation::available(observed_at));
                 for (key, value) in data {
+                    self.metric_owners.insert(key.clone(), provider_name.into());
+                    let observation = if matches!(value, crate::providers::MetricValue::Unavailable) {
+                        MetricObservation {
+                            observed_at: None,
+                            state: MetricState::Unsupported,
+                            error: None,
+                        }
+                    } else {
+                        MetricObservation::available(observed_at)
+                    };
+                    self.latest.metric_status.insert(key.clone(), observation);
                     match value {
                         crate::providers::MetricValue::Text(text) => {
                             self.latest.labels.insert(key, text);
@@ -185,6 +247,28 @@ impl TelemetryHub {
                 }
             }
             Err(error) => {
+                let state = if matches!(error, crate::providers::ProviderError::Unavailable(_)) {
+                    MetricState::Unsupported
+                } else {
+                    MetricState::Error
+                };
+                for (key, owner) in &self.metric_owners {
+                    if owner == provider_name
+                        && let Some(observation) = self.latest.metric_status.get_mut(key)
+                    {
+                        observation.state = state;
+                        observation.error = Some(error.to_string());
+                    }
+                }
+                let previous = self.latest.metric_status.get(provider_name).and_then(|o| o.observed_at);
+                self.latest.metric_status.insert(
+                    provider_name.into(),
+                    MetricObservation {
+                        observed_at: previous,
+                        state,
+                        error: Some(error.to_string()),
+                    },
+                );
                 let failures = self.consecutive_failures.entry(provider_name.to_string()).or_insert(0);
                 *failures += 1;
                 if *failures >= Self::MAX_CONSECUTIVE_FAILURES {
@@ -206,6 +290,17 @@ impl TelemetryHub {
     }
 
     fn record_metric(&mut self, key: String, value: f64) {
+        if !value.is_finite() {
+            self.latest.metric_status.insert(
+                key,
+                MetricObservation {
+                    observed_at: None,
+                    state: MetricState::Error,
+                    error: Some("Non-finite provider reading".into()),
+                },
+            );
+            return;
+        }
         self.latest.metrics.insert(key.clone(), value);
         let history = self.histories.entry(key.clone()).or_default();
         history.push(value);
@@ -220,7 +315,38 @@ impl TelemetryHub {
         );
     }
 
-    fn publish_snapshot(&self) {
+    fn publish_snapshot(&mut self) {
+        let now = std::time::Instant::now();
+        for (key, history) in &mut self.histories {
+            history.trim_at(now);
+            self.latest.history_stats.insert(
+                key.clone(),
+                HistoryStats {
+                    sixty_seconds: history.short.stats().clone(),
+                    five_minutes: history.medium.stats().clone(),
+                    thirty_minutes: history.long.stats().clone(),
+                    one_hour: history.extended.stats().clone(),
+                },
+            );
+        }
+        for (key, owner) in &self.metric_owners {
+            let max_age = self
+                .providers
+                .iter()
+                .find(|p| p.name() == owner)
+                .map(|p| p.poll_interval().saturating_mul(15))
+                .unwrap_or(Duration::from_secs(15));
+            if let Some(observation) = self.latest.metric_status.get_mut(key)
+                && observation.state == MetricState::Available
+                && observation
+                    .observed_at
+                    .and_then(|at| at.elapsed().ok())
+                    .is_some_and(|age| age > max_age)
+            {
+                observation.state = MetricState::Stale;
+                self.latest.metrics.remove(key);
+            }
+        }
         if let Ok(mut slot) = self.snapshot_slot.write() {
             slot.generation = slot.generation.wrapping_add(1);
             slot.snapshot = self.latest.clone();
@@ -238,6 +364,23 @@ impl TelemetryHub {
 mod tests {
     use super::*;
     use crate::providers::{MetricValue, ProviderData, ProviderError};
+
+    #[test]
+    fn missing_and_failed_metrics_do_not_remain_live() {
+        let (mut hub, _, _) = TelemetryHub::new();
+        let sample = || ProviderData::from([("gpu.0.temperature".into(), MetricValue::UInt(67))]);
+        hub.apply_provider_result("gpu", Ok(sample()));
+        let observed = hub.latest.metric_status["gpu.0.temperature"].observed_at;
+        hub.apply_provider_result("gpu", Ok(ProviderData::new()));
+        assert!(!hub.latest.metrics.contains_key("gpu.0.temperature"));
+        assert_eq!(hub.latest.metric_status["gpu.0.temperature"].state, MetricState::Stale);
+        assert_eq!(hub.latest.metric_status["gpu.0.temperature"].observed_at, observed);
+        hub.apply_provider_result("gpu", Err(ProviderError::PollFailed("disconnected".into())));
+        assert_eq!(hub.latest.metric_status["gpu.0.temperature"].state, MetricState::Error);
+        hub.apply_provider_result("gpu", Ok(sample()));
+        assert_eq!(hub.latest.metrics["gpu.0.temperature"], 67.0);
+        assert!(hub.latest.metric_status["gpu.0.temperature"].is_fresh());
+    }
 
     struct MockProvider {
         poll_count: u32,

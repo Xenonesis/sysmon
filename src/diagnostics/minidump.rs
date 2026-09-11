@@ -1,543 +1,498 @@
-//! Native Windows Minidump (.dmp) parser and crash explanation dictionary.
-
+//! Bounded header inspection, not stack unwinding or root-cause attribution.
 use serde::{Deserialize, Serialize};
 use std::fs::{File, read_dir};
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
+use std::sync::mpsc::{self, Receiver};
 
-/// Detailed crash report parsed from a Windows minidump file.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum CrashKind {
+    Kernel32,
+    Kernel64,
+    Application,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct MinidumpCrashReport {
     pub file_name: String,
-    pub timestamp: String,
-    pub bugcheck_code: u32,
-    pub bugcheck_name: String,
+    pub timestamp: Option<String>,
+    pub kind: CrashKind,
+    pub code: u32,
+    pub code_name: String,
+    pub parameters: Vec<u64>,
     pub explanation: String,
-    pub faulting_module: Option<String>,
+    /// Module containing the exception address; not proof of blame.
+    pub address_module: Option<String>,
     pub recommendation: String,
 }
 
-/// Look up human-readable bugcheck name, explanation, and recommendation for a bugcheck code.
-pub fn lookup_bugcheck_info(code: u32, module: Option<&str>) -> (&'static str, &'static str, &'static str) {
-    match code {
-        0x0000000A => (
-            "IRQL_NOT_LESS_OR_EQUAL",
-            "A kernel-mode process attempted to access memory at an invalid address or illegal IRQL.",
-            "Usually caused by faulty device drivers or corrupted RAM. Check recently installed drivers.",
-        ),
-        0x0000001E => (
-            "KMODE_EXCEPTION_NOT_HANDLED",
-            "A kernel-mode program generated an exception that the error handler did not catch.",
-            "Often caused by faulty hardware, incompatible drivers, or system service corruption.",
-        ),
-        0x0000003B => (
-            "SYSTEM_SERVICE_EXCEPTION",
-            "An exception occurred while executing a system service routine.",
-            "Commonly triggered by graphics driver bugs, anti-cheat drivers, or system file corruption.",
-        ),
-        0x00000050 => (
-            "PAGE_FAULT_IN_NONPAGED_AREA",
-            "Invalid system memory was referenced by the kernel.",
-            "Check for defective physical RAM modules or an overheating memory controller.",
-        ),
-        0x0000007E => (
-            "SYSTEM_THREAD_EXCEPTION_NOT_HANDLED",
-            "A system thread generated an exception which the error handler did not handle.",
-            "Look at the faulting driver. Update or roll back the driver specified in the report.",
-        ),
-        0x0000009F => (
-            "DRIVER_POWER_STATE_FAILURE",
-            "A driver is in an inconsistent or invalid power state during sleep or wake.",
-            "Check SSD firmware updates and chipset/ACPI power management drivers.",
-        ),
-        0x000000D1 => (
-            "DRIVER_IRQL_NOT_LESS_OR_EQUAL",
-            "A kernel driver accessed pageable memory at an elevated interrupt level.",
-            "Predominantly caused by network adapter (Wi-Fi/Ethernet) or display driver bugs.",
-        ),
-        0x00000116 => (
-            "VIDEO_TDR_ERROR",
-            "The display adapter driver failed to respond within the allocated timeout period and Windows reset it.",
-            "Perform a clean re-installation of graphics drivers using Display Driver Uninstaller (DDU) or check GPU temperatures.",
-        ),
-        0x00000124 => (
-            "WHEA_UNCORRECTABLE_ERROR",
-            "Windows Hardware Error Architecture caught a fatal hardware fault.",
-            "Usually caused by unstable CPU/RAM overclocking, insufficient VCore voltage, or failing SSDs.",
-        ),
-        0x00000133 => (
-            "DPC_WATCHDOG_VIOLATION",
-            "A Deferred Procedure Call (DPC) ran longer than the watchdog threshold allowed.",
-            "Check for high DPC latency in storage controller or network interface drivers.",
-        ),
-        0x00000139 => (
-            "KERNEL_SECURITY_CHECK_FAILURE",
-            "The kernel detected corruption of a critical data structure.",
-            "Run 'sfc /scannow' and check system files or verify recently updated third-party drivers.",
-        ),
-        0xC0000005 => (
-            "STATUS_ACCESS_VIOLATION",
-            "The instruction at the fault address referenced memory without proper access permissions.",
-            "Check for application memory corruption, null pointer dereference, or faulty memory modules.",
-        ),
-        0xC0000409 => (
-            "STATUS_STACK_BUFFER_OVERRUN",
-            "The system detected an overrun of a stack-based buffer in the application (fail-fast exception).",
-            "Update the application or check for software security patches addressing buffer overflow vulnerabilities.",
-        ),
-        0xE0434352 => (
-            "CLR_EXCEPTION",
-            "An unhandled Microsoft .NET Common Language Runtime (CLR) exception was thrown.",
-            "Check the Windows Application Event Log or application logs for .NET exception stack traces.",
-        ),
-        _ => {
-            if let Some(m) = module {
-                let lower = m.to_ascii_lowercase();
-                if lower.contains("nvld") || lower.contains("amdk") || lower.contains("atik") || lower.contains("igdk")
-                {
-                    (
-                        "GPU_KERNEL_CRASH",
-                        "A crash occurred inside the graphics card kernel-mode driver.",
-                        "Reinstall the graphics driver or reset GPU core/memory clock offsets to factory defaults.",
-                    )
-                } else {
-                    (
-                        "KERNEL_BUGCHECK",
-                        "Windows encountered an unrecoverable kernel stop error.",
-                        "Inspect recent Windows updates, driver installations, and system memory integrity.",
-                    )
-                }
-            } else {
-                (
-                    "KERNEL_BUGCHECK",
-                    "Windows encountered an unrecoverable kernel stop error.",
-                    "Inspect recent Windows updates, driver installations, and system memory integrity.",
-                )
-            }
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DumpError {
+    Unsupported(String),
+    Invalid(String),
+    Io(String),
+}
+impl std::fmt::Display for DumpError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Unsupported(s) => write!(f, "Unsupported: {s}"),
+            Self::Invalid(s) => write!(f, "Invalid dump: {s}"),
+            Self::Io(s) => write!(f, "Read error: {s}"),
         }
     }
 }
-
-/// Parse a Windows Minidump file into a structured crash report.
-///
-/// Implements bounded binary parsing to guarantee zero panics on truncated or corrupted files.
-pub fn parse_minidump_file(path: &Path) -> Result<MinidumpCrashReport, String> {
-    let mut f = File::open(path).map_err(|e| format!("Could not open {}: {e}", path.display()))?;
-    let file_len = f.metadata().map(|m| m.len()).unwrap_or(0);
-    if file_len < 32 {
-        return Err(format!(
-            "Minidump file is truncated ({} bytes, expected at least 32)",
-            file_len
-        ));
+impl From<std::io::Error> for DumpError {
+    fn from(value: std::io::Error) -> Self {
+        Self::Io(value.to_string())
     }
+}
 
-    // MINIDUMP_HEADER is 32 bytes:
-    // Signature: u32 (0x504d444d / 'MDMP')
-    // Version: u32
-    // NumberOfStreams: u32
-    // StreamDirectoryRva: u32
-    // CheckSum: u32
-    // TimeDateStamp: u32
-    // Flags: u64
-    let mut header = [0u8; 32];
-    f.read_exact(&mut header)
-        .map_err(|e| format!("Failed to read header: {e}"))?;
-
-    let sig = u32::from_le_bytes(header[0..4].try_into().unwrap());
-    if sig != 0x504d444d {
-        return Err(format!(
-            "Not a valid Windows Minidump file (signature 0x{sig:08X} does not match 0x504D444D)"
-        ));
+pub fn lookup_bugcheck_info(code: u32) -> (&'static str, &'static str) {
+    match code {
+        0xA => (
+            "IRQL_NOT_LESS_OR_EQUAL",
+            "Kernel memory was accessed at an invalid address or IRQL.",
+        ),
+        0x1E => (
+            "KMODE_EXCEPTION_NOT_HANDLED",
+            "A kernel-mode exception was not handled.",
+        ),
+        0x3B => (
+            "SYSTEM_SERVICE_EXCEPTION",
+            "An exception occurred in a system service routine.",
+        ),
+        0x50 => ("PAGE_FAULT_IN_NONPAGED_AREA", "Invalid system memory was referenced."),
+        0x7E => (
+            "SYSTEM_THREAD_EXCEPTION_NOT_HANDLED",
+            "A system thread exception was not handled.",
+        ),
+        0x9F => ("DRIVER_POWER_STATE_FAILURE", "A driver power-state transition failed."),
+        0xD1 => (
+            "DRIVER_IRQL_NOT_LESS_OR_EQUAL",
+            "A driver accessed invalid memory at elevated IRQL.",
+        ),
+        0x116 => ("VIDEO_TDR_FAILURE", "Recovery from a display timeout failed."),
+        0x124 => (
+            "WHEA_UNCORRECTABLE_ERROR",
+            "Windows reported an uncorrectable hardware error.",
+        ),
+        0x133 => (
+            "DPC_WATCHDOG_VIOLATION",
+            "The DPC watchdog detected excessive execution time.",
+        ),
+        0x139 => (
+            "KERNEL_SECURITY_CHECK_FAILURE",
+            "The kernel detected critical data corruption.",
+        ),
+        _ => (
+            "UNKNOWN_BUGCHECK",
+            "A kernel bugcheck was recorded; this code is not in the local dictionary.",
+        ),
     }
+}
 
-    let num_streams = u32::from_le_bytes(header[8..12].try_into().unwrap());
-    let stream_rva = u32::from_le_bytes(header[12..16].try_into().unwrap());
-    let timestamp_u32 = u32::from_le_bytes(header[20..24].try_into().unwrap());
+fn invalid(reason: &str) -> DumpError {
+    DumpError::Invalid(reason.into())
+}
+fn u32_at(bytes: &[u8], offset: usize) -> u32 {
+    u32::from_le_bytes(bytes[offset..offset + 4].try_into().expect("validated fixed structure"))
+}
+fn u64_at(bytes: &[u8], offset: usize) -> u64 {
+    u64::from_le_bytes(bytes[offset..offset + 8].try_into().expect("validated fixed structure"))
+}
+fn bounds(offset: u64, size: u64, length: u64) -> Result<(), DumpError> {
+    if offset.checked_add(size).is_none_or(|end| end > length) {
+        return Err(invalid("location extends beyond the file"));
+    }
+    Ok(())
+}
+fn read_at(file: &mut File, length: u64, offset: u64, size: usize) -> Result<Vec<u8>, DumpError> {
+    bounds(offset, size as u64, length)?;
+    file.seek(SeekFrom::Start(offset))?;
+    let mut bytes = vec![0; size];
+    file.read_exact(&mut bytes)?;
+    Ok(bytes)
+}
+fn location(bytes: &[u8], offset: usize, length: u64) -> Result<(), DumpError> {
+    bounds(u32_at(bytes, offset + 4) as u64, u32_at(bytes, offset) as u64, length)
+}
 
-    let date_str = chrono::DateTime::from_timestamp(timestamp_u32 as i64, 0)
-        .map(|dt| dt.format("%Y-%m-%d %H:%M:%S UTC").to_string())
-        .unwrap_or_else(|| "Unknown Date".into());
-
-    let mut bugcheck_code = 0u32;
-    let mut faulting_module: Option<String> = None;
-    let mut exception_address: Option<u64> = None;
-
-    // Safety check: bound stream count to prevent OOM allocations on corrupted files
-    const MAX_STREAMS: u32 = 1024;
-    if num_streams > 0 && num_streams <= MAX_STREAMS {
-        let dir_bytes = (num_streams as u64) * 12;
-        if (stream_rva as u64).saturating_add(dir_bytes) <= file_len
-            && f.seek(SeekFrom::Start(stream_rva as u64)).is_ok()
-        {
-            let mut dir_entries = vec![0u8; dir_bytes as usize];
-            if f.read_exact(&mut dir_entries).is_ok() {
-                // First pass: locate ExceptionStream (StreamType = 6)
-                for i in 0..num_streams as usize {
-                    let offset = i * 12;
-                    let stream_type = u32::from_le_bytes(dir_entries[offset..offset + 4].try_into().unwrap());
-                    let data_size = u32::from_le_bytes(dir_entries[offset + 4..offset + 8].try_into().unwrap());
-                    let rva = u32::from_le_bytes(dir_entries[offset + 8..offset + 12].try_into().unwrap());
-
-                    if stream_type == 6 && data_size >= 12 {
-                        let read_len = (data_size as usize).min(1024);
-                        if (rva as u64).saturating_add(read_len as u64) <= file_len
-                            && f.seek(SeekFrom::Start(rva as u64)).is_ok()
-                        {
-                            let mut exc_buf = vec![0u8; read_len];
-                            if f.read_exact(&mut exc_buf).is_ok() {
-                                // ExceptionCode is at offset 8 in MINIDUMP_EXCEPTION_STREAM
-                                bugcheck_code = u32::from_le_bytes(exc_buf[8..12].try_into().unwrap());
-                                // ExceptionAddress is at offset 24 (u64)
-                                if exc_buf.len() >= 32 {
-                                    exception_address = Some(u64::from_le_bytes(exc_buf[24..32].try_into().unwrap()));
-                                }
-                            }
-                        }
-                    }
+pub fn parse_minidump_file(path: &Path) -> Result<MinidumpCrashReport, DumpError> {
+    let mut file = File::open(path)?;
+    let length = file.metadata()?.len();
+    let signature = read_at(&mut file, length, 0, 8)?;
+    let file_name = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
+    if &signature[..4] == b"PAGE" {
+        let (kind, size, machine_offset, code_offset, parameter_offset, width, machine) = match &signature[4..] {
+            b"DUMP" => (CrashKind::Kernel32, 4096, 0x20, 0x28, 0x2c, 4, 0x14c),
+            b"DU64" => (CrashKind::Kernel64, 8192, 0x30, 0x38, 0x40, 8, 0x8664),
+            _ => return Err(DumpError::Unsupported("unrecognized PAGE kernel-header variant".into())),
+        };
+        let header = read_at(&mut file, length, 0, size)?;
+        if u32_at(&header, machine_offset) != machine {
+            return Err(DumpError::Unsupported("kernel-header machine architecture".into()));
+        }
+        let code = u32_at(&header, code_offset);
+        if code == 0 {
+            return Err(invalid("kernel header has no bugcheck"));
+        }
+        let parameters = (0..4)
+            .map(|index| {
+                let offset = parameter_offset + index * width;
+                if width == 8 {
+                    u64_at(&header, offset)
+                } else {
+                    u32_at(&header, offset) as u64
                 }
-
-                // Second pass: if we have an exception address, search ModuleListStream (StreamType = 4)
-                if let Some(exc_addr) = exception_address {
-                    for i in 0..num_streams as usize {
-                        let offset = i * 12;
-                        let stream_type = u32::from_le_bytes(dir_entries[offset..offset + 4].try_into().unwrap());
-                        let data_size = u32::from_le_bytes(dir_entries[offset + 4..offset + 8].try_into().unwrap());
-                        let rva = u32::from_le_bytes(dir_entries[offset + 8..offset + 12].try_into().unwrap());
-
-                        if stream_type == 4
-                            && data_size >= 4
-                            && (rva as u64).saturating_add(4) <= file_len
-                            && f.seek(SeekFrom::Start(rva as u64)).is_ok()
-                        {
-                            let mut count_buf = [0u8; 4];
-                            if f.read_exact(&mut count_buf).is_ok() {
-                                let num_modules = u32::from_le_bytes(count_buf).min(512);
-                                for m in 0..num_modules as usize {
-                                    let mod_offset = (rva as u64) + 4 + (m as u64) * 108;
-                                    if mod_offset.saturating_add(108) > file_len {
-                                        break;
-                                    }
-                                    if f.seek(SeekFrom::Start(mod_offset)).is_ok() {
-                                        let mut mod_buf = [0u8; 108];
-                                        if f.read_exact(&mut mod_buf).is_ok() {
-                                            let base = u64::from_le_bytes(mod_buf[0..8].try_into().unwrap());
-                                            let size = u32::from_le_bytes(mod_buf[8..12].try_into().unwrap());
-                                            let name_rva = u32::from_le_bytes(mod_buf[20..24].try_into().unwrap());
-
-                                            if exc_addr >= base && exc_addr < base.saturating_add(size as u64) {
-                                                // Read MINIDUMP_STRING at name_rva
-                                                if (name_rva as u64).saturating_add(4) <= file_len
-                                                    && f.seek(SeekFrom::Start(name_rva as u64)).is_ok()
-                                                {
-                                                    let mut str_hdr = [0u8; 4];
-                                                    if f.read_exact(&mut str_hdr).is_ok() {
-                                                        let str_len = u32::from_le_bytes(str_hdr).min(512);
-                                                        if (name_rva as u64) + 4 + (str_len as u64) <= file_len {
-                                                            let mut str_bytes = vec![0u8; str_len as usize];
-                                                            if f.read_exact(&mut str_bytes).is_ok() {
-                                                                let u16_chars: Vec<u16> = str_bytes
-                                                                    .as_chunks::<2>()
-                                                                    .0
-                                                                    .iter()
-                                                                    .map(|c| u16::from_le_bytes([c[0], c[1]]))
-                                                                    .collect();
-                                                                let full_str = String::from_utf16_lossy(&u16_chars);
-                                                                let file_part = Path::new(&full_str)
-                                                                    .file_name()
-                                                                    .and_then(|n| n.to_str())
-                                                                    .unwrap_or(&full_str);
-                                                                faulting_module = Some(file_part.to_string());
-                                                                break;
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
+            })
+            .collect();
+        let (name, explanation) = lookup_bugcheck_info(code);
+        return Ok(MinidumpCrashReport {
+            file_name, timestamp: None, kind, code, code_name: name.into(), parameters,
+            explanation: explanation.into(), address_module: None,
+            recommendation: "Header metadata only. Open the dump in WinDbg with matching symbols to inspect parameters and stacks; no module or hardware cause has been established.".into(),
+        });
+    }
+    if &signature[..4] != b"MDMP" {
+        return Err(DumpError::Unsupported(
+            "not PAGE/DUMP, PAGE/DU64 or application MDMP".into(),
+        ));
+    }
+    let header = read_at(&mut file, length, 0, 32)?;
+    if u32_at(&header, 4) & 0xffff != 0xa793 {
+        return Err(invalid("invalid MDMP version"));
+    }
+    let count = u32_at(&header, 8) as usize;
+    if count == 0 {
+        return Err(DumpError::Unsupported("MDMP has no exception streams".into()));
+    }
+    if count > 4096 {
+        return Err(invalid("excessive stream count"));
+    }
+    let directory_rva = u32_at(&header, 12) as u64;
+    if directory_rva < 32 {
+        return Err(invalid("stream directory overlaps header"));
+    }
+    let directory = read_at(&mut file, length, directory_rva, count * 12)?;
+    let mut exception = None;
+    let mut modules = Vec::new();
+    for entry in directory.as_chunks::<12>().0 {
+        let kind = u32_at(entry, 0);
+        let size = u32_at(entry, 4) as usize;
+        let rva = u32_at(entry, 8) as u64;
+        bounds(rva, size as u64, length)?;
+        if size > 0 && rva < 32 {
+            return Err(invalid("stream overlaps header"));
+        }
+        match kind {
+            6 => {
+                if exception.is_some() {
+                    return Err(invalid("duplicate exception stream"));
+                }
+                if size < 168 {
+                    return Err(invalid("truncated exception stream"));
+                }
+                let bytes = read_at(&mut file, length, rva, 168)?;
+                if u32_at(&bytes, 32) > 15 {
+                    return Err(invalid("exception parameter count exceeds 15"));
+                }
+                location(&bytes, 160, length)?;
+                exception = Some((u32_at(&bytes, 8), u64_at(&bytes, 24)));
+            }
+            4 => {
+                if size < 4 {
+                    return Err(invalid("truncated module count"));
+                }
+                let n = u32_at(&read_at(&mut file, length, rva, 4)?, 0) as usize;
+                if n > 65536
+                    || n.checked_mul(108)
+                        .and_then(|v| v.checked_add(4))
+                        .is_none_or(|v| v > size)
+                {
+                    return Err(invalid("module records exceed their stream bounds"));
+                }
+                for index in 0..n {
+                    let bytes = read_at(&mut file, length, rva + 4 + index as u64 * 108, 108)?;
+                    location(&bytes, 76, length)?;
+                    location(&bytes, 84, length)?;
+                    let base = u64_at(&bytes, 0);
+                    let end = base
+                        .checked_add(u32_at(&bytes, 8) as u64)
+                        .ok_or_else(|| invalid("module address overflow"))?;
+                    let name_rva = u32_at(&bytes, 20) as u64;
+                    let string_length = u32_at(&read_at(&mut file, length, name_rva, 4)?, 0) as usize;
+                    if string_length > 32768 || !string_length.is_multiple_of(2) {
+                        return Err(invalid("invalid UTF-16 module name length"));
                     }
+                    let raw = read_at(&mut file, length, name_rva + 4, string_length)?;
+                    let units: Vec<_> = raw
+                        .as_chunks::<2>()
+                        .0
+                        .iter()
+                        .map(|b| u16::from_le_bytes([b[0], b[1]]))
+                        .collect();
+                    let name = String::from_utf16(&units).map_err(|_| invalid("invalid UTF-16 module name"))?;
+                    modules.push((base, end, name));
                 }
             }
+            // Other streams are not interpreted. Their advertised extent was validated above.
+            _ => {}
         }
     }
-
-    let file_name = path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("crash.dmp")
-        .to_string();
-    let (name, expl, rec) = lookup_bugcheck_info(bugcheck_code, faulting_module.as_deref());
-
+    let (code, address) =
+        exception.ok_or_else(|| DumpError::Unsupported("application MDMP without exception evidence".into()))?;
+    let address_module = modules
+        .into_iter()
+        .find(|(base, end, _)| address >= *base && address < *end)
+        .map(|(_, _, name)| name.rsplit(['\\', '/']).next().unwrap_or(&name).to_owned());
+    let (name, explanation) = match code {
+        0xc0000005 => (
+            "STATUS_ACCESS_VIOLATION",
+            "The application accessed memory without the required permissions.",
+        ),
+        0xc0000409 => (
+            "STATUS_FAIL_FAST_EXCEPTION",
+            "The application terminated with a fail-fast exception.",
+        ),
+        0xe0434352 => (
+            "CLR_EXCEPTION",
+            "A .NET exception was recorded; inspect managed exception details.",
+        ),
+        _ => (
+            "UNKNOWN_APPLICATION_EXCEPTION",
+            "An application exception was recorded. This is not a kernel bugcheck.",
+        ),
+    };
+    let timestamp = match u32_at(&header, 20) {
+        0 => None,
+        seconds => {
+            chrono::DateTime::from_timestamp(seconds as i64, 0).map(|dt| dt.format("%Y-%m-%d %H:%M:%S UTC").to_string())
+        }
+    };
     Ok(MinidumpCrashReport {
-        file_name,
-        timestamp: date_str,
-        bugcheck_code,
-        bugcheck_name: name.to_string(),
-        explanation: expl.to_string(),
-        faulting_module,
-        recommendation: rec.to_string(),
+        file_name, timestamp, kind: CrashKind::Application, code, code_name: name.into(), parameters: Vec::new(),
+        explanation: explanation.into(), address_module,
+        recommendation: "Inspect the exception and stack in a debugger. The address-containing module is location evidence, not proof of the cause.".into(),
     })
 }
 
-/// Scan a specific directory for `.dmp` files and parse each one.
-pub fn scan_crash_dumps_in_dir(dir: &Path) -> Vec<MinidumpCrashReport> {
-    let mut reports = Vec::new();
-    if let Ok(entries) = read_dir(dir) {
-        for entry in entries.flatten() {
-            let p = entry.path();
-            if p.is_file()
-                && p.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("dmp"))
-                && let Ok(rep) = parse_minidump_file(&p)
-            {
-                reports.push(rep);
+#[derive(Debug, Clone, Default)]
+pub struct CrashScanOutcome {
+    pub discovered: usize,
+    pub parsed: usize,
+    pub unsupported: usize,
+    pub failed: usize,
+    pub truncated: usize,
+    pub reports: Vec<MinidumpCrashReport>,
+    pub issues: Vec<String>,
+}
+impl CrashScanOutcome {
+    fn issue(&mut self, message: String) {
+        if self.issues.len() < 100 {
+            self.issues.push(message);
+        }
+    }
+    fn scan_file(&mut self, path: &Path) {
+        self.discovered += 1;
+        if self.discovered > 1000 {
+            self.truncated += 1;
+            return;
+        }
+        match parse_minidump_file(path) {
+            Ok(report) => {
+                self.parsed += 1;
+                self.reports.push(report);
+            }
+            Err(error @ DumpError::Unsupported(_)) => {
+                self.unsupported += 1;
+                self.issue(format!("{}: {error}", path.display()));
+            }
+            Err(error) => {
+                self.failed += 1;
+                self.issue(format!("{}: {error}", path.display()));
             }
         }
     }
-    reports
+    fn scan_dir(&mut self, dir: &Path) {
+        let entries = match read_dir(dir) {
+            Ok(entries) => entries,
+            Err(error) => {
+                self.failed += 1;
+                self.issue(format!("{}: {error}", dir.display()));
+                return;
+            }
+        };
+        for entry in entries {
+            match entry {
+                Ok(entry)
+                    if entry
+                        .path()
+                        .extension()
+                        .is_some_and(|ext| ext.eq_ignore_ascii_case("dmp")) =>
+                {
+                    self.scan_file(&entry.path())
+                }
+                Ok(_) => {}
+                Err(error) => {
+                    self.failed += 1;
+                    self.issue(error.to_string());
+                }
+            }
+        }
+    }
+}
+#[cfg(test)]
+pub fn scan_crash_dumps_in_dir(dir: &Path) -> CrashScanOutcome {
+    let mut outcome = CrashScanOutcome::default();
+    outcome.scan_dir(dir);
+    outcome
+}
+pub fn scan_recent_crashes() -> CrashScanOutcome {
+    let mut outcome = CrashScanOutcome::default();
+    if let Some(windows) = std::env::var_os("SystemRoot") {
+        let root = PathBuf::from(windows);
+        outcome.scan_dir(&root.join("Minidump"));
+        let memory = root.join("MEMORY.DMP");
+        match memory.try_exists() {
+            Ok(true) => outcome.scan_file(&memory),
+            Ok(false) => {}
+            Err(error) => {
+                outcome.failed += 1;
+                outcome.issue(format!("{}: {error}", memory.display()));
+            }
+        }
+    } else {
+        outcome.failed += 1;
+        outcome.issue("SystemRoot unavailable".into());
+    }
+    if let Some(local) = std::env::var_os("LOCALAPPDATA") {
+        outcome.scan_dir(&PathBuf::from(local).join("CrashDumps"));
+    } else {
+        outcome.failed += 1;
+        outcome.issue("LOCALAPPDATA unavailable".into());
+    }
+    outcome.reports.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+    outcome.truncated += outcome.reports.len().saturating_sub(50);
+    outcome.reports.truncate(50);
+    outcome
 }
 
-/// Scan standard Windows crash minidump locations (`%SystemRoot%\Minidump` and `%LOCALAPPDATA%\CrashDumps`).
-/// Returns reports sorted by timestamp descending (newest first).
-pub fn scan_recent_crashes() -> Vec<MinidumpCrashReport> {
-    let mut reports = Vec::new();
-
-    // 1. Kernel BSOD minidump directory
-    let win_dir = std::env::var("SystemRoot")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("C:\\Windows"));
-    let minidump_dir = win_dir.join("Minidump");
-    reports.extend(scan_crash_dumps_in_dir(&minidump_dir));
-
-    // 2. Application user-mode crash dumps
-    if let Ok(local) = std::env::var("LOCALAPPDATA") {
-        let user_dumps = PathBuf::from(local).join("CrashDumps");
-        reports.extend(scan_crash_dumps_in_dir(&user_dumps));
+#[derive(Default)]
+pub(crate) struct CrashScanState {
+    pub(crate) outcome: Option<CrashScanOutcome>,
+    pending: Option<Receiver<CrashScanOutcome>>,
+}
+impl CrashScanState {
+    pub(crate) fn request(&mut self) {
+        if self.pending.is_some() {
+            return;
+        }
+        let (tx, rx) = mpsc::channel();
+        self.pending = Some(rx);
+        if let Err(error) = std::thread::Builder::new().name("dump-scan".into()).spawn(move || {
+            let _ = tx.send(scan_recent_crashes());
+        }) {
+            self.pending = None;
+            self.outcome = Some(CrashScanOutcome {
+                failed: 1,
+                issues: vec![error.to_string()],
+                ..Default::default()
+            });
+        }
     }
-
-    // Sort newest crashes first
-    reports.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
-    reports.truncate(50);
-    reports
+    pub(crate) fn poll(&mut self) {
+        let Some(rx) = &self.pending else {
+            return;
+        };
+        match rx.try_recv() {
+            Ok(outcome) => {
+                self.outcome = Some(outcome);
+                self.pending = None;
+            }
+            Err(mpsc::TryRecvError::Empty) => {}
+            Err(mpsc::TryRecvError::Disconnected) => {
+                self.pending = None;
+                self.outcome = Some(CrashScanOutcome {
+                    failed: 1,
+                    issues: vec!["Dump worker disconnected".into()],
+                    ..Default::default()
+                });
+            }
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_lookup_bugcheck_info_known_codes() {
-        let (name, expl, rec) = lookup_bugcheck_info(0x00000116, Some("nvlddmkm.sys"));
-        assert_eq!(name, "VIDEO_TDR_ERROR");
-        assert!(expl.contains("display adapter"));
-        assert!(rec.contains("GPU") || rec.contains("graphics"));
-
-        let (name2, _, _) = lookup_bugcheck_info(0x00000124, None);
-        assert_eq!(name2, "WHEA_UNCORRECTABLE_ERROR");
-
-        let (name3, _, _) = lookup_bugcheck_info(0x0000000A, None);
-        assert_eq!(name3, "IRQL_NOT_LESS_OR_EQUAL");
-
-        let (name4, _, _) = lookup_bugcheck_info(0x0000003B, None);
-        assert_eq!(name4, "SYSTEM_SERVICE_EXCEPTION");
-
-        let (name5, _, _) = lookup_bugcheck_info(0x000000D1, None);
-        assert_eq!(name5, "DRIVER_IRQL_NOT_LESS_OR_EQUAL");
-
-        let (name6, _, _) = lookup_bugcheck_info(0xDEADBEEF, Some("amdkmdag.sys"));
-        assert_eq!(name6, "GPU_KERNEL_CRASH");
-
-        let (name7, _, _) = lookup_bugcheck_info(0xDEADBEEF, None);
-        assert_eq!(name7, "KERNEL_BUGCHECK");
-
-        let (name8, _, _) = lookup_bugcheck_info(0xC0000005, None);
-        assert_eq!(name8, "STATUS_ACCESS_VIOLATION");
+    fn parse(bytes: &[u8]) -> Result<MinidumpCrashReport, DumpError> {
+        let mut file = tempfile::NamedTempFile::new().unwrap();
+        std::io::Write::write_all(&mut file, bytes).unwrap();
+        parse_minidump_file(file.path())
     }
-
-    fn create_test_synthetic_minidump() -> Vec<u8> {
-        let mut buf = vec![0u8; 240];
-
-        // Header: 32 bytes
-        buf[0..4].copy_from_slice(&0x504d444du32.to_le_bytes()); // 'MDMP'
-        buf[4..8].copy_from_slice(&0x0000a793u32.to_le_bytes()); // Version
-        buf[8..12].copy_from_slice(&2u32.to_le_bytes()); // NumberOfStreams = 2
-        buf[12..16].copy_from_slice(&32u32.to_le_bytes()); // StreamDirectoryRva = 32
-        buf[16..20].copy_from_slice(&0u32.to_le_bytes()); // CheckSum
-        buf[20..24].copy_from_slice(&1700000000u32.to_le_bytes()); // TimeDateStamp: 2023-11-14 22:13:20 UTC
-        buf[24..32].copy_from_slice(&0u64.to_le_bytes()); // Flags
-
-        // Stream Directory: 2 entries * 12 bytes = 24 bytes (offset 32..56)
-        // Entry 0: ExceptionStream (StreamType = 6)
-        buf[32..36].copy_from_slice(&6u32.to_le_bytes()); // StreamType = 6
-        buf[36..40].copy_from_slice(&32u32.to_le_bytes()); // DataSize = 32
-        buf[40..44].copy_from_slice(&56u32.to_le_bytes()); // Rva = 56
-
-        // Entry 1: ModuleListStream (StreamType = 4)
-        buf[44..48].copy_from_slice(&4u32.to_le_bytes()); // StreamType = 4
-        buf[48..52].copy_from_slice(&112u32.to_le_bytes()); // DataSize = 112
-        buf[52..56].copy_from_slice(&88u32.to_le_bytes()); // Rva = 88
-
-        // ExceptionStream: 32 bytes (offset 56..88)
-        buf[56..60].copy_from_slice(&1234u32.to_le_bytes()); // ThreadId
-        buf[60..64].copy_from_slice(&0u32.to_le_bytes()); // Alignment
-        buf[64..68].copy_from_slice(&0x00000116u32.to_le_bytes()); // ExceptionCode: VIDEO_TDR_ERROR
-        buf[68..72].copy_from_slice(&0u32.to_le_bytes()); // ExceptionFlags
-        buf[72..80].copy_from_slice(&0u64.to_le_bytes()); // ExceptionRecord
-        buf[80..88].copy_from_slice(&0x7fff00001000u64.to_le_bytes()); // ExceptionAddress
-
-        // ModuleListStream: 112 bytes (offset 88..200)
-        buf[88..92].copy_from_slice(&1u32.to_le_bytes()); // NumberOfModules = 1
-        // Module 0: 108 bytes (offset 92..200)
-        buf[92..100].copy_from_slice(&0x7fff00000000u64.to_le_bytes()); // BaseOfImage
-        buf[100..104].copy_from_slice(&0x10000u32.to_le_bytes()); // SizeOfImage = 64KB
-        buf[104..108].copy_from_slice(&0u32.to_le_bytes()); // CheckSum
-        buf[108..112].copy_from_slice(&0u32.to_le_bytes()); // TimeDateStamp
-        buf[112..116].copy_from_slice(&200u32.to_le_bytes()); // ModuleNameRva = 200
-
-        // MINIDUMP_STRING: offset 200..232
-        let name = "nvlddmkm.sys";
-        let u16_name: Vec<u16> = name.encode_utf16().collect();
-        let name_bytes_len = (u16_name.len() * 2) as u32;
-        buf[200..204].copy_from_slice(&name_bytes_len.to_le_bytes());
-        for (i, ch) in u16_name.iter().enumerate() {
-            buf[204 + i * 2..204 + (i + 1) * 2].copy_from_slice(&ch.to_le_bytes());
+    fn application() -> Vec<u8> {
+        let mut bytes = vec![0; 212];
+        bytes[..4].copy_from_slice(b"MDMP");
+        bytes[4..8].copy_from_slice(&0xa793u32.to_le_bytes());
+        bytes[8..12].copy_from_slice(&1u32.to_le_bytes());
+        bytes[12..16].copy_from_slice(&32u32.to_le_bytes());
+        bytes[32..36].copy_from_slice(&6u32.to_le_bytes());
+        bytes[36..40].copy_from_slice(&168u32.to_le_bytes());
+        bytes[40..44].copy_from_slice(&44u32.to_le_bytes());
+        bytes[52..56].copy_from_slice(&0xc0000005u32.to_le_bytes());
+        bytes
+    }
+    #[test]
+    fn genuine_kernel_header_layouts_are_distinct_from_application_exceptions() {
+        for (signature, size, machine_offset, machine, code_offset, parameter_offset, kind) in [
+            (b"DUMP", 4096, 0x20, 0x14cu32, 0x28, 0x2c, CrashKind::Kernel32),
+            (b"DU64", 8192, 0x30, 0x8664u32, 0x38, 0x40, CrashKind::Kernel64),
+        ] {
+            let mut bytes = vec![0; size];
+            bytes[..4].copy_from_slice(b"PAGE");
+            bytes[4..8].copy_from_slice(signature);
+            bytes[machine_offset..machine_offset + 4].copy_from_slice(&machine.to_le_bytes());
+            bytes[code_offset..code_offset + 4].copy_from_slice(&0x116u32.to_le_bytes());
+            bytes[parameter_offset..parameter_offset + 4].copy_from_slice(&123u32.to_le_bytes());
+            let report = parse(&bytes).unwrap();
+            assert_eq!(report.kind, kind);
+            assert_eq!(report.code, 0x116);
+            assert_eq!(report.parameters[0], 123);
+            assert!(report.address_module.is_none());
+            assert!(matches!(parse(&bytes[..64]), Err(DumpError::Invalid(_))));
         }
-
-        buf
+        let report = parse(&application()).unwrap();
+        assert_eq!(report.kind, CrashKind::Application);
+        assert_eq!(report.code, 0xc0000005);
     }
-
     #[test]
-    fn test_parse_synthetic_minidump() {
-        let bytes = create_test_synthetic_minidump();
-        let temp_dir = std::env::temp_dir().join(format!("test_minidump_{}", std::process::id()));
-        let _ = std::fs::create_dir_all(&temp_dir);
-        let dump_path = temp_dir.join("synthetic_crash.dmp");
-        std::fs::write(&dump_path, &bytes).expect("Failed to write synthetic dump file");
-
-        let report = parse_minidump_file(&dump_path).expect("Failed to parse valid synthetic minidump");
-        assert_eq!(report.file_name, "synthetic_crash.dmp");
-        assert_eq!(report.bugcheck_code, 0x00000116);
-        assert_eq!(report.bugcheck_name, "VIDEO_TDR_ERROR");
-        assert!(report.explanation.contains("display adapter"));
-        assert_eq!(report.faulting_module, Some("nvlddmkm.sys".to_string()));
-        assert!(report.timestamp.contains("2023-11-14"));
-
-        let _ = std::fs::remove_file(&dump_path);
-        let _ = std::fs::remove_dir(&temp_dir);
+    fn corrupt_directories_and_stream_local_records_are_rejected() {
+        let mut bytes = application();
+        bytes[8..12].copy_from_slice(&u32::MAX.to_le_bytes());
+        assert!(matches!(parse(&bytes), Err(DumpError::Invalid(_))));
+        let mut bytes = application();
+        bytes[12..16].copy_from_slice(&999u32.to_le_bytes());
+        assert!(matches!(parse(&bytes), Err(DumpError::Invalid(_))));
+        let mut bytes = application();
+        bytes[36..40].copy_from_slice(&32u32.to_le_bytes());
+        assert!(matches!(parse(&bytes), Err(DumpError::Invalid(_))));
+        let mut bytes = application();
+        bytes[32..36].copy_from_slice(&4u32.to_le_bytes());
+        bytes[36..40].copy_from_slice(&4u32.to_le_bytes());
+        bytes[44..48].copy_from_slice(&1u32.to_le_bytes());
+        assert!(matches!(parse(&bytes), Err(DumpError::Invalid(_))));
     }
-
     #[test]
-    fn test_corrupted_minidump_handling() {
-        let temp_dir = std::env::temp_dir().join(format!("test_minidump_corrupted_{}", std::process::id()));
-        let _ = std::fs::create_dir_all(&temp_dir);
-
-        // 1. Completely empty file
-        let empty_path = temp_dir.join("empty.dmp");
-        std::fs::write(&empty_path, b"").unwrap();
-        let res = parse_minidump_file(&empty_path);
-        assert!(res.is_err());
-        assert!(res.unwrap_err().contains("truncated"));
-
-        // 2. Truncated header (< 32 bytes)
-        let trunc_path = temp_dir.join("trunc.dmp");
-        std::fs::write(&trunc_path, b"MDMP_TRUNCATED").unwrap();
-        let res = parse_minidump_file(&trunc_path);
-        assert!(res.is_err());
-        assert!(res.unwrap_err().contains("truncated"));
-
-        // 3. Wrong signature
-        let bad_sig_path = temp_dir.join("bad_sig.dmp");
-        let mut bad_header = [0u8; 32];
-        bad_header[0..4].copy_from_slice(b"BAD!");
-        std::fs::write(&bad_sig_path, bad_header).unwrap();
-        let res = parse_minidump_file(&bad_sig_path);
-        assert!(res.is_err());
-        assert!(res.unwrap_err().contains("signature"));
-
-        // 4. Excessive stream count (potential allocation attack)
-        let oom_path = temp_dir.join("excessive_streams.dmp");
-        let mut oom_header = [0u8; 32];
-        oom_header[0..4].copy_from_slice(&0x504d444du32.to_le_bytes());
-        oom_header[8..12].copy_from_slice(&0xFFFFFFFFu32.to_le_bytes()); // 4 billion streams
-        oom_header[12..16].copy_from_slice(&32u32.to_le_bytes());
-        std::fs::write(&oom_path, oom_header).unwrap();
-        let res = parse_minidump_file(&oom_path);
-        assert!(res.is_ok()); // Successfully produces a safe fallback report without panicking or OOM
-
-        // 5. Out of bounds stream directory RVA
-        let oob_path = temp_dir.join("oob_rva.dmp");
-        let mut oob_header = [0u8; 32];
-        oob_header[0..4].copy_from_slice(&0x504d444du32.to_le_bytes());
-        oob_header[8..12].copy_from_slice(&2u32.to_le_bytes());
-        oob_header[12..16].copy_from_slice(&0xFFFF0000u32.to_le_bytes()); // StreamDirectoryRva far past EOF
-        std::fs::write(&oob_path, oob_header).unwrap();
-        let res = parse_minidump_file(&oob_path);
-        assert!(res.is_ok()); // Safely skips invalid stream directory without panicking
-
-        // 6. Non-existent file
-        let missing_path = temp_dir.join("does_not_exist.dmp");
-        let res = parse_minidump_file(&missing_path);
-        assert!(res.is_err());
-
-        let _ = std::fs::remove_dir_all(&temp_dir);
-    }
-
-    #[test]
-    fn test_scan_crash_dumps_in_dir_filters_and_parses() {
-        let temp_dir = std::env::temp_dir().join(format!("test_minidump_scan_{}", std::process::id()));
-        let _ = std::fs::create_dir_all(&temp_dir);
-
-        // Valid dmp
-        let valid_path = temp_dir.join("valid.dmp");
-        std::fs::write(&valid_path, create_test_synthetic_minidump()).unwrap();
-
-        // Non-dmp file
-        let txt_path = temp_dir.join("notes.txt");
-        std::fs::write(&txt_path, b"some text file").unwrap();
-
-        // Corrupted dmp file
-        let corrupt_path = temp_dir.join("broken.dmp");
-        std::fs::write(&corrupt_path, b"not a dmp").unwrap();
-
-        let reports = scan_crash_dumps_in_dir(&temp_dir);
-        assert_eq!(reports.len(), 1);
-        assert_eq!(reports[0].bugcheck_code, 0x00000116);
-        assert_eq!(reports[0].bugcheck_name, "VIDEO_TDR_ERROR");
-
-        let _ = std::fs::remove_dir_all(&temp_dir);
-    }
-
-    #[test]
-    fn test_scan_recent_crashes_does_not_panic() {
-        // Must execute cleanly on any Windows system
-        let crashes = scan_recent_crashes();
-        // Just verify it doesn't panic and returns a valid slice
-        for crash in &crashes {
-            assert!(!crash.file_name.is_empty());
-            assert!(!crash.bugcheck_name.is_empty());
-        }
-    }
-
-    #[test]
-    fn test_parse_real_crash_dump_if_present() {
-        if let Ok(local) = std::env::var("LOCALAPPDATA") {
-            let crash_dir = PathBuf::from(local).join("CrashDumps");
-            if let Ok(entries) = read_dir(&crash_dir) {
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    if path.is_file() && path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("dmp")) {
-                        // Should either succeed or return a clean Err; must never panic
-                        if let Ok(rep) = parse_minidump_file(&path) {
-                            assert!(!rep.file_name.is_empty());
-                            assert!(!rep.timestamp.is_empty());
-                            assert!(!rep.bugcheck_name.is_empty());
-                        }
-                        break; // Testing one real dump is sufficient
-                    }
-                }
-            }
-        }
+    fn scans_disclose_invalid_unsupported_and_directory_failures() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join("invalid.dmp"), b"MDMP").unwrap();
+        std::fs::write(root.path().join("unsupported.dmp"), b"NOTADUMP").unwrap();
+        std::fs::write(root.path().join("app.dmp"), application()).unwrap();
+        let outcome = scan_crash_dumps_in_dir(root.path());
+        assert_eq!(
+            (outcome.discovered, outcome.parsed, outcome.failed, outcome.unsupported),
+            (3, 1, 1, 1)
+        );
+        assert_eq!(scan_crash_dumps_in_dir(&root.path().join("missing")).failed, 1);
     }
 }

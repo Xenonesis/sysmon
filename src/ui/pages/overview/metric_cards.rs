@@ -107,29 +107,32 @@ pub(super) fn build_overview_cards(data: &SystemData, is_dark: bool) -> [MetricC
         .sum::<f64>();
     let net_download_rate = data.network_info.iter().map(|n| n.received_rate).sum::<f64>();
     let net_upload_rate = data.network_info.iter().map(|n| n.transmitted_rate).sum::<f64>();
-    let net_c = if net_total_rate > 25.0 {
+    let net_c = if net_total_rate > 25.0 * 1_048_576.0 {
         ThemePalette::STATUS_CRITICAL
-    } else if net_total_rate > 5.0 {
+    } else if net_total_rate > 5.0 * 1_048_576.0 {
         ThemePalette::STATUS_WARNING
-    } else if net_total_rate > 0.05 {
+    } else if net_total_rate > 0.05 * 1_048_576.0 {
         ThemePalette::STATUS_HEALTHY
     } else {
         ThemePalette::text_dimmed(is_dark)
     };
 
     let disk_total_rate = data.disk_read_rate + data.disk_write_rate;
-    let disk_c = if disk_total_rate > 100.0 {
+    let disk_c = if disk_total_rate > 100.0 * 1_048_576.0 {
         ThemePalette::STATUS_CRITICAL
-    } else if disk_total_rate > 20.0 {
+    } else if disk_total_rate > 20.0 * 1_048_576.0 {
         ThemePalette::STATUS_WARNING
-    } else if disk_total_rate > 0.05 {
+    } else if disk_total_rate > 0.05 * 1_048_576.0 {
         ThemePalette::STATUS_HEALTHY
     } else {
         ThemePalette::text_dimmed(is_dark)
     };
 
     let (gpu_sub, gpu_frac, gpu_c) = if let Some(gpu) = data.gpu_info.first() {
-        let c = get_usage_color(gpu.utilization);
+        let c = gpu
+            .utilization
+            .map(get_usage_color)
+            .unwrap_or_else(|| ThemePalette::text_dimmed(is_dark));
         let sub = if let (Some(u), Some(t)) = (gpu.memory_used, gpu.memory_total) {
             format!("{:.0}/{:.0} MB", bytes_to_mb(u), bytes_to_mb(t))
         } else if let Some(mhz) = gpu.clock_mhz {
@@ -142,15 +145,21 @@ pub(super) fn build_overview_cards(data: &SystemData, is_dark: bool) -> [MetricC
                 gpu.name.clone()
             }
         };
-        (sub, (gpu.utilization / 100.0).clamp(0.0, 1.0), c)
+        (
+            sub,
+            gpu.utilization
+                .map(|value| (value / 100.0).clamp(0.0, 1.0))
+                .unwrap_or(0.0),
+            c,
+        )
     } else {
         ("Not detected".to_string(), 0.0, ThemePalette::text_dimmed(is_dark))
     };
 
     let cpu_sub = if let Some(temp) = data.cpu_temperature {
-        format!("{} Cores · {:.0}°C", data.cpu_cores.len(), temp)
+        format!("{} logical · thermal zone {:.0}°C", data.cpu_cores.len(), temp)
     } else {
-        format!("{} Cores", data.cpu_cores.len())
+        format!("{} logical processors", data.cpu_cores.len())
     };
 
     [
@@ -191,17 +200,18 @@ pub(super) fn build_overview_cards(data: &SystemData, is_dark: bool) -> [MetricC
         MetricCard {
             title: "GPU ENGINE",
             accent: ThemePalette::text_secondary(is_dark),
-            value_text: if data.gpu_info.is_empty() {
-                "N/A".to_string()
-            } else {
-                format!("{:.1}%", data.gpu_info[0].utilization)
-            },
+            value_text: data
+                .gpu_info
+                .first()
+                .and_then(|gpu| gpu.utilization)
+                .map(|value| format!("{value:.1}%"))
+                .unwrap_or_else(|| "N/A".into()),
             subtitle: gpu_sub,
             fraction: gpu_frac,
             color: gpu_c,
-            status_label: if data.gpu_info.is_empty() {
-                "STANDBY"
-            } else if data.gpu_info[0].utilization > 90.0 {
+            status_label: if data.gpu_info.first().and_then(|gpu| gpu.utilization).is_none() {
+                "N/A"
+            } else if data.gpu_info[0].utilization.is_some_and(|value| value > 90.0) {
                 "CRITICAL"
             } else {
                 "ONLINE"
@@ -216,11 +226,11 @@ pub(super) fn build_overview_cards(data: &SystemData, is_dark: bool) -> [MetricC
                 format_rate(data.disk_read_rate),
                 format_rate(data.disk_write_rate)
             ),
-            fraction: ((disk_total_rate / 200.0).clamp(0.0, 1.0) as f32),
+            fraction: ((disk_total_rate / (200.0 * 1_048_576.0)).clamp(0.0, 1.0) as f32),
             color: disk_c,
-            status_label: if disk_total_rate > 100.0 {
+            status_label: if disk_total_rate > 100.0 * 1_048_576.0 {
                 "CRITICAL"
-            } else if disk_total_rate > 20.0 {
+            } else if disk_total_rate > 20.0 * 1_048_576.0 {
                 "ACTIVE"
             } else {
                 "IDLE"
@@ -235,11 +245,11 @@ pub(super) fn build_overview_cards(data: &SystemData, is_dark: bool) -> [MetricC
                 format_rate(net_download_rate),
                 format_rate(net_upload_rate)
             ),
-            fraction: ((net_total_rate / 10.0).clamp(0.0, 1.0) as f32),
+            fraction: ((net_total_rate / (10.0 * 1_048_576.0)).clamp(0.0, 1.0) as f32),
             color: net_c,
-            status_label: if net_total_rate > 25.0 {
+            status_label: if net_total_rate > 25.0 * 1_048_576.0 {
                 "HEAVY"
-            } else if net_total_rate > 1.0 {
+            } else if net_total_rate > 1_048_576.0 {
                 "STREAM"
             } else {
                 "QUIET"

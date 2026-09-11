@@ -21,13 +21,34 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ctx: &egui::Context, data:
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui
                         .button("🔄 Refresh")
-                        .on_hover_text("Data updates automatically from the monitoring thread")
+                        .on_hover_text("Acquire a fresh, complete process inventory")
                         .clicked()
                     {
-                        ui.ctx().request_repaint();
+                        request_refresh(app);
                     }
                 });
             });
+            let age = data
+                .metric_status
+                .get("processes")
+                .and_then(|status| status.observed_at)
+                .and_then(|time| time.elapsed().ok());
+            let fresh = !data.monitoring_paused
+                && data
+                    .metric_status
+                    .get("processes")
+                    .is_some_and(|status| status.is_fresh())
+                && age.is_some_and(|age| age.as_secs() <= app.settings.refresh_interval.saturating_mul(3).max(15));
+            if !fresh {
+                ui.colored_label(
+                    ThemePalette::STATUS_WARNING,
+                    if data.monitoring_paused {
+                        "Paused — displaying the last process inventory. Refresh acquires a new inventory."
+                    } else {
+                        "Process inventory is stale or unavailable. Refresh to acquire current processes."
+                    },
+                );
+            }
             // Toolbar: Search box & Tree View Mode Toggle
             ui.horizontal(|ui| {
                 ui.label("Search:");
@@ -296,68 +317,7 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ctx: &egui::Context, data:
                                         ),
                                     );
 
-                                    // Actions
-                                    if ui
-                                        .small_button(egui::RichText::new("Kill").color(ThemePalette::STATUS_CRITICAL))
-                                        .on_hover_text("Kill Process")
-                                        .clicked()
-                                    {
-                                        app.selected_process_pid = Some(process.pid);
-                                    }
-
-                                    let is_suspended = app.suspended_pids.contains(&process.pid);
-                                    if is_suspended {
-                                        if ui
-                                            .small_button(
-                                                egui::RichText::new("Resume").color(ThemePalette::STATUS_HEALTHY),
-                                            )
-                                            .on_hover_text("Resume Process")
-                                            .clicked()
-                                        {
-                                            app.resume_process_pid = Some(process.pid);
-                                        }
-                                    } else if ui.small_button("Suspend").on_hover_text("Suspend Process").clicked() {
-                                        app.suspend_process_pid = Some(process.pid);
-                                    }
-
-                                    // Options menu
-                                    ui.menu_button("⚙", |ui| {
-                                        ui.set_min_width(160.0);
-                                        ui.label(egui::RichText::new(format!("PID {} Options", process.pid)).strong());
-                                        ui.separator();
-                                        ui.menu_button("Set Priority ▸", |ui| {
-                                            for priority in &["High", "AboveNormal", "Normal", "BelowNormal", "Idle"] {
-                                                if ui.button(*priority).clicked() {
-                                                    app.priority_change = Some((process.pid, priority.to_string()));
-                                                    ui.close();
-                                                }
-                                            }
-                                        });
-                                        ui.menu_button("Set CPU Affinity ▸", |ui| {
-                                            let num_cores = data.cpu_cores.len().max(1);
-                                            let all_mask = if num_cores >= 64 {
-                                                usize::MAX
-                                            } else {
-                                                (1usize << num_cores) - 1
-                                            };
-                                            if ui.button("All Cores (Default)").clicked() {
-                                                app.affinity_change = Some((process.pid, all_mask));
-                                                ui.close();
-                                            }
-                                            if num_cores > 1 {
-                                                if ui.button("Core 0 Only (0x1)").clicked() {
-                                                    app.affinity_change = Some((process.pid, 1));
-                                                    ui.close();
-                                                }
-                                                if ui.button("Core 1 Only (0x2)").clicked() {
-                                                    app.affinity_change = Some((process.pid, 2));
-                                                    ui.close();
-                                                }
-                                            }
-                                        });
-                                    })
-                                    .response
-                                    .on_hover_text("Set Priority or CPU Affinity");
+                                    paint_actions(app, ui, process);
                                 });
                             });
                         }
@@ -494,68 +454,7 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ctx: &egui::Context, data:
                                         ),
                                     );
 
-                                    if ui
-                                        .small_button(egui::RichText::new("Kill").color(ThemePalette::STATUS_CRITICAL))
-                                        .on_hover_text("Kill Process")
-                                        .clicked()
-                                    {
-                                        app.selected_process_pid = Some(r.process.pid);
-                                    }
-
-                                    let is_suspended = app.suspended_pids.contains(&r.process.pid);
-                                    if is_suspended {
-                                        if ui
-                                            .small_button(
-                                                egui::RichText::new("Resume").color(ThemePalette::STATUS_HEALTHY),
-                                            )
-                                            .on_hover_text("Resume Process")
-                                            .clicked()
-                                        {
-                                            app.resume_process_pid = Some(r.process.pid);
-                                        }
-                                    } else if ui.small_button("Suspend").on_hover_text("Suspend Process").clicked() {
-                                        app.suspend_process_pid = Some(r.process.pid);
-                                    }
-
-                                    ui.menu_button("⚙", |ui| {
-                                        ui.set_min_width(160.0);
-                                        ui.label(
-                                            egui::RichText::new(format!("PID {} Options", r.process.pid)).strong(),
-                                        );
-                                        ui.separator();
-                                        ui.menu_button("Set Priority ▸", |ui| {
-                                            for priority in &["High", "AboveNormal", "Normal", "BelowNormal", "Idle"] {
-                                                if ui.button(*priority).clicked() {
-                                                    app.priority_change = Some((r.process.pid, priority.to_string()));
-                                                    ui.close();
-                                                }
-                                            }
-                                        });
-                                        ui.menu_button("Set CPU Affinity ▸", |ui| {
-                                            let num_cores = data.cpu_cores.len().max(1);
-                                            let all_mask = if num_cores >= 64 {
-                                                usize::MAX
-                                            } else {
-                                                (1usize << num_cores) - 1
-                                            };
-                                            if ui.button("All Cores (Default)").clicked() {
-                                                app.affinity_change = Some((r.process.pid, all_mask));
-                                                ui.close();
-                                            }
-                                            if num_cores > 1 {
-                                                if ui.button("Core 0 Only (0x1)").clicked() {
-                                                    app.affinity_change = Some((r.process.pid, 1));
-                                                    ui.close();
-                                                }
-                                                if ui.button("Core 1 Only (0x2)").clicked() {
-                                                    app.affinity_change = Some((r.process.pid, 2));
-                                                    ui.close();
-                                                }
-                                            }
-                                        });
-                                    })
-                                    .response
-                                    .on_hover_text("Set Priority or CPU Affinity");
+                                    paint_actions(app, ui, &r.process);
                                 });
                             });
                         }
@@ -580,4 +479,200 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ctx: &egui::Context, data:
         });
 
     app.show_process_manager = show;
+}
+
+fn request_refresh(app: &mut SystemMonitorApp) {
+    if let Err(error) = app
+        .app_channels
+        .monitoring_sender
+        .send(crate::app::commands::MonitoringCommand::RefreshNow)
+    {
+        app.action_status = Some(format!("Process refresh could not be requested: {error}"));
+    }
+}
+
+fn paint_actions(app: &mut SystemMonitorApp, ui: &mut egui::Ui, process: &processes::ProcessInfo) {
+    let Some(identity) = process.identity else {
+        ui.add_enabled(false, egui::Button::new("Unavailable"))
+            .on_hover_text("Process creation identity could not be verified; mutations are disabled");
+        return;
+    };
+    ui.push_id(identity, |ui| {
+        if ui
+            .small_button(egui::RichText::new("Kill").color(ThemePalette::STATUS_CRITICAL))
+            .on_hover_text("Kill Process")
+            .clicked()
+        {
+            app.selected_process_pid = Some(identity);
+        }
+        if app.suspended_pids.contains(&identity) {
+            if ui
+                .small_button(egui::RichText::new("Resume").color(ThemePalette::STATUS_HEALTHY))
+                .on_hover_text("Resume Process")
+                .clicked()
+            {
+                app.resume_process_pid = Some(identity);
+            }
+        } else if ui.small_button("Suspend").on_hover_text("Suspend Process").clicked() {
+            app.suspend_process_pid = Some(identity);
+        }
+        ui.menu_button("Options", |ui| {
+            ui.set_min_width(160.0);
+            ui.label(egui::RichText::new(format!("PID {} Options", identity.pid)).strong());
+            ui.separator();
+            ui.menu_button("Set Priority", |ui| {
+                for priority in ["High", "AboveNormal", "Normal", "BelowNormal", "Idle"] {
+                    if ui.button(priority).clicked() {
+                        app.priority_change = Some((identity, priority.to_string()));
+                        ui.close();
+                    }
+                }
+            });
+            ui.menu_button("Set CPU Affinity", |ui| {
+                use crate::processes::AffinityPreset;
+                for (label, preset) in [
+                    ("All available cores", AffinityPreset::All),
+                    ("First available core", AffinityPreset::First),
+                    ("Second available core", AffinityPreset::Second),
+                    ("First half of available cores", AffinityPreset::FirstHalf),
+                ] {
+                    if ui.button(label).clicked() {
+                        app.affinity_change = Some((identity, preset));
+                        ui.close();
+                    }
+                }
+            });
+        })
+        .response
+        .on_hover_text("Set Priority or CPU Affinity");
+    });
+}
+
+const PICKER_CAPTURE_KEY: &str = "sysmon.window_picker.capture";
+
+#[cfg(target_os = "windows")]
+struct PickerCapture(usize);
+
+#[cfg(target_os = "windows")]
+impl Drop for PickerCapture {
+    fn drop(&mut self) {
+        use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetCapture, ReleaseCapture};
+        // Do not release capture belonging to another control/window.
+        unsafe {
+            if GetCapture() as usize == self.0 {
+                ReleaseCapture();
+            }
+        }
+    }
+}
+
+/// Call only from a primary-button drag_started response with Sense::drag().
+pub(crate) fn begin_window_picker(app: &mut SystemMonitorApp, ctx: &egui::Context) {
+    cancel_window_picker(app, ctx);
+    #[cfg(target_os = "windows")]
+    {
+        use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+            GetActiveWindow, GetAsyncKeyState, GetCapture, SetCapture, VK_LBUTTON,
+        };
+        use windows_sys::Win32::UI::WindowsAndMessaging::GetWindowThreadProcessId;
+        unsafe {
+            let hwnd = GetActiveWindow();
+            let mut pid = 0;
+            GetWindowThreadProcessId(hwnd, &mut pid);
+            // A headless call must never capture another application's window.
+            if hwnd.is_null() || pid != std::process::id() || GetAsyncKeyState(VK_LBUTTON as i32) >= 0 {
+                app.action_status = Some("Hold the primary mouse button and drag Target from SysMon.".into());
+                return;
+            }
+            SetCapture(hwnd);
+            if GetCapture() != hwnd {
+                app.action_status = Some("Windows could not capture the pointer for target picking.".into());
+                return;
+            }
+            ctx.data_mut(|data| {
+                data.insert_temp(
+                    egui::Id::new(PICKER_CAPTURE_KEY),
+                    std::sync::Arc::new(PickerCapture(hwnd as usize)),
+                );
+            });
+            app.window_picker_active = true;
+            ctx.set_cursor_icon(egui::CursorIcon::Crosshair);
+            ctx.request_repaint();
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        app.action_status = Some("Desktop window targeting is available on Windows only.".into());
+    }
+}
+
+/// Release our capture on Escape, lost capture, shutdown, or explicit cancellation.
+pub(crate) fn cancel_window_picker(app: &mut SystemMonitorApp, ctx: &egui::Context) {
+    #[cfg(target_os = "windows")]
+    ctx.data_mut(|data| {
+        data.remove::<std::sync::Arc<PickerCapture>>(egui::Id::new(PICKER_CAPTURE_KEY));
+    });
+    app.window_picker_active = false;
+    ctx.set_cursor_icon(egui::CursorIcon::Default);
+}
+
+/// Call every root logic tick, including when the toolbar/root window is not painted.
+/// Native polling observes release and Escape even beyond the SysMon client area.
+pub(crate) fn update_window_picker(app: &mut SystemMonitorApp, ctx: &egui::Context) {
+    if !app.window_picker_active {
+        return;
+    }
+    #[cfg(target_os = "windows")]
+    {
+        use windows_sys::Win32::Foundation::POINT;
+        use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, GetCapture, VK_ESCAPE, VK_LBUTTON};
+        use windows_sys::Win32::UI::WindowsAndMessaging::GetCursorPos;
+        let capture =
+            ctx.data(|data| data.get_temp::<std::sync::Arc<PickerCapture>>(egui::Id::new(PICKER_CAPTURE_KEY)));
+        let Some(capture) = capture else {
+            cancel_window_picker(app, ctx);
+            return;
+        };
+        let escape = ctx.input(|input| input.key_pressed(egui::Key::Escape))
+            || unsafe { GetAsyncKeyState(VK_ESCAPE as i32) < 0 };
+        let pressed = unsafe { GetAsyncKeyState(VK_LBUTTON as i32) < 0 };
+        if escape || (pressed && unsafe { GetCapture() as usize != capture.0 }) {
+            // Drop the local Arc before removing the final owner.
+            drop(capture);
+            cancel_window_picker(app, ctx);
+            app.action_status = Some("Window targeting cancelled.".into());
+            return;
+        }
+        if pressed {
+            ctx.set_cursor_icon(egui::CursorIcon::Crosshair);
+            ctx.request_repaint_after(std::time::Duration::from_millis(16));
+            return;
+        }
+        let mut point = POINT { x: 0, y: 0 };
+        let cursor_ok = unsafe { GetCursorPos(&mut point) != 0 };
+        drop(capture);
+        cancel_window_picker(app, ctx);
+        let identity = if cursor_ok {
+            processes::get_process_id_from_screen_point(point.x, point.y)
+                .ok_or_else(|| "No window process found at the pointer.".to_string())
+                .and_then(processes::process_identity)
+        } else {
+            Err("Windows could not read the pointer position.".into())
+        };
+        match identity {
+            Ok(identity) => {
+                app.selected_tab = Tab::Processes;
+                app.details_pid = Some(identity);
+                app.process_search = identity.pid.to_string();
+                app.action_status = Some(format!(
+                    "Targeted window at ({}, {}): PID {} (creation {})",
+                    point.x, point.y, identity.pid, identity.creation_time,
+                ));
+                request_refresh(app);
+            }
+            Err(error) => app.action_status = Some(format!("Window targeting failed: {error}")),
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    cancel_window_picker(app, ctx);
 }

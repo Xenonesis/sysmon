@@ -4,7 +4,7 @@ use eframe::egui;
 
 pub(super) fn paint(ui: &mut egui::Ui, is_dark: bool, intents: &mut Vec<UiIntent>) {
     ui.add_space(2.0);
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         ui.label(
             egui::RichText::new("Windows Services")
                 .size(15.5)
@@ -12,7 +12,7 @@ pub(super) fn paint(ui: &mut egui::Ui, is_dark: bool, intents: &mut Vec<UiIntent
                 .color(ThemePalette::text_primary(is_dark)),
         );
 
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.label(
                 egui::RichText::new("LIVE")
                     .size(9.5)

@@ -6,9 +6,157 @@ use sysinfo::{Pid, System};
 
 // ─── Data Models ─────────────────────────────────────────────
 
+/// Windows process lifetime token. Creation time is native FILETIME ticks, not Unix seconds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, serde::Deserialize)]
+pub struct ProcessIdentity {
+    pub pid: u32,
+    pub creation_time: u64,
+}
+
+impl std::fmt::Display for ProcessIdentity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} (created {})", self.pid, self.creation_time)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AffinityPreset {
+    All,
+    First,
+    Second,
+    FirstHalf,
+}
+
+pub fn affinity_mask(allowed: usize, preset: AffinityPreset) -> Result<usize, String> {
+    if allowed == 0 {
+        return Err("No supported processor affinity mask is available".into());
+    }
+    let count = match preset {
+        AffinityPreset::All => return Ok(allowed),
+        AffinityPreset::First => 1,
+        AffinityPreset::Second => {
+            let rest = allowed & (allowed - 1);
+            return (rest != 0)
+                .then(|| rest & rest.wrapping_neg())
+                .ok_or_else(|| "A second allowed processor is unavailable".into());
+        }
+        AffinityPreset::FirstHalf => (allowed.count_ones() / 2).max(1),
+    };
+    let mut rest = allowed;
+    let mut mask = 0;
+    for _ in 0..count {
+        let bit = rest & rest.wrapping_neg();
+        mask |= bit;
+        rest &= !bit;
+    }
+    Ok(mask)
+}
+
+pub(crate) fn validate_process_identity(expected: ProcessIdentity, actual: ProcessIdentity) -> Result<(), String> {
+    if expected != actual || expected.creation_time == 0 {
+        return Err(format!("Stale process target {expected}; current identity is {actual}"));
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+pub(crate) struct ProcessHandle(pub windows_sys::Win32::Foundation::HANDLE);
+
+#[cfg(windows)]
+impl Drop for ProcessHandle {
+    fn drop(&mut self) {
+        unsafe {
+            windows_sys::Win32::Foundation::CloseHandle(self.0);
+        }
+    }
+}
+
+#[cfg(windows)]
+pub(crate) fn handle_identity(handle: &ProcessHandle, pid: u32) -> Result<ProcessIdentity, String> {
+    use windows_sys::Win32::{Foundation::FILETIME, System::Threading::GetProcessTimes};
+    let mut created = FILETIME::default();
+    let mut exited = FILETIME::default();
+    let mut kernel = FILETIME::default();
+    let mut user = FILETIME::default();
+    if unsafe { GetProcessTimes(handle.0, &mut created, &mut exited, &mut kernel, &mut user) } == 0 {
+        return Err(format!("GetProcessTimes({pid}): {}", std::io::Error::last_os_error()));
+    }
+    Ok(ProcessIdentity {
+        pid,
+        creation_time: ((created.dwHighDateTime as u64) << 32) | created.dwLowDateTime as u64,
+    })
+}
+
+#[cfg(windows)]
+pub fn process_identity(pid: u32) -> Result<ProcessIdentity, String> {
+    use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
+    let raw = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+    if raw.is_null() {
+        return Err(format!("OpenProcess({pid}): {}", std::io::Error::last_os_error()));
+    }
+    handle_identity(&ProcessHandle(raw), pid)
+}
+
+#[cfg(not(windows))]
+pub fn process_identity(_pid: u32) -> Result<ProcessIdentity, String> {
+    Err("Native process identity is unavailable on this platform".into())
+}
+
+pub(crate) fn guard_process_target(identity: ProcessIdentity, own_pid: u32, critical: bool) -> Result<(), String> {
+    if identity.pid == own_pid || identity.pid <= 4 || critical {
+        return Err(format!("Refusing mutation of self or critical process {identity}"));
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+pub(crate) fn open_process_for_action(identity: ProcessIdentity, access: u32) -> Result<ProcessHandle, String> {
+    use windows_sys::Win32::System::Threading::{IsProcessCritical, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
+    guard_process_target(identity, std::process::id(), false)?;
+    let raw = unsafe { OpenProcess(access | PROCESS_QUERY_LIMITED_INFORMATION, 0, identity.pid) };
+    if raw.is_null() {
+        return Err(format!("OpenProcess({identity}): {}", std::io::Error::last_os_error()));
+    }
+    let handle = ProcessHandle(raw);
+    validate_process_identity(identity, handle_identity(&handle, identity.pid)?)?;
+    let mut critical = 0;
+    if unsafe { IsProcessCritical(handle.0, &mut critical) } == 0 {
+        return Err(format!(
+            "IsProcessCritical({identity}): {}",
+            std::io::Error::last_os_error()
+        ));
+    }
+    guard_process_target(identity, std::process::id(), critical != 0)?;
+    Ok(handle)
+}
+
+/// Build a lifetime-validated deepest-first snapshot. No PID-only targets escape this boundary.
+pub fn process_tree_targets(
+    root: ProcessIdentity,
+    snapshot: &[(ProcessIdentity, Option<u32>)],
+) -> Result<Vec<ProcessIdentity>, String> {
+    let identities: HashMap<_, _> = snapshot.iter().map(|(identity, _)| (identity.pid, *identity)).collect();
+    let current = identities
+        .get(&root.pid)
+        .ok_or_else(|| "Root process is no longer available".to_string())?;
+    validate_process_identity(root, *current)?;
+    let parents = snapshot
+        .iter()
+        .filter_map(|(child, parent)| {
+            let parent = identities.get(&(*parent)?)?;
+            (parent.creation_time < child.creation_time).then_some((child.pid, parent.pid))
+        })
+        .collect();
+    Ok(kill_order(&build_tree(&parents), root.pid)
+        .into_iter()
+        .filter_map(|pid| identities.get(&pid).copied())
+        .collect())
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct ProcessInfo {
     pub pid: u32,
+    pub identity: Option<ProcessIdentity>,
     pub start_time: u64,
     pub name: String,
     pub parent_pid: Option<u32>,
@@ -18,6 +166,8 @@ pub struct ProcessInfo {
     pub status: String,
     pub disk_read_bytes: u64,
     pub disk_written_bytes: u64,
+    pub disk_read_bytes_per_second: Option<f64>,
+    pub disk_written_bytes_per_second: Option<f64>,
 }
 
 #[derive(PartialEq, Clone, Copy, Debug)]
@@ -89,17 +239,6 @@ pub fn build_tree(parent_map: &HashMap<u32, u32>) -> HashMap<u32, Vec<u32>> {
     }
     tree
 }
-
-/// Derive the parent map from a sysinfo `System` snapshot.
-pub fn build_process_tree(sys: &System) -> HashMap<u32, Vec<u32>> {
-    let parents: HashMap<u32, u32> = sys
-        .processes()
-        .iter()
-        .filter_map(|(pid, proc)| proc.parent().map(|p| (pid.as_u32(), p.as_u32())))
-        .collect();
-    build_tree(&parents)
-}
-
 /// Deepest-first kill order (children before parents), cycle-safe, orphan-safe.
 pub fn kill_order(tree: &HashMap<u32, Vec<u32>>, root_pid: u32) -> Vec<u32> {
     fn visit(
@@ -248,33 +387,36 @@ pub fn build_tree_rows(items: &[ProcessInfo], tree: &HashMap<u32, Vec<u32>>, que
     rows
 }
 
-/// Set CPU core affinity mask for a process by PID on Windows.
-#[cfg(target_os = "windows")]
-pub fn set_process_affinity(pid: u32, mask: usize) -> Result<(), String> {
-    use windows_sys::Win32::Foundation::{CloseHandle, GetLastError};
+/// Resolve a preset only within a single native processor group and its allowed mask.
+#[cfg(windows)]
+pub fn set_process_affinity(identity: ProcessIdentity, preset: AffinityPreset) -> Result<(), String> {
     use windows_sys::Win32::System::Threading::{
-        OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_SET_INFORMATION, SetProcessAffinityMask,
+        GetProcessAffinityMask, GetProcessGroupAffinity, PROCESS_QUERY_INFORMATION, PROCESS_SET_INFORMATION,
+        SetProcessAffinityMask,
     };
-
-    unsafe {
-        let handle = OpenProcess(PROCESS_SET_INFORMATION | PROCESS_QUERY_INFORMATION, 0, pid);
-        if handle.is_null() {
-            return Err(format!("Failed to open process {pid} (error code {})", GetLastError()));
-        }
-        let result = SetProcessAffinityMask(handle, mask);
-        CloseHandle(handle);
-        if result == 0 {
-            return Err(format!(
-                "Failed to set affinity mask {mask:#x} for PID {pid} (error code {})",
-                GetLastError()
-            ));
-        }
-        Ok(())
+    let handle = open_process_for_action(identity, PROCESS_QUERY_INFORMATION | PROCESS_SET_INFORMATION)?;
+    let mut groups = [0u16; 64];
+    let mut count = groups.len() as u16;
+    if unsafe { GetProcessGroupAffinity(handle.0, &mut count, groups.as_mut_ptr()) } == 0 {
+        return Err(format!("GetProcessGroupAffinity: {}", std::io::Error::last_os_error()));
     }
+    if count != 1 {
+        return Err("Affinity presets are unavailable for multi-group processes".into());
+    }
+    let mut process_mask = 0;
+    let mut system_mask = 0;
+    if unsafe { GetProcessAffinityMask(handle.0, &mut process_mask, &mut system_mask) } == 0 {
+        return Err(format!("GetProcessAffinityMask: {}", std::io::Error::last_os_error()));
+    }
+    let mask = affinity_mask(process_mask & system_mask, preset)?;
+    if unsafe { SetProcessAffinityMask(handle.0, mask) } == 0 {
+        return Err(format!("SetProcessAffinityMask: {}", std::io::Error::last_os_error()));
+    }
+    Ok(())
 }
 
-#[cfg(not(target_os = "windows"))]
-pub fn set_process_affinity(_pid: u32, _mask: usize) -> Result<(), String> {
+#[cfg(not(windows))]
+pub fn set_process_affinity(_identity: ProcessIdentity, _preset: AffinityPreset) -> Result<(), String> {
     Err("Process affinity is only supported on Windows".into())
 }
 
@@ -329,67 +471,6 @@ pub fn get_process_id_from_screen_point(_x: i32, _y: i32) -> Option<u32> {
     None
 }
 
-/// Query the current global screen cursor position (x, y).
-#[cfg(target_os = "windows")]
-pub fn get_current_cursor_screen_point() -> (i32, i32) {
-    use windows_sys::Win32::Foundation::POINT;
-    use windows_sys::Win32::UI::WindowsAndMessaging::GetCursorPos;
-    let mut pt = POINT { x: 0, y: 0 };
-    unsafe {
-        GetCursorPos(&mut pt);
-    }
-    (pt.x, pt.y)
-}
-
-#[cfg(not(target_os = "windows"))]
-pub fn get_current_cursor_screen_point() -> (i32, i32) {
-    (0, 0)
-}
-
-/// Query dedicated VRAM usage per process.
-/// Returns a map of PID -> used VRAM bytes.
-#[cfg(target_os = "windows")]
-#[allow(dead_code)]
-pub fn query_process_vram_map() -> HashMap<u32, u64> {
-    if let Ok(nvml) = nvml_wrapper::Nvml::init() {
-        query_process_vram_from_nvml(&nvml)
-    } else {
-        HashMap::new()
-    }
-}
-
-/// Query dedicated VRAM usage per process given an existing NVML instance.
-#[cfg(target_os = "windows")]
-pub fn query_process_vram_from_nvml(nvml: &nvml_wrapper::Nvml) -> HashMap<u32, u64> {
-    let mut map = HashMap::new();
-    if let Ok(device_count) = nvml.device_count() {
-        for i in 0..device_count {
-            if let Ok(device) = nvml.device_by_index(i) {
-                if let Ok(processes) = device.running_graphics_processes() {
-                    for proc_info in processes {
-                        if let nvml_wrapper::enums::device::UsedGpuMemory::Used(bytes) = proc_info.used_gpu_memory {
-                            *map.entry(proc_info.pid).or_insert(0) += bytes;
-                        }
-                    }
-                }
-                if let Ok(processes) = device.running_compute_processes() {
-                    for proc_info in processes {
-                        if let nvml_wrapper::enums::device::UsedGpuMemory::Used(bytes) = proc_info.used_gpu_memory {
-                            *map.entry(proc_info.pid).or_insert(0) += bytes;
-                        }
-                    }
-                }
-            }
-        }
-    }
-    map
-}
-
-#[cfg(not(target_os = "windows"))]
-pub fn query_process_vram_map() -> HashMap<u32, u64> {
-    HashMap::new()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -397,6 +478,7 @@ mod tests {
     fn p(pid: u32, name: &str, cpu: f32, mem: u64, status: &str) -> ProcessInfo {
         ProcessInfo {
             pid,
+            identity: None,
             start_time: 0,
             name: name.to_string(),
             parent_pid: None,
@@ -406,6 +488,8 @@ mod tests {
             status: status.to_string(),
             disk_read_bytes: 0,
             disk_written_bytes: 0,
+            disk_read_bytes_per_second: None,
+            disk_written_bytes_per_second: None,
         }
     }
 
@@ -494,6 +578,7 @@ mod tests {
     fn test_process_sort_by_vram() {
         let p1 = ProcessInfo {
             pid: 100,
+            identity: None,
             start_time: 0,
             name: "Game.exe".into(),
             parent_pid: None,
@@ -503,9 +588,12 @@ mod tests {
             status: "Running".into(),
             disk_read_bytes: 0,
             disk_written_bytes: 0,
+            disk_read_bytes_per_second: None,
+            disk_written_bytes_per_second: None,
         };
         let p2 = ProcessInfo {
             pid: 200,
+            identity: None,
             start_time: 0,
             name: "Browser.exe".into(),
             parent_pid: None,
@@ -515,6 +603,8 @@ mod tests {
             status: "Running".into(),
             disk_read_bytes: 0,
             disk_written_bytes: 0,
+            disk_read_bytes_per_second: None,
+            disk_written_bytes_per_second: None,
         };
 
         let mut items = vec![&p2, &p1];
@@ -527,6 +617,7 @@ mod tests {
     fn test_process_sort_by_vram_ascending_and_none() {
         let p1 = ProcessInfo {
             pid: 100,
+            identity: None,
             start_time: 0,
             name: "Game.exe".into(),
             parent_pid: None,
@@ -536,9 +627,12 @@ mod tests {
             status: "Running".into(),
             disk_read_bytes: 0,
             disk_written_bytes: 0,
+            disk_read_bytes_per_second: None,
+            disk_written_bytes_per_second: None,
         };
         let p2 = ProcessInfo {
             pid: 200,
+            identity: None,
             start_time: 0,
             name: "Browser.exe".into(),
             parent_pid: None,
@@ -548,9 +642,12 @@ mod tests {
             status: "Running".into(),
             disk_read_bytes: 0,
             disk_written_bytes: 0,
+            disk_read_bytes_per_second: None,
+            disk_written_bytes_per_second: None,
         };
         let p3 = ProcessInfo {
             pid: 300,
+            identity: None,
             start_time: 0,
             name: "Idle.exe".into(),
             parent_pid: None,
@@ -560,6 +657,8 @@ mod tests {
             status: "Running".into(),
             disk_read_bytes: 0,
             disk_written_bytes: 0,
+            disk_read_bytes_per_second: None,
+            disk_written_bytes_per_second: None,
         };
 
         let mut items = vec![&p1, &p2, &p3];
@@ -577,13 +676,66 @@ mod tests {
     }
 
     #[test]
-    fn test_query_process_vram_map_execution() {
-        // Validates query_process_vram_map runs safely without panicking
-        let map = query_process_vram_map();
-        for (&pid, &bytes) in &map {
-            assert!(pid > 0);
-            assert!(bytes > 0);
-        }
+    fn reused_identity_rejects_before_mutation() {
+        let selected = ProcessIdentity {
+            pid: 99,
+            creation_time: 100,
+        };
+        let reused = ProcessIdentity {
+            creation_time: 101,
+            ..selected
+        };
+        let mut mutations = 0;
+        let result = validate_process_identity(selected, reused).map(|_| mutations += 1);
+        assert!(result.is_err());
+        assert_eq!(mutations, 0);
+        assert!(guard_process_target(selected, 99, false).is_err());
+        assert!(guard_process_target(selected, 1, true).is_err());
+    }
+
+    #[test]
+    fn tree_excludes_child_older_than_reused_parent() {
+        let root = ProcessIdentity {
+            pid: 10,
+            creation_time: 100,
+        };
+        let old_child = ProcessIdentity {
+            pid: 11,
+            creation_time: 90,
+        };
+        let child = ProcessIdentity {
+            pid: 12,
+            creation_time: 110,
+        };
+        assert_eq!(
+            process_tree_targets(root, &[(root, None), (old_child, Some(10)), (child, Some(10))]).unwrap(),
+            vec![child, root]
+        );
+        assert!(
+            process_tree_targets(
+                ProcessIdentity {
+                    creation_time: 99,
+                    ..root
+                },
+                &[(root, None)]
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn affinity_handles_sparse_and_full_width_masks_without_shifts() {
+        assert_eq!(affinity_mask(0b10100, AffinityPreset::First).unwrap(), 0b100);
+        assert_eq!(affinity_mask(0b10100, AffinityPreset::Second).unwrap(), 0b10000);
+        assert_eq!(affinity_mask(usize::MAX, AffinityPreset::All).unwrap(), usize::MAX);
+        assert_eq!(
+            affinity_mask(usize::MAX, AffinityPreset::FirstHalf)
+                .unwrap()
+                .count_ones(),
+            usize::BITS / 2
+        );
+        assert!(affinity_mask(0, AffinityPreset::All).is_err());
+        assert!(affinity_mask(1, AffinityPreset::Second).is_err());
     }
 
     #[test]

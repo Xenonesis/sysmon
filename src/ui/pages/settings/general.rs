@@ -1,4 +1,5 @@
 use crate::app::models::AppTheme;
+use crate::persistence::settings::{PROCESS_COUNT, REFRESH_INTERVAL};
 use crate::ui::components::*;
 use crate::ui::theme::ThemePalette;
 use eframe::egui;
@@ -9,6 +10,7 @@ pub(super) fn paint_general_settings(
     changed: &mut bool,
     theme_changed: &mut bool,
     is_dark: bool,
+    intents: &mut Vec<crate::app::commands::UiIntent>,
 ) {
     // ── 1. General Preferences & Theme ──
     card_frame(is_dark).show(ui, |ui| {
@@ -20,8 +22,8 @@ pub(super) fn paint_general_settings(
         );
         ui.add_space(8.0);
 
-        ui.columns(2, |cols| {
-            cols[0].vertical(|ui| {
+        ui.vertical(|ui| {
+            ui.vertical(|ui| {
                 *changed |= ui
                     .checkbox(&mut app.settings.show_widget, "Show Desktop Mini-Widget")
                     .changed();
@@ -40,7 +42,7 @@ pub(super) fn paint_general_settings(
                 ui.add_space(2.0);
 
                 // 3-way theme selector with clean brutalist tiles
-                ui.horizontal(|ui| {
+                ui.horizontal_wrapped(|ui| {
                     for (theme, label) in [
                         (AppTheme::Dark, "Dark (Noir)"),
                         (AppTheme::Light, "Light (Slate)"),
@@ -67,7 +69,7 @@ pub(super) fn paint_general_settings(
                             .stroke(egui::Stroke::new(1.0, ThemePalette::border(is_dark)))
                             .corner_radius(egui::CornerRadius::same(4))
                         };
-                        if ui.add(btn).clicked() {
+                        if ui.add(btn.selected(is_selected)).clicked() {
                             app.settings.theme = theme;
                             *changed = true;
                             *theme_changed = true;
@@ -76,7 +78,7 @@ pub(super) fn paint_general_settings(
                 });
             });
 
-            cols[1].vertical(|ui| {
+            ui.vertical(|ui| {
                 ui.label(
                     egui::RichText::new("Polling & Refresh Rates")
                         .size(11.0)
@@ -91,7 +93,11 @@ pub(super) fn paint_general_settings(
                     .show(ui, |ui| {
                         ui.label(egui::RichText::new("Refresh Interval:").color(ThemePalette::text_secondary(is_dark)));
                         *changed |= ui
-                            .add(egui::Slider::new(&mut app.settings.refresh_interval, 1..=10).suffix(" s"))
+                            .add(
+                                egui::Slider::new(&mut app.settings.refresh_interval, REFRESH_INTERVAL)
+                                    .suffix(" s")
+                                    .text("Refresh interval"),
+                            )
                             .changed();
                         ui.end_row();
 
@@ -99,7 +105,10 @@ pub(super) fn paint_general_settings(
                             egui::RichText::new("Tracked Processes:").color(ThemePalette::text_secondary(is_dark)),
                         );
                         *changed |= ui
-                            .add(egui::Slider::new(&mut app.settings.process_count, 5..=100))
+                            .add(
+                                egui::Slider::new(&mut app.settings.process_count, PROCESS_COUNT)
+                                    .text("Tracked processes"),
+                            )
                             .changed();
                         ui.end_row();
                     });
@@ -121,12 +130,20 @@ pub(super) fn paint_general_settings(
             );
             ui.add_space(8.0);
 
-            if ui
-                .checkbox(&mut app.settings.auto_start, "Start with Windows")
-                .changed()
-            {
-                *changed = true;
-                let _ = app.settings.set_auto_start(app.settings.auto_start);
+            let mut requested_auto_start = app.settings.auto_start;
+            if ui.checkbox(&mut requested_auto_start, "Start with Windows").changed() {
+                match app.settings.set_auto_start(requested_auto_start) {
+                    Ok(()) => {
+                        app.settings.auto_start = requested_auto_start;
+                        app.settings_integration_error = None;
+                        *changed = true;
+                    }
+                    Err(error) => {
+                        app.settings_integration_error = Some(format!(
+                            "Windows auto-start was not changed: {error}. Try the checkbox again to retry."
+                        ));
+                    }
+                }
             }
             *changed |= ui
                 .checkbox(&mut app.settings.minimize_to_tray, "Minimize to system tray on close")
@@ -136,7 +153,7 @@ pub(super) fn paint_general_settings(
                 .changed();
 
             ui.add_space(8.0);
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 let elevated = crate::privilege::is_app_elevated();
                 if elevated {
                     status_pill(ui, "ADMINISTRATOR (ELEVATED)", ThemePalette::STATUS_HEALTHY, is_dark);
@@ -150,9 +167,8 @@ pub(super) fn paint_general_settings(
                                 .color(ThemePalette::STATUS_WARNING),
                         )
                         .clicked()
-                        && crate::privilege::relaunch_as_admin()
                     {
-                        ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                        intents.push(crate::app::commands::UiIntent::RelaunchAsAdmin);
                     }
                 }
             });

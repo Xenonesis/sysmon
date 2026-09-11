@@ -29,23 +29,25 @@ pub(crate) fn show(
         return intents;
     }
 
-    let counts = summary::ServiceCounts::from_services(&data.services);
-    summary::paint(ui, counts, is_dark, is_elevated, &mut intents);
-    ui.add_space(8.0);
+    egui::ScrollArea::vertical().id_salt("services_page").show(ui, |ui| {
+        let counts = summary::ServiceCounts::from_services(&data.services);
+        summary::paint(ui, counts, is_dark, is_elevated, &mut intents);
+        ui.add_space(8.0);
 
-    let visible = app.service_page.visible_services(&data.services);
-    toolbar::paint(ui, &mut app.service_page, counts, visible.len(), is_dark);
-    ui.add_space(8.0);
+        let visible = app.service_page.visible_services(&data.services);
+        toolbar::paint(ui, &mut app.service_page, counts, visible.len(), is_dark);
+        ui.add_space(8.0);
 
-    inspector::paint(
-        ui,
-        &mut app.service_page,
-        &data.services,
-        is_dark,
-        is_elevated,
-        &mut intents,
-    );
-    table::paint(ui, &mut app.service_page, &visible, is_dark, is_elevated, &mut intents);
+        inspector::paint(
+            ui,
+            &mut app.service_page,
+            &data.services,
+            is_dark,
+            is_elevated,
+            &mut intents,
+        );
+        table::paint(ui, &mut app.service_page, &visible, is_dark, is_elevated, &mut intents);
+    });
 
     intents
 }

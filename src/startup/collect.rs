@@ -284,9 +284,7 @@ pub fn get_startup_data() -> (Vec<StartupItem>, Option<BootDiagnostics>) {
         HKEY_CURRENT_USER,
         r"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\StartupFolder",
     );
-    if let Some(appdata) = std::env::var_os("APPDATA") {
-        let mut user_startup = std::path::PathBuf::from(appdata);
-        user_startup.push(r"Microsoft\Windows\Start Menu\Programs\Startup");
+    if let Ok(user_startup) = crate::app_paths::startup_folder(false) {
         collect_folder_items(
             &mut items,
             &user_startup,
@@ -315,14 +313,21 @@ pub fn get_startup_data() -> (Vec<StartupItem>, Option<BootDiagnostics>) {
         HKEY_LOCAL_MACHINE,
         r"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\StartupFolder",
     );
-    if let Some(programdata) = std::env::var_os("ProgramData") {
-        let mut common_startup = std::path::PathBuf::from(programdata);
-        common_startup.push(r"Microsoft\Windows\Start Menu\Programs\Startup");
+    if let Ok(common_startup) = crate::app_paths::startup_folder(true) {
         collect_folder_items(
             &mut items,
             &common_startup,
             "Startup Folder (Common)",
             false,
+            &hklm_folder_approved,
+            StartupRegistryHive::LocalMachine,
+            r"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\StartupFolder",
+        );
+        collect_folder_items(
+            &mut items,
+            &common_startup.join("_disabled"),
+            "Startup Folder (Common)",
+            true,
             &hklm_folder_approved,
             StartupRegistryHive::LocalMachine,
             r"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\StartupFolder",

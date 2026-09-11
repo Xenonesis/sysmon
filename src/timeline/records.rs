@@ -67,15 +67,19 @@ fn metric_from_snapshot(snapshot: &SystemSnapshot) -> TimelineMetricSample {
         timestamp_ms: system_time_ms(snapshot.sampled_at),
         cpu_pct: snapshot.cpu_usage as f64,
         memory_pct: snapshot.memory_percentage as f64,
-        gpu_pct: snapshot.gpus.iter().map(|gpu| gpu.utilization as f64).reduce(f64::max),
+        gpu_pct: snapshot
+            .gpus
+            .iter()
+            .filter_map(|gpu| gpu.utilization.map(f64::from))
+            .reduce(f64::max),
         cpu_temp_c: snapshot.cpu_temperature.map(f64::from),
         gpu_temp_c: snapshot
             .gpus
             .iter()
             .filter_map(|gpu| gpu.temperature.map(f64::from))
             .reduce(f64::max),
-        disk_read_bps: snapshot.disks.first().map_or(0.0, |disk| disk.read_bytes_per_second),
-        disk_write_bps: snapshot.disks.first().map_or(0.0, |disk| disk.written_bytes_per_second),
+        disk_read_bps: snapshot.disk_read_bytes_per_second.unwrap_or(0.0),
+        disk_write_bps: snapshot.disk_written_bytes_per_second.unwrap_or(0.0),
         network_down_bps: snapshot
             .networks
             .iter()
@@ -117,7 +121,7 @@ pub(super) fn select_process_union(
             timestamp_ms,
             pid: process.pid,
             start_time: process.start_time,
-            name: sanitize_text(process.name.clone(), 260),
+            name: safe_process_name(&process.name),
             cpu_pct: process.cpu_usage as f64,
             memory_bytes: process.memory,
             disk_read_bytes: process.disk_read_bytes,
@@ -130,7 +134,6 @@ pub(super) fn record_derived_events(
     conn: &Connection,
     snapshot: &SystemSnapshot,
     previous_providers: &mut HashMap<String, bool>,
-    previous_paused: &mut Option<bool>,
     previous_power: &mut Option<String>,
 ) -> Result<(), String> {
     for (name, provider) in &snapshot.provider_status {
@@ -163,31 +166,6 @@ pub(super) fn record_derived_events(
         }
     }
 
-    if let Some(previous) = previous_paused.replace(snapshot.paused)
-        && previous != snapshot.paused
-    {
-        insert_event(
-            conn,
-            &TimelineEvent {
-                id: None,
-                timestamp_ms: system_time_ms(snapshot.sampled_at),
-                kind: if snapshot.paused {
-                    TimelineEventKind::MonitoringPaused
-                } else {
-                    TimelineEventKind::MonitoringResumed
-                },
-                source: "monitoring".into(),
-                severity: "info".into(),
-                summary: if snapshot.paused {
-                    "Monitoring paused".into()
-                } else {
-                    "Monitoring resumed".into()
-                },
-                evidence: "User-visible monitoring state changed".into(),
-            },
-        )?;
-    }
-
     let power = snapshot.battery.as_ref().map(|battery| {
         format!(
             "{}:{}",
@@ -218,18 +196,27 @@ pub(super) fn record_derived_events(
 }
 
 pub(super) fn insert_event(conn: &Connection, event: &TimelineEvent) -> Result<(), String> {
+    let event = event.privacy_safe();
     conn.execute(
         "INSERT INTO timeline_events (timestamp_ms, kind, source, severity, summary, evidence)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
         params![
             event.timestamp_ms,
             event.kind.as_str(),
-            sanitize_text(event.source.clone(), 128),
-            sanitize_text(event.severity.clone(), 32),
-            sanitize_text(event.summary.clone(), 512),
-            sanitize_text(event.evidence.clone(), 2_048)
+            event.source,
+            event.severity,
+            event.summary,
+            event.evidence
         ],
     )
     .map(|_| ())
     .map_err(|error| format!("Could not write timeline event: {error}"))
+}
+
+pub(super) fn safe_process_name(name: &str) -> String {
+    if name.contains(['\\', '/', ':', '@']) || name.chars().any(char::is_control) {
+        "[redacted process]".into()
+    } else {
+        name.chars().take(260).collect()
+    }
 }

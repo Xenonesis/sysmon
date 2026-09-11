@@ -3,10 +3,11 @@ use crate::ui::theme::ThemePalette;
 use eframe::egui;
 
 pub(super) fn paint_lock_inspector_card(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, is_dark: bool) {
+    app.storage_page.poll_background(ui.ctx());
     card_frame(is_dark).show(ui, |ui| {
         ui.horizontal(|ui| {
             ui.label(
-                egui::RichText::new("FILE & USB DRIVE LOCK INSPECTOR")
+                egui::RichText::new("FILE, FOLDER & VOLUME USER INSPECTOR")
                     .size(11.0)
                     .strong()
                     .color(ThemePalette::text_secondary(is_dark)),
@@ -15,12 +16,14 @@ pub(super) fn paint_lock_inspector_card(app: &mut crate::SystemMonitorApp, ui: &
                 if let Some(res) = &app.storage_page.lock_result {
                     if res.error.is_some() {
                         status_pill(ui, "ERROR", ThemePalette::STATUS_CRITICAL, is_dark);
+                    } else if res.partial {
+                        status_pill(ui, "PARTIAL", ThemePalette::STATUS_WARNING, is_dark);
                     } else if res.processes.is_empty() {
-                        status_pill(ui, "UNLOCKED", ThemePalette::STATUS_HEALTHY, is_dark);
+                        status_pill(ui, "NO USERS FOUND", ThemePalette::text_dimmed(is_dark), is_dark);
                     } else {
                         status_pill(
                             ui,
-                            &format!("{} LOCKED", res.processes.len()),
+                            &format!("{} USERS", res.processes.len()),
                             ThemePalette::STATUS_WARNING,
                             is_dark,
                         );
@@ -34,7 +37,7 @@ pub(super) fn paint_lock_inspector_card(app: &mut crate::SystemMonitorApp, ui: &
         ui.add_space(4.0);
         ui.label(
             egui::RichText::new(
-                "Detect which processes or services are preventing a file, folder, or USB drive from being modified, ejected, or deleted.",
+                "Inspect Restart Manager file users and bounded folder contents. Volume queries may be unsupported. Results do not guarantee safe deletion or ejection.",
             )
             .size(12.0)
             .color(ThemePalette::text_secondary(is_dark)),
@@ -45,23 +48,27 @@ pub(super) fn paint_lock_inspector_card(app: &mut crate::SystemMonitorApp, ui: &
             let avail_w = ui.available_width();
             let input_w = (avail_w - 270.0).max(140.0);
             let path_input = egui::TextEdit::singleline(&mut app.storage_page.lock_path)
-                .hint_text("Enter file path or drive letter (e.g. D:\\ or C:\\file.ext)...")
+                .hint_text("Absolute file, folder or volume path (e.g. D:\\)...")
                 .desired_width(input_w);
-            ui.add(path_input);
+            if ui.add(path_input).changed() {
+                app.storage_page.cancel_inspection();
+            }
 
             if ui
-                .button(egui::RichText::new("📁 File...").size(12.0))
+                .button(egui::RichText::new("File...").size(12.0))
                 .on_hover_text("Browse for a file to inspect")
                 .clicked()
                 && let Some(file_path) = rfd::FileDialog::new().pick_file() {
+                    app.storage_page.cancel_inspection();
                     app.storage_page.lock_path = file_path.to_string_lossy().to_string();
                 }
 
             if ui
-                .button(egui::RichText::new("📂 Folder...").size(12.0))
+                .button(egui::RichText::new("Folder...").size(12.0))
                 .on_hover_text("Browse for a folder or drive to inspect")
                 .clicked()
                 && let Some(folder_path) = rfd::FileDialog::new().pick_folder() {
+                    app.storage_page.cancel_inspection();
                     app.storage_page.lock_path = folder_path.to_string_lossy().to_string();
                 }
 
@@ -75,8 +82,11 @@ pub(super) fn paint_lock_inspector_card(app: &mut crate::SystemMonitorApp, ui: &
             .stroke(egui::Stroke::new(1.0, ThemePalette::ACCENT_PRIMARY.gamma_multiply(0.5)))
             .corner_radius(egui::CornerRadius::same(4));
 
-            if ui.add(inspect_btn).clicked() {
+            if ui.add_enabled(!app.storage_page.lock_busy(), inspect_btn).clicked() {
                 app.storage_page.inspect_locks();
+            }
+            if app.storage_page.lock_busy() && ui.button("Cancel").clicked() {
+                app.storage_page.cancel_inspection();
             }
         });
 
@@ -91,13 +101,17 @@ pub(super) fn paint_lock_inspector_card(app: &mut crate::SystemMonitorApp, ui: &
 
         if let Some(res) = &app.storage_page.lock_result {
             ui.add_space(8.0);
+            ui.label(format!("{:?}: {} files queried; {} skipped; {}.", res.kind, res.files_scanned, res.entries_skipped, if res.cancelled { "cancelled" } else if res.partial { "partial coverage" } else { "bounded inspection finished" }));
+            for note in &res.coverage {
+                ui.label(egui::RichText::new(note).size(11.0).color(ThemePalette::STATUS_WARNING));
+            }
             if res.processes.is_empty() && res.error.is_none() {
                 ui.group(|ui| {
                     ui.horizontal(|ui| {
-                        status_pill(ui, "UNLOCKED", ThemePalette::STATUS_HEALTHY, is_dark);
+                        status_pill(ui, "NO USERS FOUND", ThemePalette::text_dimmed(is_dark), is_dark);
                         ui.label(
                             egui::RichText::new(format!(
-                                "No active processes are locking \"{}\". Resource can be safely ejected or deleted.",
+                                "No users reported for the inspected coverage of \"{}\". This is not a deletion or ejection safety check.",
                                 res.path
                             ))
                             .size(12.0)
@@ -108,7 +122,7 @@ pub(super) fn paint_lock_inspector_card(app: &mut crate::SystemMonitorApp, ui: &
             } else if !res.processes.is_empty() {
                 ui.label(
                     egui::RichText::new(format!(
-                        "Processes holding lock on \"{}\":",
+                        "Reported users of \"{}\":",
                         res.path
                     ))
                     .size(12.0)
@@ -152,8 +166,8 @@ pub(super) fn paint_lock_inspector_card(app: &mut crate::SystemMonitorApp, ui: &
                                 .stroke(egui::Stroke::new(1.0, ThemePalette::STATUS_CRITICAL.gamma_multiply(0.5)))
                                 .corner_radius(egui::CornerRadius::same(4));
 
-                                if ui.add(kill_btn).on_hover_text("Terminate locking process via ActionPlan").clicked() {
-                                    kill_pid = Some(proc.pid);
+                                if ui.add_enabled(proc.identity.is_some(), kill_btn).on_hover_text("Request termination using the captured native process creation identity; confirmation and process safety checks apply.").clicked() {
+                                    kill_pid = proc.identity;
                                 }
                             });
                         });

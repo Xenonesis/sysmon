@@ -3,6 +3,7 @@ use crate::ui::theme::ThemePalette;
 use eframe::egui;
 
 pub(super) fn paint_reclaimer_card(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, is_dark: bool) {
+    app.storage_page.poll_background(ui.ctx());
     if !app.storage_page.reclaimer_scanned {
         app.storage_page.scan_caches();
     }
@@ -31,9 +32,12 @@ pub(super) fn paint_reclaimer_card(app: &mut crate::SystemMonitorApp, ui: &mut e
                     .color(ThemePalette::text_secondary(is_dark)),
             );
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.small_button("⟳ Rescan").clicked() {
+                if ui.add_enabled(!app.storage_page.scan_busy(), egui::Button::new("Rescan")).clicked() {
+                    app.storage_page.reclaimer_status = None;
                     app.storage_page.scan_caches();
-                    app.storage_page.reclaimer_status = Some("Caches re-scanned.".into());
+                }
+                if app.storage_page.scan_busy() && ui.small_button("Cancel scan").clicked() {
+                    app.storage_page.cancel_scan();
                 }
                 status_pill(
                     ui,
@@ -47,7 +51,7 @@ pub(super) fn paint_reclaimer_card(app: &mut crate::SystemMonitorApp, ui: &mut e
         ui.add_space(4.0);
         ui.label(
             egui::RichText::new(
-                "Safely scan and clean temporary caches, DirectX/GPU shader caches, and diagnostic dump files.",
+                "Review eligible files older than seven days. Cleanup is permanent, has no Undo, and preserves new, changed, linked and read-only files.",
             )
             .size(12.0)
             .color(ThemePalette::text_secondary(is_dark)),
@@ -60,7 +64,7 @@ pub(super) fn paint_reclaimer_card(app: &mut crate::SystemMonitorApp, ui: &mut e
             ui.group(|ui| {
                 ui.horizontal(|ui| {
                     let mut checked = is_selected;
-                    if ui.checkbox(&mut checked, "").changed() {
+                    if ui.add_enabled(cat.file_count > 0, egui::Checkbox::new(&mut checked, "")).changed() {
                         toggle_id = Some(cat.id);
                     }
                     ui.label(
@@ -101,6 +105,12 @@ pub(super) fn paint_reclaimer_card(app: &mut crate::SystemMonitorApp, ui: &mut e
                             .color(ThemePalette::text_secondary(is_dark)),
                     );
                 });
+                ui.label(format!("Excluded: {}; unreadable/failed: {}; coverage: {}", cat.skipped, cat.failed, if cat.complete { "finished" } else { "partial" }));
+                if !cat.issues.is_empty() {
+                    ui.collapsing("Exclusions and scan errors (first 100)", |ui| {
+                        for issue in &cat.issues { ui.label(format!("{}: {}", issue.path.display(), issue.reason)); }
+                    });
+                }
             });
             ui.add_space(4.0);
         }
@@ -135,12 +145,16 @@ pub(super) fn paint_reclaimer_card(app: &mut crate::SystemMonitorApp, ui: &mut e
                     .stroke(egui::Stroke::new(1.0, ThemePalette::STATUS_WARNING.gamma_multiply(0.5)))
                     .corner_radius(egui::CornerRadius::same(4));
 
-                let has_selection = !app.storage_page.reclaimer_selected.is_empty();
+                let has_selection = selected_files > 0 && !app.storage_page.scan_busy();
                 ui.add_enabled_ui(has_selection, |ui| {
                     if ui.add(clean_btn).clicked() {
-                        let ids = app.storage_page.selected_category_ids();
-                        app.queue_action(crate::app::commands::ActionCommand::ReclaimStorageCaches(ids));
-                        app.storage_page.reclaimer_status = Some("Cleaning queued via ActionPlan...".into());
+                        let reviewed = app.storage_page.reviewed_cleanup();
+                        let accepted = app.queue_action(crate::app::commands::ActionCommand::ReclaimStorageCaches(reviewed));
+                        app.storage_page.reclaimer_status = Some(if accepted {
+                            "Awaiting confirmation for the reviewed file identities; nothing deleted yet."
+                        } else {
+                            "Cleanup request rejected: another action or confirmation is pending."
+                        }.into());
                     }
                 });
             });

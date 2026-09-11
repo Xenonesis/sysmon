@@ -78,26 +78,33 @@ mod tests {
     fn test_diagnostics_renders_with_crashes() {
         let mut app = crate::SystemMonitorApp::test_app();
         let data = SystemData::default();
-        app.crash_reports = Some(vec![
-            crate::diagnostics::minidump::MinidumpCrashReport {
-                file_name: "MEMORY.DMP".into(),
-                timestamp: "2026-08-27 10:00:00 UTC".into(),
-                bugcheck_code: 0x00000116,
-                bugcheck_name: "VIDEO_TDR_ERROR".into(),
-                explanation: "Display driver timed out".into(),
-                faulting_module: Some("nvlddmkm.sys".into()),
-                recommendation: "Reinstall GPU drivers".into(),
-            },
-            crate::diagnostics::minidump::MinidumpCrashReport {
-                file_name: "CRASH.DMP".into(),
-                timestamp: "2026-08-26 14:00:00 UTC".into(),
-                bugcheck_code: 0x0000003B,
-                bugcheck_name: "SYSTEM_SERVICE_EXCEPTION".into(),
-                explanation: "System service routine error".into(),
-                faulting_module: None,
-                recommendation: "Check driver updates".into(),
-            },
-        ]);
+        app.crash_reports.outcome = Some(crate::diagnostics::minidump::CrashScanOutcome {
+            reports: vec![
+                crate::diagnostics::minidump::MinidumpCrashReport {
+                    file_name: "MEMORY.DMP".into(),
+                    timestamp: Some("2026-08-27 10:00:00 UTC".into()),
+                    kind: crate::diagnostics::minidump::CrashKind::Kernel64,
+                    code: 0x00000116,
+                    code_name: "VIDEO_TDR_ERROR".into(),
+                    parameters: Vec::new(),
+                    explanation: "Display driver timed out".into(),
+                    address_module: Some("nvlddmkm.sys".into()),
+                    recommendation: "Reinstall GPU drivers".into(),
+                },
+                crate::diagnostics::minidump::MinidumpCrashReport {
+                    file_name: "CRASH.DMP".into(),
+                    timestamp: Some("2026-08-26 14:00:00 UTC".into()),
+                    kind: crate::diagnostics::minidump::CrashKind::Kernel64,
+                    code: 0x0000003B,
+                    code_name: "SYSTEM_SERVICE_EXCEPTION".into(),
+                    parameters: Vec::new(),
+                    explanation: "System service routine error".into(),
+                    address_module: None,
+                    recommendation: "Check driver updates".into(),
+                },
+            ],
+            ..Default::default()
+        });
 
         let ctx = egui::Context::default();
         ctx.run_ui(Default::default(), |ui| {
@@ -106,6 +113,6 @@ mod tests {
         .textures_delta
         .clear();
 
-        assert_eq!(app.crash_reports.as_ref().unwrap().len(), 2);
+        assert_eq!(app.crash_reports.outcome.as_ref().unwrap().reports.len(), 2);
     }
 }

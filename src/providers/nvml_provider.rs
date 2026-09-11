@@ -47,11 +47,20 @@ impl TelemetryProvider for NvmlProvider {
         Duration::from_millis(200) // ~5 Hz
     }
 
+    fn reinitialize(&mut self) {
+        *self = Self::new();
+    }
     fn poll(&mut self) -> Result<ProviderData, ProviderError> {
         let nvml = self
             .nvml
             .as_ref()
             .ok_or_else(|| ProviderError::Unavailable("NVML not initialized".into()))?;
+        self.device_count = nvml
+            .device_count()
+            .map_err(|e| ProviderError::PollFailed(e.to_string()))?;
+        if self.device_count == 0 {
+            return Err(ProviderError::Unavailable("No NVIDIA devices found".into()));
+        }
 
         let mut data = ProviderData::new();
         data.insert("gpu.device_count".into(), MetricValue::UInt(self.device_count as u64));

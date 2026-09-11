@@ -31,10 +31,14 @@ pub(super) fn paint_disk_perf_card(ui: &mut egui::Ui, disk_perf: &[crate::storag
                             .color(ThemePalette::text_primary(is_dark)),
                     );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        let busy = perf.active_pct >= 90.0;
+                        let busy = perf.disk_time_pct.is_some_and(|pct| pct >= 90.0);
+                        let label = match perf.disk_time_pct {
+                            Some(pct) => format!("{}% ACTIVE", pct.min(999.0) as u32),
+                            None => "N/A".to_string(),
+                        };
                         status_pill(
                             ui,
-                            &format!("{}% ACTIVE", perf.active_pct as u32),
+                            &label,
                             if busy {
                                 ThemePalette::STATUS_WARNING
                             } else {
@@ -63,18 +67,43 @@ pub(super) fn paint_disk_perf_card(ui: &mut egui::Ui, disk_perf: &[crate::storag
                     metric(
                         ui,
                         "Read Lat",
-                        format!("{:.0} ms", perf.read_latency_ms),
-                        perf.read_latency_ms >= 50.0,
+                        perf.read_latency_ms
+                            .map(|ms| format!("{ms:.0} ms"))
+                            .unwrap_or_else(|| "N/A".into()),
+                        perf.read_latency_ms.is_some_and(|ms| ms >= 50.0),
                     );
                     metric(
                         ui,
                         "Write Lat",
-                        format!("{:.0} ms", perf.write_latency_ms),
-                        perf.write_latency_ms >= 50.0,
+                        perf.write_latency_ms
+                            .map(|ms| format!("{ms:.0} ms"))
+                            .unwrap_or_else(|| "N/A".into()),
+                        perf.write_latency_ms.is_some_and(|ms| ms >= 50.0),
                     );
-                    metric(ui, "Queue", format!("{:.0}", perf.queue_depth), perf.queue_depth >= 2.0);
-                    metric(ui, "Read IOPS", perf.read_iops.to_string(), false);
-                    metric(ui, "Write IOPS", perf.write_iops.to_string(), false);
+                    metric(
+                        ui,
+                        "Queue",
+                        perf.queue_depth
+                            .map(|depth| format!("{depth:.0}"))
+                            .unwrap_or_else(|| "N/A".into()),
+                        perf.queue_depth.is_some_and(|depth| depth >= 2.0),
+                    );
+                    metric(
+                        ui,
+                        "Read IOPS",
+                        perf.read_iops
+                            .map(|iops| format!("{iops:.0}"))
+                            .unwrap_or_else(|| "N/A".into()),
+                        false,
+                    );
+                    metric(
+                        ui,
+                        "Write IOPS",
+                        perf.write_iops
+                            .map(|iops| format!("{iops:.0}"))
+                            .unwrap_or_else(|| "N/A".into()),
+                        false,
+                    );
                 });
             });
             ui.add_space(4.0);

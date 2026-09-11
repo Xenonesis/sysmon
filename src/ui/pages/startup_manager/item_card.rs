@@ -19,7 +19,7 @@ pub(crate) fn paint_startup_item_card(
 
     card_frame(is_dark).show(ui, |ui| {
         // ── Row 1: High-Contrast Impact Badge + Signed Badge + Name + Source ──
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             // Impact tier badge
             let (badge_text, badge_color) = impact_tier_badge_color(&item.impact_tier, is_dark);
             status_pill(ui, badge_text, badge_color, is_dark);
@@ -53,15 +53,13 @@ pub(crate) fn paint_startup_item_card(
                 );
             }
 
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let clean_source = item.source.replace('\0', "");
-                ui.label(
-                    egui::RichText::new(&clean_source)
-                        .monospace()
-                        .size(11.0)
-                        .color(ThemePalette::text_secondary(is_dark)),
-                );
-            });
+            let clean_source = item.source.replace('\0', "");
+            ui.label(
+                egui::RichText::new(&clean_source)
+                    .monospace()
+                    .size(11.0)
+                    .color(ThemePalette::text_secondary(is_dark)),
+            );
         });
 
         ui.add_space(2.0);
@@ -85,7 +83,7 @@ pub(crate) fn paint_startup_item_card(
         ui.add_space(2.0);
 
         // ── Row 3: Publisher + Recommendation Reason ──
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             if let Some(pub_name) = &item.publisher {
                 let clean_pub = pub_name.replace('\0', "");
                 ui.label(
@@ -118,7 +116,7 @@ pub(crate) fn paint_startup_item_card(
         ui.add_space(4.0);
 
         // ── Row 4: Action Controls ──
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             let can_modify = !item.locator.requires_admin() || is_elevated;
             let is_keep = item.recommendation == Recommendation::Keep;
 

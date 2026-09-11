@@ -50,14 +50,14 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
                 if privilege::is_app_elevated() {
                     status_pill(
                         ui,
-                        "FULL SYSTEM MEMORY ACCESS",
+                        "ELEVATED (PROTECTED PROCESSES STILL RESTRICTED)",
                         ThemePalette::STATUS_HEALTHY,
                         is_dark,
                     );
                 } else {
                     status_pill(
                         ui,
-                        "USER PROCESSES ONLY (RUN AS ADMIN FOR FULL)",
+                        "ACCESS DEPENDS ON PROCESS PERMISSIONS",
                         ThemePalette::STATUS_WARNING,
                         is_dark,
                     );
@@ -84,7 +84,7 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
             });
             ui.add_space(4.0);
             ui.label(
-                egui::RichText::new("Frees physical memory by trimming working sets. Windows will smoothly reload active pages as needed.")
+                egui::RichText::new("Trims process working sets. Observed decreases are not guaranteed physical RAM recovered; paging active data back in can cause slowdowns.")
                     .size(12.0)
                     .color(ThemePalette::text_secondary(is_dark)),
             );
@@ -141,7 +141,7 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
                     .show(ui, |ui| {
                         ui.label(egui::RichText::new("Trigger Threshold:").color(ThemePalette::text_secondary(is_dark)));
                         if ui
-                            .add(egui::Slider::new(&mut app.ram_cleaner_state.auto_clean_threshold, 1.0..=99.0).suffix("%"))
+                            .add(egui::Slider::new(&mut app.ram_cleaner_state.auto_clean_threshold, persistence::settings::CLEAN_THRESHOLD).suffix("%"))
                             .changed()
                         {
                             app.settings.ram_clean_threshold = app.ram_cleaner_state.auto_clean_threshold;
@@ -151,7 +151,7 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
 
                         ui.label(egui::RichText::new("Target Usage:").color(ThemePalette::text_secondary(is_dark)));
                         if ui
-                            .add(egui::Slider::new(&mut app.ram_cleaner_state.auto_clean_target, 1.0..=99.0).suffix("%"))
+                            .add(egui::Slider::new(&mut app.ram_cleaner_state.auto_clean_target, persistence::settings::CLEAN_TARGET).suffix("%"))
                             .changed()
                         {
                             app.settings.auto_clean_target = app.ram_cleaner_state.auto_clean_target;
@@ -162,7 +162,7 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
                         ui.label(egui::RichText::new("Cooldown Interval:").color(ThemePalette::text_secondary(is_dark)));
                         if ui
                             .add(
-                                egui::Slider::new(&mut app.ram_cleaner_state.auto_clean_interval, 10..=7200).suffix(" s"),
+                                egui::Slider::new(&mut app.ram_cleaner_state.auto_clean_interval, persistence::settings::CLEAN_INTERVAL).suffix(" s"),
                             )
                             .changed()
                         {
@@ -171,10 +171,10 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
                         }
                         ui.end_row();
 
-                        ui.label(egui::RichText::new("Max Freed Budget:").color(ThemePalette::text_secondary(is_dark)));
+                        ui.label(egui::RichText::new("Best-Effort Trim Budget:").color(ThemePalette::text_secondary(is_dark)));
                         if ui
-                            .add(egui::Slider::new(&mut app.ram_cleaner_state.auto_clean_max_mb, 0..=16384).suffix(" MB"))
-                            .on_hover_text("0 = unlimited; caps how much memory one auto-clean can free")
+                            .add(egui::Slider::new(&mut app.ram_cleaner_state.auto_clean_max_mb, persistence::settings::CLEAN_BUDGET_MB).suffix(" MB"))
+                            .on_hover_text("0 = unlimited. Checked before each process; a single working-set trim can overshoot this observed-decrease threshold.")
                             .changed()
                         {
                             app.settings.auto_clean_max_mb = app.ram_cleaner_state.auto_clean_max_mb;
@@ -237,7 +237,7 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
             }
 
             if settings_changed {
-                let _ = app.settings.save();
+                crate::ui::pages::settings::commit_settings(app);
             }
         });
 
@@ -263,7 +263,7 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
                 );
 
                 ui.add_space(24.0);
-                ui.label(egui::RichText::new("Total Freed:").color(ThemePalette::text_secondary(is_dark)));
+                ui.label(egui::RichText::new("Observed Working-Set Decrease:").color(ThemePalette::text_secondary(is_dark)));
                 ui.label(
                     egui::RichText::new(format!("{:.2} MB", bytes_to_mb(app.ram_cleaner_state.bytes_freed)))
                         .monospace()

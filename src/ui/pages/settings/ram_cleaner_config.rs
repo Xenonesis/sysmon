@@ -1,3 +1,4 @@
+use crate::persistence::settings::{CLEAN_BUDGET_MB, CLEAN_INTERVAL, CLEAN_TARGET, CLEAN_THRESHOLD};
 use crate::ui::components::*;
 use crate::ui::theme::ThemePalette;
 use eframe::egui;
@@ -21,7 +22,6 @@ pub(super) fn paint_ram_cleaner_settings(
             .checkbox(&mut app.settings.auto_ram_clean, "Enable Automated RAM Cleaning")
             .changed()
         {
-            app.ram_cleaner_state.auto_clean_enabled = app.settings.auto_ram_clean;
             *changed = true;
         }
 
@@ -35,41 +35,37 @@ pub(super) fn paint_ram_cleaner_settings(
                 .show(ui, |ui| {
                     ui.label(egui::RichText::new("Trigger Threshold:").color(ThemePalette::text_secondary(is_dark)));
                     if ui
-                        .add(egui::Slider::new(&mut app.settings.ram_clean_threshold, 1.0..=99.0).suffix("%"))
+                        .add(egui::Slider::new(&mut app.settings.ram_clean_threshold, CLEAN_THRESHOLD).suffix("%").text("Trigger threshold"))
                         .changed()
                     {
-                        app.ram_cleaner_state.auto_clean_threshold = app.settings.ram_clean_threshold;
                         *changed = true;
                     }
                     ui.end_row();
 
                     ui.label(egui::RichText::new("Target Usage:").color(ThemePalette::text_secondary(is_dark)));
                     if ui
-                        .add(egui::Slider::new(&mut app.settings.auto_clean_target, 1.0..=99.0).suffix("%"))
+                        .add(egui::Slider::new(&mut app.settings.auto_clean_target, CLEAN_TARGET).suffix("%").text("Target usage"))
                         .changed()
                     {
-                        app.ram_cleaner_state.auto_clean_target = app.settings.auto_clean_target;
                         *changed = true;
                     }
                     ui.end_row();
 
                     ui.label(egui::RichText::new("Cooldown Interval:").color(ThemePalette::text_secondary(is_dark)));
                     if ui
-                        .add(egui::Slider::new(&mut app.settings.auto_clean_interval, 10..=7200).suffix(" s"))
+                        .add(egui::Slider::new(&mut app.settings.auto_clean_interval, CLEAN_INTERVAL).suffix(" s").text("Cooldown interval"))
                         .changed()
                     {
-                        app.ram_cleaner_state.auto_clean_interval = app.settings.auto_clean_interval;
                         *changed = true;
                     }
                     ui.end_row();
 
                     ui.label(egui::RichText::new("Max Freed Budget:").color(ThemePalette::text_secondary(is_dark)));
                     if ui
-                        .add(egui::Slider::new(&mut app.settings.auto_clean_max_mb, 0..=16384).suffix(" MB"))
-                        .on_hover_text("0 = unlimited; caps how much memory one auto-clean can free")
+                        .add(egui::Slider::new(&mut app.settings.auto_clean_max_mb, CLEAN_BUDGET_MB).suffix(" MB").text("Observed reduction budget"))
+                        .on_hover_text("0 = no budget cap; bounds observed working-set reduction, not guaranteed physical RAM recovery")
                         .changed()
                     {
-                        app.ram_cleaner_state.auto_clean_max_mb = app.settings.auto_clean_max_mb;
                         *changed = true;
                     }
                     ui.end_row();
@@ -83,7 +79,6 @@ pub(super) fn paint_ram_cleaner_settings(
                 )
                 .changed()
             {
-                app.ram_cleaner_state.auto_clean_idle_only = app.settings.auto_clean_idle_only;
                 *changed = true;
             }
             if ui
@@ -93,7 +88,6 @@ pub(super) fn paint_ram_cleaner_settings(
                 )
                 .changed()
             {
-                app.ram_cleaner_state.auto_clean_smart_only = app.settings.auto_clean_smart_only;
                 *changed = true;
             }
             if ui
@@ -103,7 +97,6 @@ pub(super) fn paint_ram_cleaner_settings(
                 )
                 .changed()
             {
-                app.ram_cleaner_state.auto_clean_notify = app.settings.auto_clean_notify;
                 *changed = true;
             }
 
@@ -127,8 +120,7 @@ pub(super) fn paint_ram_cleaner_settings(
                     .map(|s| s.trim().to_string())
                     .filter(|s| !s.is_empty())
                     .collect();
-                app.settings.auto_clean_exclusions = parsed.clone();
-                app.ram_cleaner_state.auto_clean_exclusions = parsed;
+                app.settings.auto_clean_exclusions = parsed;
                 *changed = true;
             }
         }

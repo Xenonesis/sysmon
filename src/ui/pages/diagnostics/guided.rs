@@ -1,4 +1,4 @@
-use crate::persistence::session::{SessionDiagnosis, analyze_session_against_baseline};
+use crate::persistence::session::SessionDiagnosis;
 use crate::ui::components::{card_frame, paint_progress_bar, status_pill};
 use crate::ui::theme::ThemePalette;
 use crate::{SystemMonitorApp, Tab};
@@ -86,7 +86,7 @@ fn show_ready(app: &mut SystemMonitorApp, ui: &mut egui::Ui, is_dark: bool) {
         )
         .clicked()
     {
-        app.session_status = Some(match app.session_recorder.start() {
+        app.session_status = Some(match app.session_recorder.start_guided() {
             Ok(path) => format!("Guided capture started at {}", path.display()),
             Err(error) => format!("Could not start guided capture: {error}"),
         });
@@ -144,10 +144,8 @@ fn show_reproduce(app: &mut SystemMonitorApp, ui: &mut egui::Ui, is_dark: bool) 
 }
 
 fn show_review(app: &mut SystemMonitorApp, ui: &mut egui::Ui, is_dark: bool) {
-    let diagnosis = app
-        .session_recorder
-        .path()
-        .and_then(|path| analyze_session_against_baseline(path).ok());
+    app.session_recorder.refresh();
+    let diagnosis = app.session_recorder.view.as_ref().map(|view| view.diagnosis.clone());
 
     if let Some(diagnosis) = diagnosis {
         show_diagnosis(app, ui, is_dark, &diagnosis);
@@ -163,7 +161,7 @@ fn show_review(app: &mut SystemMonitorApp, ui: &mut egui::Ui, is_dark: bool) {
 
     ui.add_space(9.0);
     if ui.button("Run guided diagnosis again").clicked() {
-        app.session_status = Some(match app.session_recorder.start() {
+        app.session_status = Some(match app.session_recorder.start_guided() {
             Ok(path) => format!("New guided capture started at {}", path.display()),
             Err(error) => format!("Could not start guided capture: {error}"),
         });

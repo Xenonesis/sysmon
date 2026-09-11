@@ -6,25 +6,70 @@ use crate::app::models::*;
 use crate::monitoring::engine::{SystemMonitorApp, Tab};
 use crate::ui::components::*;
 use crate::ui::theme::ThemePalette;
-use crate::{persistence, privilege, startup, updater};
+use crate::{privilege, startup, updater};
 use chrono::Local;
 use eframe::egui;
 use rfd::FileDialog;
-use std::sync::Arc;
 use std::thread;
 use std::time::Instant;
 use tracing::warn;
 #[cfg(target_os = "windows")]
 use tray_icon::menu::MenuEvent;
 
-pub(crate) fn ui_shell(app: &mut SystemMonitorApp, ui: &mut egui::Ui) {
-    let ctx = ui.ctx().clone();
-    let ctx_clone = ctx.clone();
-    if app.data.read().last_activity.elapsed().as_secs() > 0 {
-        app.data.write().last_activity = Instant::now();
+pub(crate) fn request_update_check(app: &mut SystemMonitorApp, ctx: &egui::Context) {
+    if app.update_check_pending {
+        return;
     }
+    app.update_check_pending = true;
+    app.update_check_status = Some("Checking for updates…".into());
+    app.update_error = None;
+    app.update_check_time = Some(Instant::now());
+    let mut updater = app.updater.clone();
+    let result_share = app.update_check_result_share.clone();
+    let ctx = ctx.clone();
+    if let Err(error) = thread::Builder::new().name("update_check".into()).spawn(move || {
+        *result_share.lock() = Some(updater.check_for_updates());
+        ctx.request_repaint();
+    }) {
+        app.update_check_pending = false;
+        app.update_check_status = Some(format!("Could not start update check: {error}"));
+    }
+}
+
+fn set_hidden(app: &mut SystemMonitorApp, ctx: &egui::Context, hidden: bool) {
+    app.is_hidden = hidden;
+    app.data.write().is_hidden = hidden;
+    ctx.send_viewport_cmd_to(egui::ViewportId::ROOT, egui::ViewportCommand::Visible(!hidden));
+    if !hidden {
+        ctx.send_viewport_cmd_to(egui::ViewportId::ROOT, egui::ViewportCommand::Minimized(false));
+        ctx.send_viewport_cmd_to(egui::ViewportId::ROOT, egui::ViewportCommand::Focus);
+    }
+    if let Err(error) = app
+        .app_channels
+        .monitoring_sender
+        .send(app::commands::MonitoringCommand::SetHidden(hidden))
+    {
+        app.action_status = Some(format!("Monitoring visibility update failed: {error}"));
+    }
+}
+
+pub(crate) fn logic_shell(app: &mut SystemMonitorApp, ctx: &egui::Context) {
+    let ctx = ctx.clone();
+    app.session_recorder.poll();
+    if let Some(status) = app.session_recorder.take_status() {
+        app.session_status = Some(status);
+    }
+    app.storage_page.poll_background(&ctx);
+    crate::ui::windows::process_manager::update_window_picker(app, &ctx);
     while let Ok(event) = app.app_channels.event_receiver.try_recv() {
         match event {
+            app::events::AppEvent::MonitoringPaused(paused) => {
+                app.timeline.record_monitoring_transition(paused);
+                app.last_monitoring_paused = paused;
+                if let Some(item) = &app.tray_menu_pause_item {
+                    item.set_checked(paused);
+                }
+            }
             app::events::AppEvent::Snapshot(snapshot) => {
                 if let Err(error) = app.session_recorder.record(&snapshot) {
                     app.session_status = Some(format!("Session recording failed: {error}"));
@@ -33,26 +78,26 @@ pub(crate) fn ui_shell(app: &mut SystemMonitorApp, ui: &mut egui::Ui) {
                 app.timeline.record_snapshot(snapshot.clone());
                 app.latest_snapshot = Some(snapshot);
             }
-            app::events::AppEvent::AuditRecorded(record) => {
-                app.action_history
-                    .push(app::actions::ActionHistoryEntry { record, undo: None });
-            }
-            app::events::AppEvent::ActionCompleted { command, record, undo } => {
+            app::events::AppEvent::ActionCompleted {
+                command,
+                record,
+                undo,
+                ram_outcome,
+            } => {
                 app.timeline
                     .record_event(crate::timeline::TimelineEvent::from_audit(&record));
                 app.action_pending = false;
                 app.action_status = Some(record.message.clone());
-                if matches!(&command, app::commands::ActionCommand::CleanRam) {
+                if matches!(
+                    &command,
+                    app::commands::ActionCommand::CleanRam | app::commands::ActionCommand::AutoCleanRam { .. }
+                ) {
                     app.ram_cleaner_state.is_cleaning = false;
                     app.ram_cleaner_state.last_cleaned = Some(Instant::now());
                     app.ram_cleaner_state.last_cleaned_display = Local::now().format("%H:%M:%S").to_string();
                     app.ram_cleaner_state.clean_count += 1;
-                    if let Some(bytes) = record
-                        .message
-                        .strip_prefix("Freed ")
-                        .and_then(|value| value.split_whitespace().next())
-                        .and_then(|value| value.parse::<u64>().ok())
-                    {
+                    if let Some(outcome) = ram_outcome {
+                        let bytes = outcome.working_set_reduction;
                         app.ram_cleaner_state.bytes_freed = app.ram_cleaner_state.bytes_freed.saturating_add(bytes);
                         let mut data = app.data.write();
                         data.ram_clean_freed_bytes = data.ram_clean_freed_bytes.saturating_add(bytes);
@@ -68,6 +113,7 @@ pub(crate) fn ui_shell(app: &mut SystemMonitorApp, ui: &mut egui::Ui) {
                     app::commands::ActionCommand::KillProcess(pid)
                     | app::commands::ActionCommand::KillProcessTree(pid) => {
                         app.suspended_pids.remove(pid);
+                        app.storage_page.locks_invalidated();
                     }
                     app::commands::ActionCommand::DisableStartup { locator, .. } => {
                         if let Some(item) = app.startup_items.iter_mut().find(|item| item.locator == *locator) {
@@ -82,18 +128,19 @@ pub(crate) fn ui_shell(app: &mut SystemMonitorApp, ui: &mut egui::Ui) {
                     app::commands::ActionCommand::QuarantineStartup { locator, .. } => {
                         app.startup_items.retain(|item| item.locator != *locator);
                     }
-                    app::commands::ActionCommand::RestoreStartup { quarantine_id, .. } => {
+                    app::commands::ActionCommand::RestoreStartup { review } => {
                         for entry in &mut app.action_history {
                             if matches!(
                                 &entry.undo,
-                                Some(app::commands::ActionCommand::RestoreStartup {
-                                    quarantine_id: existing,
-                                    ..
-                                }) if existing == quarantine_id
+                                Some(app::commands::ActionCommand::RestoreStartup { review: existing })
+                                    if existing.id() == review.id()
                             ) {
                                 entry.undo = None;
                             }
                         }
+                    }
+                    app::commands::ActionCommand::ReclaimStorageCaches(_) => {
+                        app.storage_page.cleanup_finished(record.message.clone());
                     }
                     _ => {}
                 }
@@ -117,8 +164,14 @@ pub(crate) fn ui_shell(app: &mut SystemMonitorApp, ui: &mut egui::Ui) {
                     .record_event(crate::timeline::TimelineEvent::from_audit(&record));
                 app.action_pending = false;
                 app.action_status = Some(record.message.clone());
-                if matches!(&command, app::commands::ActionCommand::CleanRam) {
+                if matches!(
+                    &command,
+                    app::commands::ActionCommand::CleanRam | app::commands::ActionCommand::AutoCleanRam { .. }
+                ) {
                     app.ram_cleaner_state.is_cleaning = false;
+                }
+                if matches!(&command, app::commands::ActionCommand::ReclaimStorageCaches(_)) {
+                    app.storage_page.cleanup_finished(record.message.clone());
                 }
                 app.action_history
                     .push(app::actions::ActionHistoryEntry { record, undo: None });
@@ -131,7 +184,7 @@ pub(crate) fn ui_shell(app: &mut SystemMonitorApp, ui: &mut egui::Ui) {
     if let Some(result) = app.timeline.take_query_result() {
         match result {
             Ok(window) => {
-                app.timeline_ui.window = Some(window);
+                app.timeline_ui.window = Some(std::sync::Arc::new(window));
                 app.timeline_ui.last_refresh = Some(Instant::now());
                 app.timeline_ui.message = None;
             }
@@ -145,6 +198,13 @@ pub(crate) fn ui_shell(app: &mut SystemMonitorApp, ui: &mut egui::Ui) {
         });
     }
     let active_alerts = app.data.read().alerts.clone();
+    if let Some(result) = app.timeline.take_clear_result() {
+        app.timeline_ui.message = Some(match result {
+            Ok(()) => "Timeline cleared; history storage acknowledged the removal.".into(),
+            Err(error) => format!("Timeline clear failed: {error}"),
+        });
+        app.timeline_ui.last_refresh = None;
+    }
     let active_keys: std::collections::HashSet<_> = active_alerts.iter().map(AlertInfo::key).collect();
     for alert in &active_alerts {
         let key = alert.key();
@@ -169,92 +229,26 @@ pub(crate) fn ui_shell(app: &mut SystemMonitorApp, ui: &mut egui::Ui) {
     }
     app.timeline_ui.active_alert_keys = active_keys;
     if app.timeline.status().enabled {
-        let services = app.data.read().services.clone();
-        if !services.is_empty() {
-            let current: std::collections::HashMap<_, _> = services
-                .into_iter()
-                .map(|service| (service.name, service.state))
-                .collect();
-            let mut changes = Vec::new();
-            if let Some(previous) = &app.timeline_ui.service_states {
-                for (name, state) in current.iter().take(50) {
-                    match previous.get(name) {
-                        Some(old_state) if old_state != state => changes.push(crate::timeline::TimelineEvent::new(
-                            crate::timeline::TimelineEventKind::ServiceChanged,
-                            "services",
-                            "info",
-                            format!("Service {name} changed state"),
-                            format!("State changed from {old_state} to {state}"),
-                        )),
-                        None => changes.push(crate::timeline::TimelineEvent::new(
-                            crate::timeline::TimelineEventKind::ServiceChanged,
-                            "services",
-                            "info",
-                            format!("Service {name} detected"),
-                            format!("Current state: {state}"),
-                        )),
-                        _ => {}
-                    }
-                }
-                for name in previous.keys().filter(|name| !current.contains_key(*name)).take(50) {
-                    changes.push(crate::timeline::TimelineEvent::new(
-                        crate::timeline::TimelineEventKind::ServiceChanged,
-                        "services",
-                        "info",
-                        format!("Service {name} no longer reported"),
-                        "The latest successful service inventory no longer contains this service.",
-                    ));
-                }
-            }
-            app.timeline_ui.service_states = Some(current);
-            for event in changes {
-                app.timeline.record_event(event);
-            }
+        let services = {
+            let data = app.data.read();
+            (!data.services.is_empty()).then(|| {
+                data.services
+                    .iter()
+                    .map(|service| (service.name.clone(), service.state.clone()))
+                    .collect()
+            })
+        };
+        if let Some(event) = app.timeline_ui.service_inventory_event(services) {
+            app.timeline.record_event(event);
         }
-
-        if app.startup_items_loaded {
-            let current: std::collections::HashMap<_, _> = app
-                .startup_items
+        let startup = app.startup_items_loaded.then(|| {
+            app.startup_items
                 .iter()
-                .map(|item| (item.name.clone(), item.enabled))
-                .collect();
-            let mut changes = Vec::new();
-            if let Some(previous) = &app.timeline_ui.startup_states {
-                for (name, enabled) in current.iter().take(50) {
-                    match previous.get(name) {
-                        Some(was_enabled) if was_enabled != enabled => {
-                            changes.push(crate::timeline::TimelineEvent::new(
-                                crate::timeline::TimelineEventKind::StartupChanged,
-                                "startup",
-                                "info",
-                                format!("Startup item {name} changed"),
-                                format!("Enabled changed from {was_enabled} to {enabled}"),
-                            ));
-                        }
-                        None => changes.push(crate::timeline::TimelineEvent::new(
-                            crate::timeline::TimelineEventKind::StartupChanged,
-                            "startup",
-                            "info",
-                            format!("Startup item {name} detected"),
-                            format!("Enabled: {enabled}"),
-                        )),
-                        _ => {}
-                    }
-                }
-                for name in previous.keys().filter(|name| !current.contains_key(*name)).take(50) {
-                    changes.push(crate::timeline::TimelineEvent::new(
-                        crate::timeline::TimelineEventKind::StartupChanged,
-                        "startup",
-                        "info",
-                        format!("Startup item {name} no longer reported"),
-                        "The latest successful startup inventory no longer contains this item.",
-                    ));
-                }
-            }
-            app.timeline_ui.startup_states = Some(current);
-            for event in changes {
-                app.timeline.record_event(event);
-            }
+                .map(|item| (format!("{:?}", item.locator), item.enabled))
+                .collect()
+        });
+        if let Some(event) = app.timeline_ui.startup_inventory_event(startup) {
+            app.timeline.record_event(event);
         }
     } else {
         app.timeline_ui.service_states = None;
@@ -270,8 +264,7 @@ pub(crate) fn ui_shell(app: &mut SystemMonitorApp, ui: &mut egui::Ui) {
         app.start_minimized_applied = true;
         if app.settings.start_minimized {
             if app.settings.minimize_to_tray {
-                app.is_hidden = true;
-                ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+                set_hidden(app, &ctx, true);
             } else {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
             }
@@ -291,37 +284,24 @@ pub(crate) fn ui_shell(app: &mut SystemMonitorApp, ui: &mut egui::Ui) {
     #[cfg(target_os = "windows")]
     if let Ok(event) = MenuEvent::receiver().try_recv() {
         if Some(&event.id) == app.tray_menu_quit_id.as_ref() {
+            app.quit_requested = true;
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         } else if Some(&event.id) == app.tray_menu_show_id.as_ref() {
-            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
-            ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
-            app.is_hidden = false;
+            set_hidden(app, &ctx, false);
         } else if Some(&event.id) == app.tray_menu_clean_id.as_ref() {
             app.queue_action(app::commands::ActionCommand::CleanRam);
-            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
-            ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
-            app.is_hidden = false;
+            set_hidden(app, &ctx, false);
         } else if Some(&event.id) == app.tray_menu_procman_id.as_ref() {
-            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
-            ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
-            app.is_hidden = false;
-            let _ = app
-                .app_channels
-                .monitoring_sender
-                .send(app::commands::MonitoringCommand::SetHidden(false));
+            set_hidden(app, &ctx, false);
             app.show_process_manager = true;
         } else if Some(&event.id) == app.tray_menu_pause_id.as_ref() {
-            let paused = {
-                let mut d = app.data.write();
-                d.monitoring_paused = !d.monitoring_paused;
-                d.monitoring_paused
-            };
-            let _ = app
+            let paused = !app.data.read().monitoring_paused;
+            if let Err(error) = app
                 .app_channels
                 .monitoring_sender
-                .send(app::commands::MonitoringCommand::SetPaused(paused));
-            if let Some(item) = &app.tray_menu_pause_item {
-                item.set_checked(paused);
+                .send(app::commands::MonitoringCommand::SetPaused(paused))
+            {
+                app.action_status = Some(format!("Could not change monitoring state: {error}"));
             }
         } else if let Some(plan_guid) = app.tray_menu_power_guids.get(&event.id) {
             let plan_guid = plan_guid.clone();
@@ -329,14 +309,21 @@ pub(crate) fn ui_shell(app: &mut SystemMonitorApp, ui: &mut egui::Ui) {
         }
     }
 
-    if ctx.input(|i| i.viewport().close_requested()) && app.settings.minimize_to_tray {
-        ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-        ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
-        app.is_hidden = true;
-        let _ = app
-            .app_channels
-            .monitoring_sender
-            .send(app::commands::MonitoringCommand::SetHidden(true));
+    if ctx.input(|i| i.viewport().close_requested()) && !app.quit_requested {
+        if app.settings.minimize_to_tray && app.tray_icon.is_some() {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            set_hidden(app, &ctx, true);
+        } else {
+            app.quit_requested = true;
+        }
+    }
+    if app.quit_requested {
+        if let Err(error) = app.session_recorder.shutdown(std::time::Duration::from_secs(2)) {
+            warn!(%error, "Recording did not finish flushing before shutdown");
+        }
+        crate::ui::windows::process_manager::cancel_window_picker(app, &ctx);
+        ctx.send_viewport_cmd_to(egui::ViewportId::ROOT, egui::ViewportCommand::Close);
+        return;
     }
 
     // Update tray tooltip with CPU/RAM usage
@@ -360,31 +347,54 @@ pub(crate) fn ui_shell(app: &mut SystemMonitorApp, ui: &mut egui::Ui) {
     // Ensure repaint for continuous updates but without CPU lock
     ctx.request_repaint_after(std::time::Duration::from_millis(500));
 
-    // Check for updates automatically (once every 24 hours)
     if app.update_check_time.is_none_or(|t| t.elapsed().as_secs() > 86400) {
-        let mut updater = app.updater.clone();
-        let update_info_share = app.update_info_share.clone();
-        thread::Builder::new()
-            .name("auto_updater_check".to_string())
-            .stack_size(8 * 1024 * 1024)
-            .spawn(move || {
-                if let Ok(update_info) = updater.check_for_updates() {
-                    *update_info_share.lock() = Some(update_info.clone());
-                }
-            })
-            .expect("failed to spawn auto updater check thread");
-        app.update_check_time = Some(Instant::now());
+        request_update_check(app, &ctx);
+    }
+    let check_result = app.update_check_result_share.lock().take();
+    if let Some(result) = check_result {
+        app.update_check_pending = false;
+        match result {
+            Ok(info) => {
+                app.update_check_status = Some(if info.update_available {
+                    format!("Update {} is available", info.latest_version)
+                } else {
+                    format!("Update check completed for version {}", info.current_version)
+                });
+                app.show_update_notification = info.update_available;
+                *app.update_info_share.lock() = Some(info);
+            }
+            Err(error) => {
+                app.update_check_status = Some(error.clone());
+                app.update_error = Some(error);
+            }
+        }
     }
 
-    // Poll background installer result each frame.
+    // A resumed instance (relaunched after the update helper ran) reports its
+    // install outcome exactly once through the same banner path.
+    if let Some(outcome) = updater::take_install_outcome() {
+        let mut share = app.update_result_share.lock();
+        if share.is_none() {
+            *share = Some(Ok(outcome));
+        }
+    }
+
     let installer_result = app.update_result_share.lock().take();
     if let Some(result) = installer_result {
         app.update_downloading = false;
         match result {
-            Ok(()) => {
+            Ok(crate::updater::InstallOutcome::Launched) => {
                 // Installer launched successfully — hide banner.
                 app.show_update_notification = false;
                 app.update_error = None;
+            }
+            Ok(crate::updater::InstallOutcome::Canceled) => {
+                app.show_update_notification = false;
+                app.update_error = None;
+            }
+            Ok(outcome) => {
+                app.show_update_notification = false;
+                app.update_error = Some(format!("Update installation ended: {outcome:?}"));
             }
             Err(msg) => {
                 app.update_error = Some(msg);
@@ -392,6 +402,105 @@ pub(crate) fn ui_shell(app: &mut SystemMonitorApp, ui: &mut egui::Ui) {
         }
     }
 
+    // Mirror details selection into shared state so the monitor thread computes details
+    {
+        let mut d = app.data.write();
+        if d.selected_process_pid != app.details_pid {
+            d.selected_process_pid = app.details_pid;
+            d.selected_process_details = None;
+        }
+    }
+
+    // Clone a point-in-time snapshot of SystemData so the lock is released instantly.
+    // This completely eliminates reader-writer lock contention and deadlocks between the UI
+    // thread and background monitoring / worker threads.
+    let data = app.data.read().clone();
+
+    // Handle process kill actions
+    if let Some(pid) = app.selected_process_pid.take() {
+        app.queue_action(app::commands::ActionCommand::KillProcess(pid));
+    }
+
+    // Handle process tree kill actions (background thread; tree walk + kills can take seconds)
+    if let Some(root) = app.kill_tree_pid.take() {
+        app.queue_action(app::commands::ActionCommand::KillProcessTree(root));
+    }
+
+    // Handle process suspend actions
+    if let Some(pid) = app.suspend_process_pid.take() {
+        app.queue_action(app::commands::ActionCommand::SuspendProcess(pid));
+    }
+
+    // Handle process resume actions
+    if let Some(pid) = app.resume_process_pid.take() {
+        app.queue_action(app::commands::ActionCommand::ResumeProcess(pid));
+    }
+
+    // Handle process priority changes
+    if let Some((identity, priority)) = app.priority_change.take() {
+        app.queue_action(app::commands::ActionCommand::SetPriority { identity, priority });
+    }
+
+    // Handle process CPU affinity changes
+    if let Some((identity, preset)) = app.affinity_change.take() {
+        app.queue_action(app::commands::ActionCommand::SetAffinity { identity, preset });
+    }
+
+    // Automatic cleanup uses the same bounded action worker and audit path as manual cleanup.
+    if app.ram_cleaner_state.auto_clean_enabled
+        && !app.ram_cleaner_state.is_cleaning
+        && !app.action_pending
+        && app.pending_action_plan.is_none()
+        && !data.monitoring_paused
+        && data.memory_percentage >= app.ram_cleaner_state.auto_clean_threshold
+        && app
+            .ram_cleaner_state
+            .last_cleaned
+            .is_none_or(|last| last.elapsed().as_secs() >= app.ram_cleaner_state.auto_clean_interval)
+    {
+        let policy = &app.ram_cleaner_state;
+        let command = app::commands::ActionCommand::AutoCleanRam {
+            exclusions: policy.auto_clean_exclusions.clone(),
+            smart_only: policy.auto_clean_smart_only,
+            budget_bytes: (policy.auto_clean_max_mb != 0).then(|| policy.auto_clean_max_mb.saturating_mul(1024 * 1024)),
+            target_percent: policy.auto_clean_target,
+            idle_only: policy.auto_clean_idle_only,
+        };
+        app.ram_cleaner_state.last_cleaned = Some(Instant::now());
+        match app.app_channels.action_sender.send(command) {
+            Ok(()) => {
+                app.ram_cleaner_state.is_cleaning = true;
+                app.action_pending = true;
+            }
+            Err(error) => app.action_status = Some(format!("Automatic cleanup could not start: {error}")),
+        }
+    }
+    let demand = (app.session_recorder.is_recording(), app.show_process_manager);
+    let demand_id = egui::Id::new("monitoring_consumer_demand");
+    let previous = ctx.data(|data| data.get_temp::<(bool, bool)>(demand_id));
+    if previous != Some(demand)
+        && app
+            .app_channels
+            .monitoring_sender
+            .send(app::commands::MonitoringCommand::SetConsumerDemand {
+                recording: demand.0,
+                process_manager: demand.1,
+            })
+            .is_ok()
+    {
+        ctx.data_mut(|data| data.insert_temp(demand_id, demand));
+    }
+    if !ctx.embed_viewports() {
+        crate::ui::hud::show_hud(app, &ctx, &data);
+    }
+    ctx.data_mut(|state| state.insert_temp(egui::Id::new("render_snapshot"), std::sync::Arc::new(data)));
+}
+
+pub(crate) fn ui_shell(app: &mut SystemMonitorApp, ui: &mut egui::Ui) {
+    let ctx = ui.ctx().clone();
+    let data = ctx
+        .data(|state| state.get_temp::<std::sync::Arc<SystemData>>(egui::Id::new("render_snapshot")))
+        .unwrap_or_else(|| std::sync::Arc::new(app.data.read().clone()));
     // Show update notification banner
     let update_info_opt = app.update_info_share.lock().clone();
     if let Some(update_info) = update_info_opt
@@ -510,175 +619,22 @@ pub(crate) fn ui_shell(app: &mut SystemMonitorApp, ui: &mut egui::Ui) {
         if i.modifiers.ctrl && i.key_pressed(egui::Key::B) {
             // Ctrl+B = Toggle Sidebar
             app.settings.sidebar_collapsed = !app.settings.sidebar_collapsed;
-            let _ = app.settings.save();
+            crate::ui::pages::settings::commit_settings(app);
         }
         if i.modifiers.ctrl && i.key_pressed(egui::Key::M) {
             // Ctrl+M = Toggle Mini-Widget / HUD
             app.widget_open = !app.widget_open;
             app.settings.show_widget = app.widget_open;
-            let _ = app.settings.save();
-            {
-                let mut shared = app.shared_settings.lock();
-                *shared = app.settings.clone();
-            }
+            crate::ui::pages::settings::commit_settings(app);
         }
         if i.modifiers.ctrl && i.key_pressed(egui::Key::Comma) {
             // Ctrl+, = Settings
             app.show_settings = true;
         }
         if i.modifiers.ctrl && i.key_pressed(egui::Key::U) {
-            // Ctrl+U = Check for updates manually
-            let mut updater = app.updater.clone();
-            let update_info_share = app.update_info_share.clone();
-            let repaint_ctx = ctx_clone.clone();
-            thread::Builder::new()
-                .name("manual_updater_check".to_string())
-                .stack_size(8 * 1024 * 1024)
-                .spawn(move || {
-                    if let Ok(update_info) = updater.check_for_updates() {
-                        *update_info_share.lock() = Some(update_info);
-                        repaint_ctx.request_repaint();
-                    }
-                })
-                .expect("failed to spawn manual updater check thread");
+            request_update_check(app, &ctx);
         }
     });
-
-    // Mirror details selection into shared state so the monitor thread computes details
-    {
-        let mut d = app.data.write();
-        if d.selected_process_pid != app.details_pid {
-            d.selected_process_pid = app.details_pid;
-            d.selected_process_details = None;
-        }
-    }
-
-    // Clone a point-in-time snapshot of SystemData so the lock is released instantly.
-    // This completely eliminates reader-writer lock contention and deadlocks between the UI
-    // thread and background monitoring / worker threads.
-    let data = app.data.read().clone();
-
-    // Handle process kill actions
-    if let Some(pid) = app.selected_process_pid.take() {
-        app.queue_action(app::commands::ActionCommand::KillProcess(pid));
-    }
-
-    // Handle process tree kill actions (background thread; tree walk + kills can take seconds)
-    if let Some(root) = app.kill_tree_pid.take() {
-        app.queue_action(app::commands::ActionCommand::KillProcessTree(root));
-    }
-
-    // Handle process suspend actions
-    if let Some(pid) = app.suspend_process_pid.take() {
-        app.queue_action(app::commands::ActionCommand::SuspendProcess(pid));
-    }
-
-    // Handle process resume actions
-    if let Some(pid) = app.resume_process_pid.take() {
-        app.queue_action(app::commands::ActionCommand::ResumeProcess(pid));
-    }
-
-    // Handle process priority changes
-    if let Some((pid, priority)) = app.priority_change.take() {
-        app.queue_action(app::commands::ActionCommand::SetPriority { pid, priority });
-    }
-
-    // Handle process CPU affinity changes
-    if let Some((pid, mask)) = app.affinity_change.take() {
-        app.queue_action(app::commands::ActionCommand::SetAffinity { pid, mask });
-    }
-
-    // Auto RAM cleaning
-    if app.ram_cleaner_state.auto_clean_enabled && !app.ram_cleaner_state.is_cleaning {
-        let idle_ok = {
-            let d = app.data.read();
-            !app.ram_cleaner_state.auto_clean_idle_only || d.last_activity.elapsed().as_secs() > 120
-        };
-        let should_clean = if let Some(last) = app.ram_cleaner_state.last_cleaned {
-            last.elapsed().as_secs() >= app.ram_cleaner_state.auto_clean_interval
-                && data.memory_percentage >= app.ram_cleaner_state.auto_clean_threshold
-        } else {
-            data.memory_percentage >= app.ram_cleaner_state.auto_clean_threshold
-        };
-        if should_clean && idle_ok {
-            app.ram_cleaner_state.is_cleaning = true;
-            app.ram_cleaner_state.last_cleaned = Some(Instant::now());
-            app.ram_cleaner_state.last_cleaned_display = Local::now().format("%H:%M:%S").to_string();
-            app.ram_cleaner_state.clean_count += 1;
-            let data_arc = Arc::clone(&app.data);
-            let repaint_ctx = ctx_clone.clone();
-            let enable_sounds = app.settings.enable_sounds;
-            let target = app.ram_cleaner_state.auto_clean_target;
-            let max_mb = app.ram_cleaner_state.auto_clean_max_mb;
-            let notify = app.ram_cleaner_state.auto_clean_notify;
-            let exclusions = app.ram_cleaner_state.auto_clean_exclusions.clone();
-            let smart_only = app.ram_cleaner_state.auto_clean_smart_only;
-            let total_ram = data.memory_total;
-            let auto_event_sender = app.app_channels.event_sender.clone();
-            thread::Builder::new()
-                .name("ram_cleaner_auto".to_string())
-                .stack_size(8 * 1024 * 1024)
-                .spawn(move || {
-                    // ponytail: bounded passes + budget; a truly stuck
-                    // process set just stops after 5 passes
-                    let mut monitor = SystemMonitor::new();
-                    let mut freed_total = 0u64;
-                    for _pass in 0..5 {
-                        let freed = monitor.clean_ram(&exclusions, smart_only);
-                        let budget_left = if max_mb == 0 {
-                            u64::MAX
-                        } else {
-                            (max_mb * 1024 * 1024).saturating_sub(freed_total)
-                        };
-                        freed_total = freed_total.saturating_add(freed);
-                        monitor.sys.refresh_memory();
-                        let usage_pct = if total_ram > 0 {
-                            monitor.sys.used_memory() as f64 / total_ram as f64 * 100.0
-                        } else {
-                            0.0
-                        };
-                        if should_stop_cleaning(usage_pct, target as f64, freed, budget_left) {
-                            break;
-                        }
-                    }
-                    if enable_sounds {
-                        play_success_sound();
-                    }
-                    if notify {
-                        let _ = notify_rust::Notification::new()
-                            .summary("Auto RAM Clean")
-                            .body(&format!("Freed {:.1} MB of RAM", freed_total as f64 / 1024.0 / 1024.0))
-                            .timeout(notify_rust::Timeout::Milliseconds(5000))
-                            .show();
-                    }
-                    let audit = app::actions::ActionAuditRecord::automatic(
-                        "Automatic RAM working-set cleanup",
-                        format!("Freed {freed_total} bytes using the configured cleanup policy"),
-                    );
-                    if let Err(error) = persistence::action_log::append(&audit) {
-                        warn!(%error, "Failed to persist automatic action audit record");
-                    }
-                    let _ = auto_event_sender.send(app::events::AppEvent::AuditRecorded(audit));
-                    // Store freed bytes in SystemData for the UI to pick up
-                    {
-                        let mut d = data_arc.write();
-                        d.ram_clean_freed_bytes += freed_total;
-                        d.ram_clean_is_cleaning = false;
-                    }
-                    repaint_ctx.request_repaint();
-                })
-                .expect("failed to spawn auto ram cleaner thread");
-            app.data.write().ram_clean_is_cleaning = true;
-        }
-    }
-    // Sync back from shared data
-    {
-        let d = app.data.read();
-        if !d.ram_clean_is_cleaning && app.ram_cleaner_state.is_cleaning {
-            app.ram_cleaner_state.is_cleaning = false;
-        }
-        app.ram_cleaner_state.bytes_freed = d.ram_clean_freed_bytes;
-    }
 
     // CSV Export window
     let mut show_export_csv = app.show_export_csv;
@@ -840,492 +796,111 @@ pub(crate) fn ui_shell(app: &mut SystemMonitorApp, ui: &mut egui::Ui) {
         .fill(ThemePalette::bg_surface(is_dark))
         .stroke(egui::Stroke::new(1.0, ThemePalette::border(is_dark)));
 
-    // Modern sleek SidePanel for navigation
     egui::Panel::left("sidebar_panel")
         .resizable(false)
         .exact_size(sidebar_width)
         .frame(sidebar_frame)
         .show(ui, |ui| {
-            ui.add_space(12.0);
-
-            if !is_collapsed {
-                // Brand Header (Expanded)
-                ui.horizontal(|ui| {
-                    ui.add_space(10.0);
-                    ui.add(
-                        egui::Image::new(egui::include_image!("../../assets/icon.png"))
-                            .max_width(20.0)
-                            .max_height(20.0),
-                    );
-                    ui.add_space(2.0);
+            // Reserve the utility dock before allocating the scrollable navigation.
+            // Neither region can paint or receive input over the other.
+            egui::Panel::bottom("sidebar_utilities")
+                .exact_size(132.0)
+                .show_separator_line(true)
+                .show(ui, |ui| {
+                    let status = if data.monitoring_paused {
+                        "Paused"
+                    } else {
+                        "Last sample"
+                    };
+                    ui.label(egui::RichText::new(status).small());
+                    ui.label(egui::RichText::new(&data.last_update).small())
+                        .on_hover_text("Timestamp of the last collected sample; not a health assessment");
+                    for (icon, name) in [("⚙", "Settings"), ("⌨", "Shortcuts"), ("ℹ", "About")] {
+                        let text = if is_collapsed {
+                            icon.to_owned()
+                        } else {
+                            format!("{icon}  {name}")
+                        };
+                        let response = ui.add_sized([ui.available_width(), 24.0], egui::Button::new(text));
+                        response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, name));
+                        if response.on_hover_text(name).clicked() {
+                            match name {
+                                "Settings" => app.show_settings = true,
+                                "Shortcuts" => app.show_shortcuts = true,
+                                _ => app.selected_tab = Tab::About,
+                            }
+                        }
+                    }
+                });
+            ui.horizontal(|ui| {
+                if !is_collapsed {
                     ui.label(
-                        egui::RichText::new("Sys")
-                            .size(17.5)
+                        egui::RichText::new("SysMon")
                             .strong()
                             .color(ThemePalette::ACCENT_PRIMARY),
                     );
-                    ui.label(
-                        egui::RichText::new("Mon")
-                            .size(17.5)
-                            .strong()
-                            .color(ThemePalette::text_primary(is_dark)),
-                    );
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.add_space(8.0);
-                        let (btn_rect, btn_resp) = ui.allocate_exact_size(egui::vec2(22.0, 22.0), egui::Sense::click());
-                        let is_btn_hovered = btn_resp.hovered();
-                        if is_btn_hovered {
-                            let hover_fill = if is_dark {
-                                egui::Color32::from_rgba_unmultiplied(255, 255, 255, 14)
-                            } else {
-                                egui::Color32::from_rgba_unmultiplied(0, 0, 0, 10)
-                            };
-                            ui.painter()
-                                .rect_filled(btn_rect, egui::CornerRadius::same(4), hover_fill);
-                        }
-                        ui.painter().text(
-                            btn_rect.center(),
-                            egui::Align2::CENTER_CENTER,
-                            "◀",
-                            egui::FontId::proportional(11.0),
-                            if is_btn_hovered {
-                                ThemePalette::text_primary(is_dark)
-                            } else {
-                                ThemePalette::text_secondary(is_dark)
-                            },
-                        );
-                        if btn_resp.on_hover_text("Collapse Sidebar (Ctrl+B)").clicked() {
-                            app.settings.sidebar_collapsed = true;
-                            let _ = app.settings.save();
-                        }
-                    });
-                });
-            } else {
-                // Brand Header (Collapsed)
-                let (rect, response) =
-                    ui.allocate_exact_size(egui::vec2(ui.available_width(), 28.0), egui::Sense::click());
-                let is_hovered = response.hovered();
-                if response.on_hover_text("Expand Sidebar (Ctrl+B)").clicked() {
-                    app.settings.sidebar_collapsed = false;
-                    let _ = app.settings.save();
                 }
-                if is_hovered {
-                    let hover_fill = if is_dark {
-                        egui::Color32::from_rgba_unmultiplied(255, 255, 255, 14)
-                    } else {
-                        egui::Color32::from_rgba_unmultiplied(0, 0, 0, 10)
-                    };
-                    let pill_rect = rect.shrink2(egui::vec2(6.0, 2.0));
-                    ui.painter()
-                        .rect_filled(pill_rect, egui::CornerRadius::same(4), hover_fill);
-                }
-                let logo_rect = egui::Rect::from_center_size(rect.center(), egui::vec2(22.0, 22.0));
-                egui::Image::new(egui::include_image!("../../assets/icon.png")).paint_at(ui, logo_rect);
-            }
-
-            ui.add_space(8.0);
-            ui.separator();
-            ui.add_space(4.0);
-
-            // Navigation Categories
-            struct NavItem {
-                tab: Tab,
-                label: &'static str,
-                icon: &'static str,
-            }
-
-            struct NavGroup {
-                title: &'static str,
-                items: Vec<NavItem>,
-            }
-
-            let groups = [
-                NavGroup {
-                    title: "TELEMETRY",
-                    items: {
-                        let mut items = vec![
-                            NavItem {
-                                tab: Tab::Overview,
-                                label: "Overview",
-                                icon: "📊",
-                            },
-                            NavItem {
-                                tab: Tab::Performance,
-                                label: "Performance",
-                                icon: "📈",
-                            },
-                        ];
-                        if app.settings.show_cpu_cores {
-                            items.push(NavItem {
-                                tab: Tab::CpuCores,
-                                label: "CPU Cores",
-                                icon: "⚡",
-                            });
-                        }
-                        items.push(NavItem {
-                            tab: Tab::Storage,
-                            label: "Storage",
-                            icon: "💾",
-                        });
-                        items.push(NavItem {
-                            tab: Tab::Network,
-                            label: "Network",
-                            icon: "🌐",
-                        });
-                        items
-                    },
-                },
-                NavGroup {
-                    title: "SYSTEM CONTROL",
-                    items: vec![
-                        NavItem {
-                            tab: Tab::Processes,
-                            label: "Processes",
-                            icon: "📋",
-                        },
-                        NavItem {
-                            tab: Tab::Services,
-                            label: "Services",
-                            icon: "⚙",
-                        },
-                        NavItem {
-                            tab: Tab::StartupManager,
-                            label: "Startup Apps",
-                            icon: "🚀",
-                        },
-                        NavItem {
-                            tab: Tab::RamCleaner,
-                            label: "RAM Cleaner",
-                            icon: "🧹",
-                        },
-                    ],
-                },
-                NavGroup {
-                    title: "DIAGNOSTICS & HEALTH",
-                    items: vec![
-                        NavItem {
-                            tab: Tab::Diagnostics,
-                            label: "Diagnostics",
-                            icon: "🩺",
-                        },
-                        NavItem {
-                            tab: Tab::Timeline,
-                            label: "Timeline",
-                            icon: "🕒",
-                        },
-                        NavItem {
-                            tab: Tab::SystemInfo,
-                            label: "System Info",
-                            icon: "💻",
-                        },
-                        NavItem {
-                            tab: Tab::Alerts,
-                            label: "Alerts",
-                            icon: "🔔",
-                        },
-                    ],
-                },
-            ];
-
-            for (g_idx, group) in groups.iter().enumerate() {
-                if !is_collapsed {
-                    if g_idx == 0 {
-                        ui.add_space(4.0);
-                    } else {
-                        ui.add_space(10.0);
-                    }
-                    ui.horizontal(|ui| {
-                        ui.add_space(12.0);
-                        ui.label(
-                            egui::RichText::new(group.title)
-                                .size(10.0)
-                                .strong()
-                                .color(ThemePalette::text_secondary(is_dark)),
-                        );
-                    });
-                    ui.add_space(3.0);
-                } else if g_idx > 0 {
-                    ui.add_space(4.0);
-                    ui.separator();
-                    ui.add_space(4.0);
-                }
-
-                ui.spacing_mut().item_spacing.y = 2.0;
-                for item in &group.items {
-                    let is_selected = app.selected_tab == item.tab;
-                    let item_h = if is_collapsed { 30.0 } else { 28.0 };
-                    let (raw_rect, response) =
-                        ui.allocate_exact_size(egui::vec2(ui.available_width(), item_h), egui::Sense::click());
-                    let pill_rect = raw_rect.shrink2(egui::vec2(6.0, 1.0));
-
-                    let tooltip_text = if item.tab == Tab::Alerts && !data.alerts.is_empty() {
-                        format!("{} ({} active)", item.label, data.alerts.len())
-                    } else {
-                        item.label.to_string()
-                    };
-
-                    let is_hovered = response.hovered();
-                    if response.on_hover_text(tooltip_text).clicked() {
-                        app.selected_tab = item.tab;
-                    }
-
-                    if is_selected {
-                        let fill = if is_dark {
-                            egui::Color32::from_rgba_unmultiplied(16, 185, 129, 28)
-                        } else {
-                            egui::Color32::from_rgba_unmultiplied(16, 185, 129, 35)
-                        };
-                        let border_color = if is_dark {
-                            egui::Color32::from_rgba_unmultiplied(16, 185, 129, 65)
-                        } else {
-                            egui::Color32::from_rgba_unmultiplied(16, 185, 129, 85)
-                        };
-                        ui.painter().rect_filled(pill_rect, egui::CornerRadius::same(5), fill);
-                        ui.painter().rect_stroke(
-                            pill_rect,
-                            egui::CornerRadius::same(5),
-                            egui::Stroke::new(1.0, border_color),
-                            egui::StrokeKind::Middle,
-                        );
-
-                        // Inset rounded 3px vertical left accent indicator
-                        let edge_rect = egui::Rect::from_min_max(
-                            egui::pos2(pill_rect.left() + 2.0, pill_rect.top() + 4.0),
-                            egui::pos2(pill_rect.left() + 5.0, pill_rect.bottom() - 4.0),
-                        );
-                        ui.painter()
-                            .rect_filled(edge_rect, egui::CornerRadius::same(2), ThemePalette::ACCENT_PRIMARY);
-                    } else if is_hovered {
-                        let hover_fill = if is_dark {
-                            egui::Color32::from_rgba_unmultiplied(255, 255, 255, 12)
-                        } else {
-                            egui::Color32::from_rgba_unmultiplied(0, 0, 0, 10)
-                        };
-                        ui.painter()
-                            .rect_filled(pill_rect, egui::CornerRadius::same(5), hover_fill);
-                    }
-
-                    if !is_collapsed {
-                        let text_color = if is_selected || is_hovered {
-                            ThemePalette::text_primary(is_dark)
-                        } else {
-                            ThemePalette::text_secondary(is_dark)
-                        };
-
-                        let icon_center = egui::pos2(pill_rect.left() + 16.0, pill_rect.center().y);
-                        ui.painter().text(
-                            icon_center,
-                            egui::Align2::CENTER_CENTER,
-                            item.icon,
-                            egui::FontId::proportional(12.5),
-                            if is_selected {
-                                ThemePalette::ACCENT_PRIMARY
-                            } else {
-                                text_color
-                            },
-                        );
-
-                        let text_pos = egui::pos2(pill_rect.left() + 30.0, pill_rect.center().y);
-                        ui.painter().text(
-                            text_pos,
-                            egui::Align2::LEFT_CENTER,
-                            item.label,
-                            egui::FontId::proportional(12.5),
-                            text_color,
-                        );
-
-                        // Dynamic alert count pill [ N ] when item is Alerts and alerts exist
-                        if item.tab == Tab::Alerts && !data.alerts.is_empty() {
-                            let alerts_count = data.alerts.len();
-                            let badge_text = format!("{alerts_count}");
-                            let badge_color = ThemePalette::STATUS_WARNING;
-                            let badge_bg = badge_color.gamma_multiply(if is_dark { 0.22 } else { 0.18 });
-                            let badge_rect = egui::Rect::from_center_size(
-                                egui::pos2(pill_rect.right() - 14.0, pill_rect.center().y),
-                                egui::vec2(18.0, 15.0),
-                            );
-                            ui.painter()
-                                .rect_filled(badge_rect, egui::CornerRadius::same(4), badge_bg);
-                            ui.painter().rect_stroke(
-                                badge_rect,
-                                egui::CornerRadius::same(4),
-                                egui::Stroke::new(1.0, badge_color.gamma_multiply(0.45)),
-                                egui::StrokeKind::Middle,
-                            );
-                            ui.painter().text(
-                                badge_rect.center(),
-                                egui::Align2::CENTER_CENTER,
-                                &badge_text,
-                                egui::FontId::monospace(9.5),
-                                badge_color,
-                            );
-                        }
-                    } else {
-                        // Collapsed mode: Centered Icon Glyph
-                        let icon_color = if is_selected {
-                            ThemePalette::ACCENT_PRIMARY
-                        } else if is_hovered {
-                            ThemePalette::text_primary(is_dark)
-                        } else {
-                            ThemePalette::text_secondary(is_dark)
-                        };
-
-                        ui.painter().text(
-                            pill_rect.center(),
-                            egui::Align2::CENTER_CENTER,
-                            item.icon,
-                            egui::FontId::proportional(13.5),
-                            icon_color,
-                        );
-
-                        // Alert indicator dot on collapsed token
-                        if item.tab == Tab::Alerts && !data.alerts.is_empty() {
-                            let dot_pos = pill_rect.right_top() + egui::vec2(-4.0, 4.0);
-                            ui.painter().circle_filled(dot_pos, 3.0, ThemePalette::STATUS_WARNING);
-                        }
-                    }
-                }
-            }
-
-            // Pinned Bottom Utility Dock
-            ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
-                ui.add_space(8.0);
-
-                if !is_collapsed {
-                    // Live heartbeat label (Live • HH:MM:SS)
-                    ui.horizontal(|ui| {
-                        ui.add_space(12.0);
-                        let dot_color = ThemePalette::STATUS_HEALTHY;
-                        let (dot_rect, _) = ui.allocate_exact_size(egui::vec2(8.0, 8.0), egui::Sense::hover());
-                        ui.painter().circle_filled(dot_rect.center(), 2.5, dot_color);
-                        ui.add_space(4.0);
-                        let time_str = data.last_update.split_whitespace().nth(1).unwrap_or(&data.last_update);
-                        ui.label(
-                            egui::RichText::new(format!("Live • {time_str}"))
-                                .size(10.5)
-                                .monospace()
-                                .color(ThemePalette::text_secondary(is_dark)),
-                        )
-                        .on_hover_text(format!("Live Telemetry Engine · Full Timestamp: {}", data.last_update));
-                    });
-                    ui.add_space(6.0);
-                    ui.separator();
-                    ui.add_space(4.0);
-
-                    // Utility buttons (Expanded, consistent left alignment)
-                    let draw_util_btn = |ui: &mut egui::Ui, icon: &str, text: &str, tooltip: &str| -> egui::Response {
-                        let (raw_rect, response) =
-                            ui.allocate_exact_size(egui::vec2(ui.available_width(), 26.0), egui::Sense::click());
-                        let pill_rect = raw_rect.shrink2(egui::vec2(6.0, 1.0));
-                        let is_hovered = response.hovered();
-                        if is_hovered {
-                            let hover_fill = if is_dark {
-                                egui::Color32::from_rgba_unmultiplied(255, 255, 255, 12)
-                            } else {
-                                egui::Color32::from_rgba_unmultiplied(0, 0, 0, 10)
-                            };
-                            ui.painter()
-                                .rect_filled(pill_rect, egui::CornerRadius::same(5), hover_fill);
-                        }
-
-                        let text_color = if is_hovered {
-                            ThemePalette::text_primary(is_dark)
-                        } else {
-                            ThemePalette::text_secondary(is_dark)
-                        };
-
-                        let icon_center = egui::pos2(pill_rect.left() + 16.0, pill_rect.center().y);
-                        ui.painter().text(
-                            icon_center,
-                            egui::Align2::CENTER_CENTER,
-                            icon,
-                            egui::FontId::proportional(12.0),
-                            text_color,
-                        );
-
-                        let text_pos = egui::pos2(pill_rect.left() + 30.0, pill_rect.center().y);
-                        ui.painter().text(
-                            text_pos,
-                            egui::Align2::LEFT_CENTER,
-                            text,
-                            egui::FontId::proportional(12.0),
-                            text_color,
-                        );
-
-                        response.on_hover_text(tooltip)
-                    };
-
-                    // Added in bottom_up order (Bottom to Top: About -> Shortcuts -> Settings)
-                    if draw_util_btn(ui, "ℹ", "About", "About SysMon").clicked() {
-                        app.selected_tab = Tab::About;
-                    }
-                    if draw_util_btn(ui, "⌨", "Shortcuts", "Keyboard shortcuts (Ctrl+B, F5...)").clicked() {
-                        app.show_shortcuts = true;
-                    }
-                    if draw_util_btn(ui, "⚙", "Settings", "Application settings (Ctrl+,)").clicked() {
-                        app.show_settings = true;
-                    }
-
-                    ui.add_space(4.0);
-                    ui.separator();
+                let label = if is_collapsed {
+                    "Expand sidebar"
                 } else {
-                    // Collapsed utility dock
-                    let (dot_rect, dot_resp) =
-                        ui.allocate_exact_size(egui::vec2(ui.available_width(), 16.0), egui::Sense::hover());
-                    dot_resp.on_hover_text(format!("Live Heartbeat · Updated: {}", data.last_update));
-                    ui.painter()
-                        .circle_filled(dot_rect.center(), 3.0, ThemePalette::STATUS_HEALTHY);
-
-                    ui.add_space(4.0);
-                    ui.separator();
-                    ui.add_space(4.0);
-
-                    let draw_util_compact_btn = |ui: &mut egui::Ui, icon: &str, tip: &str| -> egui::Response {
-                        let (raw_rect, response) =
-                            ui.allocate_exact_size(egui::vec2(ui.available_width(), 26.0), egui::Sense::click());
-                        let pill_rect = raw_rect.shrink2(egui::vec2(6.0, 1.0));
-                        let is_hovered = response.hovered();
-                        if is_hovered {
-                            let hover_fill = if is_dark {
-                                egui::Color32::from_rgba_unmultiplied(255, 255, 255, 12)
-                            } else {
-                                egui::Color32::from_rgba_unmultiplied(0, 0, 0, 10)
-                            };
-                            ui.painter()
-                                .rect_filled(pill_rect, egui::CornerRadius::same(5), hover_fill);
-                        }
-
-                        let text_color = if is_hovered {
-                            ThemePalette::text_primary(is_dark)
-                        } else {
-                            ThemePalette::text_secondary(is_dark)
-                        };
-
-                        ui.painter().text(
-                            pill_rect.center(),
-                            egui::Align2::CENTER_CENTER,
-                            icon,
-                            egui::FontId::proportional(12.5),
-                            text_color,
-                        );
-
-                        response.on_hover_text(tip)
-                    };
-
-                    if draw_util_compact_btn(ui, "ℹ", "About SysMon").clicked() {
-                        app.selected_tab = Tab::About;
-                    }
-                    if draw_util_compact_btn(ui, "⌨", "Keyboard Shortcuts").clicked() {
-                        app.show_shortcuts = true;
-                    }
-                    if draw_util_compact_btn(ui, "⚙", "Settings (Ctrl+,)").clicked() {
-                        app.show_settings = true;
-                    }
-
-                    ui.add_space(4.0);
-                    ui.separator();
+                    "Collapse sidebar"
+                };
+                let response = ui.button(if is_collapsed { "▶" } else { "◀" });
+                response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label));
+                if response.on_hover_text(format!("{label} (Ctrl+B)")).clicked() {
+                    app.settings.sidebar_collapsed = !is_collapsed;
+                    crate::ui::pages::settings::commit_settings(app);
                 }
             });
+            ui.separator();
+            egui::ScrollArea::vertical()
+                .id_salt("sidebar_navigation")
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    for (group, tab, icon, name) in [
+                        ("TELEMETRY", Tab::Overview, "📊", "Overview"),
+                        ("", Tab::Performance, "📈", "Performance"),
+                        ("", Tab::CpuCores, "⚡", "CPU Cores"),
+                        ("", Tab::Storage, "💾", "Storage"),
+                        ("", Tab::Network, "🌐", "Network"),
+                        ("SYSTEM CONTROL", Tab::Processes, "📋", "Processes"),
+                        ("", Tab::Services, "⚙", "Services"),
+                        ("", Tab::StartupManager, "🚀", "Startup Apps"),
+                        ("", Tab::RamCleaner, "🧹", "RAM Cleaner"),
+                        ("DIAGNOSTICS & HEALTH", Tab::Diagnostics, "🩺", "Diagnostics"),
+                        ("", Tab::Timeline, "🕒", "Timeline"),
+                        ("", Tab::SystemInfo, "💻", "System Info"),
+                        ("", Tab::Alerts, "🔔", "Alerts"),
+                    ] {
+                        if tab == Tab::CpuCores && !app.settings.show_cpu_cores {
+                            continue;
+                        }
+                        if !group.is_empty() {
+                            ui.add_space(6.0);
+                            if !is_collapsed {
+                                ui.label(
+                                    egui::RichText::new(group)
+                                        .small()
+                                        .color(ThemePalette::text_secondary(is_dark)),
+                                );
+                            }
+                        }
+                        let selected = app.selected_tab == tab;
+                        let text = if is_collapsed {
+                            icon.to_owned()
+                        } else {
+                            format!("{icon}  {name}")
+                        };
+                        let response =
+                            ui.add_sized([ui.available_width(), 30.0], egui::Button::selectable(selected, text));
+                        response.widget_info(|| {
+                            egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, selected, name)
+                        });
+                        if response.on_hover_text(name).clicked() {
+                            app.selected_tab = tab;
+                        }
+                    }
+                });
         });
 
     // Process Manager window
@@ -1351,15 +926,8 @@ pub(crate) fn ui_shell(app: &mut SystemMonitorApp, ui: &mut egui::Ui) {
     }
 
     // Desktop mini-widget: a compact always-visible telemetry window
-    if app.widget_open {
-        egui::Window::new("SysMon Widget")
-            .anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(0.0, 0.0))
-            .resizable(false)
-            .title_bar(true)
-            .collapsible(false)
-            .show(ui, |ui| {
-                crate::ui::hud::render_hud(app, ui, &data);
-            });
+    if ctx.embed_viewports() {
+        crate::ui::hud::show_hud(app, &ctx, &data);
     }
 
     // Global always-visible status bar header
@@ -1381,13 +949,13 @@ pub(crate) fn ui_shell(app: &mut SystemMonitorApp, ui: &mut egui::Ui) {
                             .corner_radius(egui::CornerRadius::same(4));
                     if ui.add(expand_btn).on_hover_text("Expand Sidebar (Ctrl+B)").clicked() {
                         app.settings.sidebar_collapsed = false;
-                        let _ = app.settings.save();
+                        crate::ui::pages::settings::commit_settings(app);
                     }
                     ui.add_space(4.0);
                 }
 
                 let avail_w = ui.available_width();
-                let show_gpu = avail_w >= 760.0;
+                let show_gpu = app.settings.show_gpu && avail_w >= 760.0;
                 let show_net = avail_w >= 960.0;
 
                 // Telemetry Ribbon: CPU & RAM always visible; GPU & NET responsive
@@ -1415,12 +983,17 @@ pub(crate) fn ui_shell(app: &mut SystemMonitorApp, ui: &mut egui::Ui) {
                 if show_gpu && ui.available_width() >= 380.0 {
                     ui.add_space(3.0);
                     if let Some(gpu) = data.gpu_info.first() {
-                        let gpu_c = get_usage_color(gpu.utilization);
+                        let utilization = gpu.utilization;
+                        let gpu_c = utilization
+                            .map(get_usage_color)
+                            .unwrap_or(ThemePalette::text_dimmed(is_dark));
                         paint_telemetry_chip(
                             ui,
                             "GPU",
-                            &format!("{:.1}%", gpu.utilization),
-                            Some(gpu.utilization / 100.0),
+                            &utilization
+                                .map(|value| format!("{value:.1}%"))
+                                .unwrap_or_else(|| "N/A".into()),
+                            utilization.map(|value| value / 100.0),
                             gpu_c,
                             is_dark,
                         );
@@ -1627,11 +1200,7 @@ pub(crate) fn ui_shell(app: &mut SystemMonitorApp, ui: &mut egui::Ui) {
                     {
                         app.widget_open = !app.widget_open;
                         app.settings.show_widget = app.widget_open;
-                        let _ = app.settings.save();
-                        {
-                            let mut shared = app.shared_settings.lock();
-                            *shared = app.settings.clone();
-                        }
+                        crate::ui::pages::settings::commit_settings(app);
                     }
 
                     ui.add_space(3.0);
@@ -1672,33 +1241,11 @@ pub(crate) fn ui_shell(app: &mut SystemMonitorApp, ui: &mut egui::Ui) {
                     .corner_radius(egui::CornerRadius::same(4));
 
                     let picker_resp = ui
-                        .add(picker_btn)
+                        .add(picker_btn.sense(egui::Sense::drag()))
                         .on_hover_text("Drag crosshair over any desktop window to inspect its process");
 
-                    if picker_resp.drag_started() || picker_resp.clicked() {
-                        app.window_picker_active = true;
-                    }
-
-                    if app.window_picker_active {
-                        ctx.set_cursor_icon(egui::CursorIcon::Crosshair);
-                        ctx.request_repaint();
-
-                        if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
-                            app.window_picker_active = false;
-                        } else if picker_resp.drag_stopped()
-                            || (ctx.input(|i| i.pointer.any_released()) && !picker_resp.clicked())
-                        {
-                            let (sx, sy) = crate::processes::get_current_cursor_screen_point();
-                            if let Some(pid) = crate::processes::get_process_id_from_screen_point(sx, sy) {
-                                app.selected_tab = Tab::Processes;
-                                app.details_pid = Some(pid);
-                                app.process_search = pid.to_string();
-                                app.action_status = Some(format!("Targeted window at ({sx}, {sy}): PID {pid}"));
-                            } else {
-                                app.action_status = Some(format!("No window process found at ({sx}, {sy})"));
-                            }
-                            app.window_picker_active = false;
-                        }
+                    if picker_resp.drag_started() {
+                        crate::ui::windows::process_manager::begin_window_picker(app, &ctx);
                     }
                 });
             });

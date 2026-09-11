@@ -36,9 +36,12 @@ pub(crate) fn paint_cpu_arch_card(ui: &mut egui::Ui, data: &SystemData, is_dark:
                 );
                 ui.label(
                     egui::RichText::new(format!(
-                        "{} logical cores ({} physical)",
-                        data.cpu_cores.len(),
-                        data.system_info.cpu_count
+                        "{} logical processors ({} physical cores)",
+                        data.system_info.cpu_count,
+                        data.system_info
+                            .physical_core_count
+                            .map(|count| count.to_string())
+                            .unwrap_or_else(|| "unknown".into())
                     ))
                     .monospace()
                     .strong()
@@ -60,7 +63,7 @@ pub(crate) fn paint_cpu_arch_card(ui: &mut egui::Ui, data: &SystemData, is_dark:
                 );
 
                 ui.label(
-                    egui::RichText::new("CPU Temperature:")
+                    egui::RichText::new("ACPI Thermal Zone:")
                         .size(11.5)
                         .color(ThemePalette::text_secondary(is_dark)),
                 );

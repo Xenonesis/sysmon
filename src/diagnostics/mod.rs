@@ -1,8 +1,8 @@
 pub mod minidump;
 
-mod baseline;
+pub(crate) mod baseline;
 
-pub(crate) use baseline::{SignalSample, compare_to_baseline};
+pub(crate) use baseline::{ComparisonState, SignalSample, compare_to_baseline};
 
 use serde::Serialize;
 
@@ -138,7 +138,7 @@ pub fn analyze(
                 evidence: format!(
                     "GPU temperature is {} C at {:.1}% utilization.",
                     gpu.temperature.unwrap_or_default(),
-                    gpu.utilization
+                    gpu.utilization.unwrap_or(0.0)
                 ),
                 recommendation: "Check airflow, fan operation, dust buildup and the active workload.".into(),
                 confidence: 95,

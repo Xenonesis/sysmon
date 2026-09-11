@@ -13,10 +13,10 @@ pub(super) fn paint(
     is_dark: bool,
 ) {
     card_frame(is_dark).show(ui, |ui| {
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing.x = 8.0;
-            ui.label(
-                egui::RichText::new("🔍 Search:")
+            let search_label = ui.label(
+                egui::RichText::new("Search:")
                     .strong()
                     .color(ThemePalette::text_secondary(is_dark)),
             );
@@ -24,8 +24,9 @@ pub(super) fn paint(
                 egui::TextEdit::singleline(&mut state.search)
                     .hint_text("Filter by name or identifier...")
                     .desired_width(240.0),
-            );
-            if !state.search.is_empty() && ui.small_button("×").on_hover_text("Clear search filter").clicked() {
+            )
+            .labelled_by(search_label.id);
+            if !state.search.is_empty() && ui.small_button("Clear search").clicked() {
                 state.search.clear();
             }
 
@@ -69,13 +70,11 @@ pub(super) fn paint(
                 state.reset_filters();
             }
 
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.label(
-                    egui::RichText::new(format!("Showing {visible_count} of {}", counts.total))
-                        .size(11.5)
-                        .color(ThemePalette::text_secondary(is_dark)),
-                );
-            });
+            ui.label(
+                egui::RichText::new(format!("Showing {visible_count} of {}", counts.total))
+                    .size(11.5)
+                    .color(ThemePalette::text_secondary(is_dark)),
+            );
         });
     });
 }

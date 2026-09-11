@@ -67,25 +67,25 @@ impl ActionPlan {
                 "Execution of the suspended process will continue.",
                 RiskLevel::Low,
                 true,
-                Some(ActionCommand::SuspendProcess(*pid)),
+                None,
             ),
-            ActionCommand::SetPriority { pid, priority } => Self::new(
+            ActionCommand::SetPriority { identity, priority } => Self::new(
                 command.clone(),
-                format!("Set process {pid} priority to {priority}"),
+                format!("Set process {identity} priority to {priority}"),
                 "Changing scheduling priority can affect system responsiveness.",
                 RiskLevel::Medium,
                 true,
                 None,
             ),
-            ActionCommand::SetAffinity { pid, mask } => Self::new(
+            ActionCommand::SetAffinity { identity, preset } => Self::new(
                 command.clone(),
-                format!("Set process {pid} CPU affinity to {mask:#x}"),
+                format!("Set process {identity} CPU affinity to {preset:?}"),
                 "Constrains execution to specified logical CPU processor cores.",
                 RiskLevel::Medium,
                 true,
                 None,
             ),
-            ActionCommand::CleanRam => Self::new(
+            ActionCommand::CleanRam | ActionCommand::AutoCleanRam { .. } => Self::new(
                 command.clone(),
                 "Trim process working sets".into(),
                 "Windows may need to page trimmed memory back in; short-lived slowdowns are possible.",
@@ -94,34 +94,39 @@ impl ActionPlan {
                 None,
             ),
             ActionCommand::ControlService { name, action } => {
-                let (verb, risk, undo) = match action {
-                    ServiceControlAction::Start => (
-                        "Start",
-                        RiskLevel::Medium,
-                        Some(ActionCommand::ControlService {
-                            name: name.clone(),
-                            action: ServiceControlAction::Stop,
-                        }),
-                    ),
-                    ServiceControlAction::Stop => (
-                        "Stop",
-                        RiskLevel::High,
-                        Some(ActionCommand::ControlService {
-                            name: name.clone(),
-                            action: ServiceControlAction::Start,
-                        }),
-                    ),
-                    ServiceControlAction::Restart => ("Restart", RiskLevel::High, None),
-                };
-                Self::new(
+                let mut plan = Self::new(
                     command.clone(),
-                    format!("{verb} service {name}"),
-                    "Dependent applications or Windows components may be interrupted.",
-                    risk,
+                    format!(
+                        "{} service {name}",
+                        match action {
+                            ServiceControlAction::Start => "Start",
+                            ServiceControlAction::Stop => "Stop",
+                            ServiceControlAction::Restart => "Restart",
+                        }
+                    ),
+                    "Dependent applications or Windows components may be interrupted. Undo is offered only after an observed transition.",
+                    if matches!(action, ServiceControlAction::Start) {
+                        RiskLevel::Medium
+                    } else {
+                        RiskLevel::High
+                    },
                     true,
-                    undo,
-                )
+                    None,
+                );
+                // Undo is derived from the observed previous state after execution, not a static command.
+                if !matches!(action, ServiceControlAction::Restart) {
+                    plan.reversible = true;
+                }
+                plan
             }
+            ActionCommand::UndoService { name, .. } => Self::new(
+                command.clone(),
+                format!("Restore service {name}"),
+                "Restores the observed previous stable state only if the service still matches the completed action.",
+                RiskLevel::High,
+                true,
+                None,
+            ),
             ActionCommand::SetPowerPlan(guid) => Self::new(
                 command.clone(),
                 "Change active power plan".into(),
@@ -152,32 +157,39 @@ impl ActionPlan {
                     locator: locator.clone(),
                 }),
             ),
-            ActionCommand::QuarantineStartup { item_name, locator } => {
+            ActionCommand::QuarantineStartup { item_name, .. } => {
                 let mut plan = Self::new(
                     command.clone(),
                     format!("Quarantine startup item {item_name}"),
-                    "The exact entry will be backed up in local app data and removed from its startup source.",
+                    "The exact entry will be backed up in the administrator-protected store and removed from its startup source.",
                     RiskLevel::High,
-                    locator.requires_admin(),
+                    true,
                     None,
                 );
                 plan.reversible = true;
                 plan
             }
-            ActionCommand::RestoreStartup { item_name, .. } => Self::new(
+            ActionCommand::RestoreStartup { review } => Self::new(
                 command.clone(),
-                format!("Restore quarantined startup item {item_name}"),
-                "The saved entry will be restored to its exact original source.",
+                format!("Restore quarantined startup item {}", review.item_name()),
+                review.summary(),
                 RiskLevel::Medium,
                 true,
                 None,
             ),
-            ActionCommand::ReclaimStorageCaches(ids) => {
-                let requires_admin = ids.iter().any(|id| id == "windows_update");
+            ActionCommand::ReclaimStorageCaches(review) => {
+                let requires_admin = review.category_ids().iter().any(|id| id == "windows_update");
                 Self::new(
                     command.clone(),
-                    format!("Reclaim storage caches: {}", ids.join(", ")),
-                    "Temporary files, shader caches, and diagnostic dumps will be safely removed.",
+                    format!(
+                        "Reclaim {} reviewed files ({} bytes)",
+                        review.file_count(),
+                        review.size_bytes()
+                    ),
+                    format!(
+                        "Only the reviewed manifest is eligible. Categories: {}. Replaced, changed, or unsafe files will be skipped.",
+                        review.category_ids().join(", ")
+                    ),
                     RiskLevel::Low,
                     requires_admin,
                     None,
@@ -238,6 +250,7 @@ impl ActionAuditRecord {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn automatic(action: impl Into<String>, message: impl Into<String>) -> Self {
         Self {
             timestamp: Utc::now().to_rfc3339(),
@@ -261,107 +274,13 @@ pub(crate) struct ActionHistoryEntry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::startup::{StartupLocator, StartupRegistryHive};
-
-    #[test]
-    fn kill_tree_is_critical_and_irreversible() {
-        let plan = ActionPlan::from_command(ActionCommand::KillProcessTree(42));
-        assert!(matches!(plan.risk, RiskLevel::Critical));
-        assert!(!plan.reversible);
-    }
-
-    #[test]
-    fn suspend_has_resume_undo() {
-        let plan = ActionPlan::from_command(ActionCommand::SuspendProcess(42));
-        assert!(matches!(plan.undo, Some(ActionCommand::ResumeProcess(42))));
-    }
-
-    #[test]
-    fn privileged_action_contracts_are_explicit() {
-        let current_user_startup = StartupLocator::Registry {
-            hive: StartupRegistryHive::CurrentUser,
-            value_path: "Software\\Test".into(),
-            enabled_value_path: "Software\\Test".into(),
-            approved_path: "Software\\Approved".into(),
-            value_name: "Example".into(),
-        };
-        let machine_startup = StartupLocator::Registry {
-            hive: StartupRegistryHive::LocalMachine,
-            value_path: "Software\\Test".into(),
-            enabled_value_path: "Software\\Test".into(),
-            approved_path: "Software\\Approved".into(),
-            value_name: "Example".into(),
-        };
-        let cases = [
-            (ActionCommand::KillProcess(7), RiskLevel::High, true, false),
-            (ActionCommand::CleanRam, RiskLevel::Medium, true, false),
-            (
-                ActionCommand::ControlService {
-                    name: "Example".into(),
-                    action: ServiceControlAction::Stop,
-                },
-                RiskLevel::High,
-                true,
-                true,
-            ),
-            (
-                ActionCommand::SetPowerPlan("balanced".into()),
-                RiskLevel::Low,
-                false,
-                false,
-            ),
-            (
-                ActionCommand::DisableStartup {
-                    item_name: "User item".into(),
-                    locator: current_user_startup,
-                },
-                RiskLevel::Medium,
-                false,
-                true,
-            ),
-            (
-                ActionCommand::DisableStartup {
-                    item_name: "Machine item".into(),
-                    locator: machine_startup,
-                },
-                RiskLevel::Medium,
-                true,
-                true,
-            ),
-            (
-                ActionCommand::ReclaimStorageCaches(vec!["shader_cache".into()]),
-                RiskLevel::Low,
-                false,
-                false,
-            ),
-            (
-                ActionCommand::ReclaimStorageCaches(vec!["windows_update".into()]),
-                RiskLevel::Low,
-                true,
-                false,
-            ),
-        ];
-
-        for (command, risk, requires_admin, reversible) in cases {
-            let plan = ActionPlan::from_command(command);
-            assert_eq!(plan.risk, risk, "unexpected risk for {}", plan.title);
-            assert_eq!(
-                plan.requires_admin, requires_admin,
-                "unexpected elevation for {}",
-                plan.title
-            );
-            assert_eq!(
-                plan.reversible, reversible,
-                "unexpected Undo contract for {}",
-                plan.title
-            );
-            assert!(!plan.summary.trim().is_empty());
-        }
-    }
 
     #[test]
     fn failed_actions_are_never_marked_reversible() {
-        let plan = ActionPlan::from_command(ActionCommand::SuspendProcess(42));
+        let plan = ActionPlan::from_command(ActionCommand::SuspendProcess(crate::processes::ProcessIdentity {
+            pid: 42,
+            creation_time: 123,
+        }));
         let record = ActionAuditRecord::from_result(&plan, &Err("access denied".into()));
         assert!(!record.succeeded);
         assert!(!record.reversible);

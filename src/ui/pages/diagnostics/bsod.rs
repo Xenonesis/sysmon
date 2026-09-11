@@ -4,10 +4,16 @@ use crate::ui::theme::ThemePalette;
 use eframe::egui;
 
 pub(super) fn paint_bsod_history_card(app: &mut SystemMonitorApp, ui: &mut egui::Ui, is_dark: bool) {
-    if app.crash_reports.is_none() {
-        app.crash_reports = Some(crate::diagnostics::minidump::scan_recent_crashes());
+    app.crash_reports.poll();
+    if app.crash_reports.outcome.is_none() {
+        app.crash_reports.request();
     }
-    let crashes = app.crash_reports.as_deref().unwrap_or(&[]);
+    let crashes = app
+        .crash_reports
+        .outcome
+        .as_ref()
+        .map(|outcome| outcome.reports.as_slice())
+        .unwrap_or(&[]);
     let mut rescan_requested = false;
 
     card_frame(is_dark).show(ui, |ui| {
@@ -64,12 +70,12 @@ pub(super) fn paint_bsod_history_card(app: &mut SystemMonitorApp, ui: &mut egui:
                     ui.horizontal(|ui| {
                         status_pill(
                             ui,
-                            &format!("0x{:08X}", crash.bugcheck_code),
+                            &format!("0x{:08X}", crash.code),
                             ThemePalette::STATUS_CRITICAL,
                             is_dark,
                         );
                         ui.label(
-                            egui::RichText::new(&crash.bugcheck_name)
+                            egui::RichText::new(&crash.code_name)
                                 .strong()
                                 .size(13.5)
                                 .color(ThemePalette::text_primary(is_dark)),
@@ -77,7 +83,7 @@ pub(super) fn paint_bsod_history_card(app: &mut SystemMonitorApp, ui: &mut egui:
 
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             ui.label(
-                                egui::RichText::new(&crash.timestamp)
+                                egui::RichText::new(crash.timestamp.as_deref().unwrap_or("unknown time"))
                                     .monospace()
                                     .size(11.0)
                                     .color(ThemePalette::text_dimmed(is_dark)),
@@ -93,7 +99,7 @@ pub(super) fn paint_bsod_history_card(app: &mut SystemMonitorApp, ui: &mut egui:
                                 .size(11.0)
                                 .color(ThemePalette::text_secondary(is_dark)),
                         );
-                        if let Some(module) = &crash.faulting_module {
+                        if let Some(module) = &crash.address_module {
                             status_pill(ui, &format!("Faulting: {module}"), ThemePalette::STATUS_WARNING, is_dark);
                         }
                     });
@@ -130,7 +136,8 @@ pub(super) fn paint_bsod_history_card(app: &mut SystemMonitorApp, ui: &mut egui:
         }
     });
 
-    if rescan_requested {
-        app.crash_reports = Some(crate::diagnostics::minidump::scan_recent_crashes());
+    if rescan_requested && app.crash_reports.outcome.is_some() {
+        app.crash_reports.outcome = None;
+        app.crash_reports.request();
     }
 }

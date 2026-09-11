@@ -92,7 +92,8 @@ pub(crate) fn paint_performance_plots(ui: &mut egui::Ui, data: &SystemData, is_d
         // GPU Graph
         if !data.gpu_history.is_empty() {
             card_frame(is_dark).show(&mut cols[0], |ui| {
-                let gpu_usage = data.gpu_info.first().map(|g| g.utilization).unwrap_or(0.0);
+                let gpu_usage = data.gpu_info.first().and_then(|g| g.utilization).unwrap_or(0.0);
+                let has_gpu_usage = data.gpu_info.first().and_then(|g| g.utilization).is_some();
                 ui.horizontal(|ui| {
                     ui.label(
                         egui::RichText::new("GPU USAGE HISTORY")
@@ -102,10 +103,14 @@ pub(crate) fn paint_performance_plots(ui: &mut egui::Ui, data: &SystemData, is_d
                     );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.label(
-                            egui::RichText::new(format!("{:.1}%", gpu_usage))
-                                .monospace()
-                                .strong()
-                                .color(ThemePalette::text_primary(is_dark)),
+                            egui::RichText::new(if has_gpu_usage {
+                                format!("{:.1}%", gpu_usage)
+                            } else {
+                                "N/A".to_string()
+                            })
+                            .monospace()
+                            .strong()
+                            .color(ThemePalette::text_primary(is_dark)),
                         );
                     });
                 });

@@ -1,8 +1,8 @@
-use super::query::query_window;
+use super::query::{query_selected_window, query_window_page};
 use super::records::{insert_event, record_derived_events, write_snapshot};
 use super::*;
 use parking_lot::Mutex;
-use rusqlite::{Connection, OptionalExtension};
+use rusqlite::Connection;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -17,7 +17,22 @@ pub(super) fn run_worker(
     status: Arc<Mutex<TimelineStatus>>,
 ) {
     let Some(path) = path else {
-        while !matches!(receiver.recv(), Ok(TimelineCommand::Shutdown) | Err(_)) {}
+        while let Ok(command) = receiver.recv() {
+            let error = "Local application-data directory is unavailable".to_string();
+            match command {
+                TimelineCommand::Query { reply, .. } => {
+                    let _ = reply.send(Err(error));
+                }
+                TimelineCommand::Export { reply, .. } => {
+                    let _ = reply.send(Err(error));
+                }
+                TimelineCommand::Clear { reply } => {
+                    let _ = reply.send(Err(error));
+                }
+                TimelineCommand::Shutdown => break,
+                _ => {}
+            }
+        }
         return;
     };
     let mut connection: Option<Connection> = None;
@@ -25,25 +40,39 @@ pub(super) fn run_worker(
         .checked_sub(Duration::from_secs(86_400))
         .unwrap_or_else(Instant::now);
     let mut previous_providers: HashMap<String, bool> = HashMap::new();
-    let mut previous_paused: Option<bool> = None;
     let mut previous_power: Option<String> = None;
 
     if enabled && let Err(error) = ensure_connection(&mut connection, &path, true) {
         status.lock().last_error = Some(error);
     }
 
-    while let Ok(command) = receiver.recv() {
+    loop {
+        let command = match receiver.recv_timeout(Duration::from_secs(60)) {
+            Ok(command) => command,
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                if path.is_file() {
+                    let result = ensure_connection(&mut connection, &path, false).and_then(|_| {
+                        prune(
+                            connection.as_ref().expect("connection initialized"),
+                            retention_days,
+                            &path,
+                        )
+                    });
+                    let mut current = status.lock();
+                    current.storage_bytes = storage_bytes(&path);
+                    if let Err(error) = result {
+                        current.last_error = Some(error);
+                    }
+                }
+                continue;
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+        };
         let result = match command {
             TimelineCommand::RecordSnapshot(snapshot) if enabled => ensure_connection(&mut connection, &path, true)
                 .and_then(|_| {
                     let conn = connection.as_mut().expect("connection initialized");
-                    record_derived_events(
-                        conn,
-                        &snapshot,
-                        &mut previous_providers,
-                        &mut previous_paused,
-                        &mut previous_power,
-                    )?;
+                    record_derived_events(conn, &snapshot, &mut previous_providers, &mut previous_power)?;
                     write_snapshot(conn, &snapshot)?;
                     if last_prune.elapsed() >= Duration::from_secs(86_400) || storage_bytes(&path) > MAX_DATABASE_BYTES
                     {
@@ -57,8 +86,18 @@ pub(super) fn run_worker(
                     Ok(())
                 }),
             TimelineCommand::RecordSnapshot(_) => Ok(()),
-            TimelineCommand::RecordEvent(event) if enabled => ensure_connection(&mut connection, &path, true)
-                .and_then(|_| insert_event(connection.as_ref().expect("connection initialized"), &event)),
+            TimelineCommand::RecordEvent(event) if enabled => {
+                ensure_connection(&mut connection, &path, true).and_then(|_| {
+                    let conn = connection.as_ref().expect("connection initialized");
+                    insert_event(conn, &event)?;
+                    if last_prune.elapsed() >= Duration::from_secs(60) || storage_bytes(&path) > MAX_DATABASE_BYTES {
+                        prune(conn, retention_days, &path)?;
+                        last_prune = Instant::now();
+                    }
+                    status.lock().storage_bytes = storage_bytes(&path);
+                    Ok(())
+                })
+            }
             TimelineCommand::RecordEvent(_) => Ok(()),
             TimelineCommand::SetPolicy {
                 enabled: new_enabled,
@@ -66,7 +105,7 @@ pub(super) fn run_worker(
             } => {
                 enabled = new_enabled;
                 retention_days = validate_retention(new_retention);
-                if enabled {
+                if enabled || path.is_file() {
                     ensure_connection(&mut connection, &path, true).and_then(|_| {
                         prune(
                             connection.as_ref().expect("connection initialized"),
@@ -78,10 +117,19 @@ pub(super) fn run_worker(
                     Ok(())
                 }
             }
-            TimelineCommand::Query { query, reply } => {
+            TimelineCommand::Query {
+                query,
+                events_offset,
+                reply,
+            } => {
                 let response = if path.is_file() {
-                    ensure_connection(&mut connection, &path, false)
-                        .and_then(|_| query_window(connection.as_ref().expect("connection initialized"), query))
+                    ensure_connection(&mut connection, &path, false).and_then(|_| {
+                        query_window_page(
+                            connection.as_ref().expect("connection initialized"),
+                            query,
+                            events_offset,
+                        )
+                    })
                 } else {
                     Ok(TimelineWindow {
                         query,
@@ -92,27 +140,37 @@ pub(super) fn run_worker(
                 Ok(())
             }
             TimelineCommand::Export {
-                query,
+                selection,
                 destination,
                 reply,
             } => {
                 let response = if path.is_file() {
                     ensure_connection(&mut connection, &path, false)
-                        .and_then(|_| query_window(connection.as_ref().expect("connection initialized"), query))
-                        .and_then(|window| export_window(&window, &destination))
+                        .and_then(|_| {
+                            query_selected_window(connection.as_ref().expect("connection initialized"), selection)
+                        })
+                        .and_then(|window| export_window(&window, selection, &destination))
                 } else {
                     Err("No timeline history is available to export".into())
                 };
                 let _ = reply.send(response);
                 Ok(())
             }
-            TimelineCommand::Clear => ensure_connection(&mut connection, &path, true).and_then(|_| {
-                clear_history(connection.as_ref().expect("connection initialized"))?;
-                let mut current = status.lock();
-                current.storage_bytes = storage_bytes(&path);
-                current.last_write_ms = None;
+            TimelineCommand::Clear { reply } => {
+                let response = ensure_connection(&mut connection, &path, true).and_then(|_| {
+                    clear_history(connection.as_ref().expect("connection initialized"))?;
+                    let mut current = status.lock();
+                    current.storage_bytes = storage_bytes(&path);
+                    current.last_write_ms = None;
+                    current.last_error = None;
+                    Ok(())
+                });
+                if let Err(error) = &response {
+                    status.lock().last_error = Some(error.clone());
+                }
+                let _ = reply.send(response);
                 Ok(())
-            }),
+            }
             TimelineCommand::Shutdown => break,
         };
 
@@ -146,7 +204,10 @@ pub(super) fn ensure_connection(connection: &mut Option<Connection>, path: &Path
         "PRAGMA journal_mode=WAL;
          PRAGMA synchronous=NORMAL;
          PRAGMA foreign_keys=ON;
-         PRAGMA auto_vacuum=INCREMENTAL;",
+         PRAGMA auto_vacuum=INCREMENTAL;
+         PRAGMA secure_delete=ON;
+         PRAGMA wal_autocheckpoint=256;
+         PRAGMA journal_size_limit=1048576;",
     )
     .map_err(|error| format!("Could not configure timeline database: {error}"))?;
     migrate(&conn)?;
@@ -207,54 +268,150 @@ fn migrate(conn: &Connection) -> Result<(), String> {
         )
         .map_err(|error| format!("Could not create timeline schema: {error}"))?;
     }
+    if version < 2 {
+        // Legacy event fields were unrestricted diagnostic text. Do not reinterpret them as safe.
+        let transaction = conn
+            .unchecked_transaction()
+            .map_err(|e| format!("Could not migrate privacy policy: {e}"))?;
+        transaction
+            .execute(
+                "UPDATE timeline_events SET source='system', severity='info',
+             summary='Legacy event (details removed for privacy)', evidence='{}'",
+                [],
+            )
+            .map_err(|e| format!("Could not redact legacy timeline events: {e}"))?;
+        transaction
+            .execute("UPDATE process_samples SET name='[redacted legacy process]'", [])
+            .map_err(|e| format!("Could not redact legacy process data: {e}"))?;
+        transaction
+            .pragma_update(None, "user_version", SCHEMA_VERSION)
+            .map_err(|e| format!("Could not set timeline schema version: {e}"))?;
+        transaction
+            .commit()
+            .map_err(|e| format!("Could not commit timeline migration: {e}"))?;
+        // VACUUM is required once when upgrading databases that predate auto_vacuum.
+        conn.execute_batch("PRAGMA auto_vacuum=INCREMENTAL; VACUUM;")
+            .map_err(|e| format!("Could not reclaim legacy timeline payloads: {e}"))?;
+        checkpoint(conn)?;
+    }
     Ok(())
 }
 
 pub(super) fn prune(conn: &Connection, retention_days: u16, path: &Path) -> Result<(), String> {
-    let cutoff = now_ms().saturating_sub(i64::from(validate_retention(retention_days)) * DAY_MS);
-    conn.execute("DELETE FROM metric_samples WHERE timestamp_ms < ?1", [cutoff])
-        .map_err(|error| format!("Could not prune timeline metrics: {error}"))?;
-    conn.execute("DELETE FROM timeline_events WHERE timestamp_ms < ?1", [cutoff])
-        .map_err(|error| format!("Could not prune timeline events: {error}"))?;
+    prune_with_cap(conn, retention_days, path, MAX_DATABASE_BYTES)
+}
 
-    // Return WAL pages before measuring the hard ceiling; otherwise deleted
-    // rows can remain charged to the sidecar until an unrelated checkpoint.
-    conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")
-        .map_err(|error| format!("Could not checkpoint timeline database: {error}"))?;
-
-    let mut attempts = 0;
-    while storage_bytes(path) > MAX_DATABASE_BYTES && attempts < 64 {
-        let oldest: Option<i64> = conn
-            .query_row("SELECT MIN(timestamp_ms) FROM metric_samples", [], |row| row.get(0))
-            .optional()
-            .map_err(|error| format!("Could not inspect timeline size: {error}"))?
-            .flatten();
-        let Some(oldest) = oldest else {
-            break;
-        };
-        let chunk_end = oldest.saturating_add(DAY_MS);
-        conn.execute("DELETE FROM metric_samples WHERE timestamp_ms <= ?1", [chunk_end])
-            .map_err(|error| format!("Could not cap timeline metrics: {error}"))?;
-        conn.execute("DELETE FROM timeline_events WHERE timestamp_ms <= ?1", [chunk_end])
-            .map_err(|error| format!("Could not cap timeline events: {error}"))?;
-        conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")
-            .map_err(|error| format!("Could not checkpoint capped timeline database: {error}"))?;
-        attempts += 1;
+fn checkpoint(conn: &Connection) -> Result<(), String> {
+    let busy: i64 = conn
+        .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |row| row.get(0))
+        .map_err(|e| format!("Could not checkpoint timeline: {e}"))?;
+    if busy != 0 {
+        return Err("Timeline checkpoint is busy; retention will retry".into());
     }
-    conn.execute_batch("PRAGMA incremental_vacuum(2000); PRAGMA wal_checkpoint(TRUNCATE);")
-        .map_err(|error| format!("Could not compact timeline database: {error}"))?;
+    Ok(())
+}
+
+fn live_bytes(conn: &Connection) -> Result<u64, String> {
+    let read = |pragma| {
+        conn.query_row(pragma, [], |row| row.get::<_, i64>(0))
+            .map(|v| v as u64)
+            .map_err(|e| e.to_string())
+    };
+    Ok(read("PRAGMA page_count")?.saturating_sub(read("PRAGMA freelist_count")?) * read("PRAGMA page_size")?)
+}
+
+fn reclaim(conn: &Connection) -> Result<(), String> {
+    // SQLite can return after one reclaimed page; keep stepping in bounded batches.
+    for _ in 0..128 {
+        let free: i64 = conn
+            .query_row("PRAGMA freelist_count", [], |r| r.get(0))
+            .map_err(|e| e.to_string())?;
+        if free == 0 {
+            break;
+        }
+        conn.execute_batch("PRAGMA incremental_vacuum(256)")
+            .map_err(|e| e.to_string())?;
+        let after: i64 = conn
+            .query_row("PRAGMA freelist_count", [], |r| r.get(0))
+            .map_err(|e| e.to_string())?;
+        if after >= free {
+            break;
+        }
+    }
+    checkpoint(conn)
+}
+
+pub(super) fn prune_with_cap(conn: &Connection, retention_days: u16, path: &Path, cap: u64) -> Result<(), String> {
+    let cutoff = now_ms().saturating_sub(i64::from(validate_retention(retention_days)) * DAY_MS);
+    // Each transaction deletes at most 256 metric samples (and their bounded process union)
+    // plus 256 events. Recheck live pages, never charge freed pages to younger history.
+    for _ in 0..4096 {
+        let transaction = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+        let metrics = transaction
+            .execute(
+                "DELETE FROM metric_samples WHERE timestamp_ms IN
+             (SELECT timestamp_ms FROM metric_samples WHERE timestamp_ms < ?1 ORDER BY timestamp_ms LIMIT 256)",
+                [cutoff],
+            )
+            .map_err(|e| e.to_string())?;
+        let events = transaction
+            .execute(
+                "DELETE FROM timeline_events WHERE id IN
+             (SELECT id FROM timeline_events WHERE timestamp_ms < ?1 ORDER BY timestamp_ms,id LIMIT 256)",
+                [cutoff],
+            )
+            .map_err(|e| e.to_string())?;
+        transaction.commit().map_err(|e| e.to_string())?;
+        if metrics + events == 0 {
+            break;
+        }
+        checkpoint(conn)?;
+    }
+    reclaim(conn)?;
+    for _ in 0..4096 {
+        if live_bytes(conn)? <= cap {
+            break;
+        }
+        let transaction = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+        // Delete oldest records across both tables; event-only histories also make progress.
+        let oldest_metric: Option<i64> = transaction
+            .query_row("SELECT MIN(timestamp_ms) FROM metric_samples", [], |r| r.get(0))
+            .map_err(|e| e.to_string())?;
+        let oldest_event: Option<i64> = transaction
+            .query_row("SELECT MIN(timestamp_ms) FROM timeline_events", [], |r| r.get(0))
+            .map_err(|e| e.to_string())?;
+        let deleted = match (oldest_metric, oldest_event) {
+            (None, None) => 0,
+            (Some(metric), event) if event.is_none_or(|event| metric <= event) => transaction.execute(
+                "DELETE FROM metric_samples WHERE timestamp_ms=(SELECT MIN(timestamp_ms) FROM metric_samples)", [],
+            ).map_err(|e| e.to_string())?,
+            _ => transaction.execute(
+                "DELETE FROM timeline_events WHERE id IN (SELECT id FROM timeline_events ORDER BY timestamp_ms,id LIMIT 1)", [],
+            ).map_err(|e| e.to_string())?,
+        };
+        transaction.commit().map_err(|e| e.to_string())?;
+        if deleted == 0 {
+            break;
+        }
+        reclaim(conn)?;
+    }
+    reclaim(conn)?;
+    if live_bytes(conn)? > cap {
+        return Err("Timeline live storage exceeds retention cap; maintenance will retry".into());
+    }
+    if storage_bytes(path) > cap.saturating_add(1024 * 1024) {
+        return Err("Timeline has reclaimable storage; incremental maintenance will continue".into());
+    }
     Ok(())
 }
 
 pub(super) fn clear_history(conn: &Connection) -> Result<(), String> {
-    conn.execute_batch(
-        "BEGIN;
-         DELETE FROM process_samples;
-         DELETE FROM metric_samples;
-         DELETE FROM timeline_events;
-         COMMIT;
-         PRAGMA wal_checkpoint(TRUNCATE);
-         PRAGMA incremental_vacuum;",
-    )
-    .map_err(|error| format!("Could not clear timeline history: {error}"))
+    let transaction = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    transaction
+        .execute_batch("DELETE FROM process_samples; DELETE FROM metric_samples; DELETE FROM timeline_events;")
+        .map_err(|e| format!("Could not clear timeline history: {e}"))?;
+    transaction
+        .commit()
+        .map_err(|e| format!("Could not commit timeline clear: {e}"))?;
+    reclaim(conn)
 }

@@ -4,13 +4,6 @@ use windows_sys::Win32::System::Power::{
     ACCESS_SCHEME, PowerEnumerate, PowerGetActiveScheme, PowerReadFriendlyName, PowerSetActiveScheme,
 };
 
-/// Root registry page under which power schemes live.
-const GUID_POWER_SCHEME_PAGE: windows_sys::core::GUID =
-    windows_sys::core::GUID::from_u128(0xa1841308_3541_4fab_bc81_f71556f20b4a);
-/// Subgroup containing the power schemes themselves.
-const SUB_GUID_POWERSCHEME: windows_sys::core::GUID =
-    windows_sys::core::GUID::from_u128(0xe73a048d_bf26_4f12_9b60_c51e967cb42f);
-
 #[derive(Debug, Clone)]
 pub struct PowerPlan {
     pub guid: String,
@@ -18,9 +11,7 @@ pub struct PowerPlan {
     pub is_active: bool,
 }
 
-/// Parse a GUID string like `{381b4222-f694-41f0-9685-ff5bb260df2e}` (braces and
-/// hyphens optional) into a `windows_sys::core::GUID`. Falls back to the nil
-/// GUID on malformed input.
+/// Parse a textual GUID, rejecting malformed input.
 fn parse_guid(s: &str) -> Result<windows_sys::core::GUID, String> {
     let hex: String = s
         .trim()
@@ -54,112 +45,76 @@ fn format_guid(g: &windows_sys::core::GUID) -> String {
         g.data4[7]
     )
 }
-
-/// Normalize a GUID string for equality comparison (lowercase, braces/hyphens stripped).
-fn normalized(s: &str) -> String {
-    s.trim()
-        .trim_start_matches('{')
-        .trim_end_matches('}')
-        .chars()
-        .filter(|c| *c != '-')
-        .collect::<String>()
-        .to_lowercase()
-}
-
-pub fn get_power_plans() -> Vec<PowerPlan> {
+pub fn get_power_plans() -> Result<Vec<PowerPlan>, String> {
     let mut plans = Vec::new();
-    let mut active_guid: Option<String> = None;
-
-    // SAFETY: FFI calls to power management use valid pointers.
-    // Returned memory from PowerGetActiveScheme is freed using LocalFree.
     unsafe {
         let mut active_ptr: *mut windows_sys::core::GUID = ptr::null_mut();
-        if PowerGetActiveScheme(ptr::null_mut(), &mut active_ptr) == ERROR_SUCCESS && !active_ptr.is_null() {
-            active_guid = Some(format_guid(&*active_ptr));
-            LocalFree(active_ptr as *mut _);
+        let status = PowerGetActiveScheme(ptr::null_mut(), &mut active_ptr);
+        if status != ERROR_SUCCESS || active_ptr.is_null() {
+            return Err(format!("PowerGetActiveScheme failed: {status}"));
         }
-
-        let mut index: u32 = 0;
-        loop {
-            let mut buf = [0u16; 512];
-            let mut buf_size = (buf.len() * 2) as u32;
-            let hr = PowerEnumerate(
+        let active_guid = format_guid(&*active_ptr);
+        LocalFree(active_ptr.cast());
+        for index in 0.. {
+            let mut guid = windows_sys::core::GUID::from_u128(0);
+            let mut size = std::mem::size_of::<windows_sys::core::GUID>() as u32;
+            let status = PowerEnumerate(
                 ptr::null_mut(),
-                &GUID_POWER_SCHEME_PAGE,
-                &SUB_GUID_POWERSCHEME,
+                ptr::null(),
+                ptr::null(),
                 ACCESS_SCHEME,
                 index,
-                buf.as_mut_ptr() as *mut u8,
-                &mut buf_size,
+                (&mut guid as *mut windows_sys::core::GUID).cast(),
+                &mut size,
             );
-            if hr == ERROR_NO_MORE_ITEMS {
+            if status == ERROR_NO_MORE_ITEMS {
                 break;
             }
-            if hr != ERROR_SUCCESS {
-                break;
+            if status != ERROR_SUCCESS || size != std::mem::size_of::<windows_sys::core::GUID>() as u32 {
+                return Err(format!("PowerEnumerate({index}) failed: {status}; GUID size {size}"));
             }
-            index += 1;
-
-            let guid_str = String::from_utf16_lossy(&buf[..buf_size as usize / 2])
-                .trim_matches('\0')
-                .to_string();
-            if guid_str.is_empty() {
-                continue;
-            }
-            let guid = match parse_guid(&guid_str) {
-                Ok(guid) => guid,
-                Err(_) => continue,
-            };
-
-            let mut name_buf = [0u16; 260];
-            let mut name_size = (name_buf.len() * 2) as u32;
-            let mut name = String::new();
-            if PowerReadFriendlyName(
+            let guid_string = format_guid(&guid);
+            let mut name_size = 0;
+            let status = PowerReadFriendlyName(
                 ptr::null_mut(),
                 &guid,
                 ptr::null(),
                 ptr::null(),
-                name_buf.as_mut_ptr() as *mut u8,
+                ptr::null_mut(),
                 &mut name_size,
-            ) == ERROR_SUCCESS
+            );
+            let mut name = guid_string.clone();
+            if (status == ERROR_SUCCESS || status == windows_sys::Win32::Foundation::ERROR_MORE_DATA)
+                && name_size > 0
+                && name_size % 2 == 0
             {
-                name = String::from_utf16_lossy(&name_buf[..name_size as usize / 2])
-                    .trim_matches('\0')
-                    .to_string();
+                let mut buffer = vec![0u16; name_size as usize / 2];
+                if PowerReadFriendlyName(
+                    ptr::null_mut(),
+                    &guid,
+                    ptr::null(),
+                    ptr::null(),
+                    buffer.as_mut_ptr().cast(),
+                    &mut name_size,
+                ) == ERROR_SUCCESS
+                    && name_size as usize / 2 <= buffer.len()
+                {
+                    name = String::from_utf16_lossy(&buffer[..name_size as usize / 2])
+                        .trim_end_matches('\0')
+                        .to_string();
+                    if name.is_empty() {
+                        name = guid_string.clone();
+                    }
+                }
             }
-            if name.is_empty() {
-                name = format_guid(&guid);
-            }
-
             plans.push(PowerPlan {
-                guid: format_guid(&guid),
+                is_active: guid_string == active_guid,
+                guid: guid_string,
                 name,
-                is_active: active_guid
-                    .as_deref()
-                    .is_some_and(|a| normalized(a) == normalized(&guid_str)),
             });
         }
     }
-
-    if plans.is_empty() {
-        plans = vec![
-            ("381b4222-f694-41f0-9685-ff5bb260df2e", "Balanced"),
-            ("8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c", "High performance"),
-            ("a1841308-3541-4fab-bc81-f71556f20b4a", "Power saver"),
-        ]
-        .into_iter()
-        .map(|(guid, name)| {
-            let is_active = active_guid.as_deref().is_some_and(|a| normalized(a) == *guid);
-            PowerPlan {
-                guid: format!("{{{guid}}}"),
-                name: name.to_string(),
-                is_active,
-            }
-        })
-        .collect();
-    }
-
-    plans
+    Ok(plans)
 }
 
 pub fn set_active_power_plan(guid: &str) -> Result<(), String> {
@@ -247,7 +202,7 @@ pub fn get_battery_health() -> BatteryHealth {
 /// Activate a power plan matching a mode substring ("balanced", "high performance", "power saver").
 #[allow(dead_code)]
 pub fn activate_power_mode(mode: &str) -> Result<String, String> {
-    let plans = get_power_plans();
+    let plans = get_power_plans()?;
     let target = mode.to_lowercase();
     if let Some(plan) = plans.iter().find(|p| p.name.to_lowercase().contains(&target)) {
         set_active_power_plan(&plan.guid)?;

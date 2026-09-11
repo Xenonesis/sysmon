@@ -5,9 +5,9 @@ use eframe::egui;
 
 pub(crate) fn paint_filter_bar(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, is_dark: bool) {
     card_frame(is_dark).show(ui, |ui| {
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             // Search Input with integrated Clear button
-            ui.label(
+            let search_label = ui.label(
                 egui::RichText::new("Search:")
                     .strong()
                     .color(ThemePalette::text_secondary(is_dark)),
@@ -16,8 +16,9 @@ pub(crate) fn paint_filter_bar(app: &mut crate::SystemMonitorApp, ui: &mut egui:
                 egui::TextEdit::singleline(&mut app.startup_search)
                     .hint_text("Search name, command, publisher...")
                     .desired_width(240.0),
-            );
-            if !app.startup_search.is_empty() && ui.small_button("×").on_hover_text("Clear search filter").clicked() {
+            )
+            .labelled_by(search_label.id);
+            if !app.startup_search.is_empty() && ui.small_button("Clear search").clicked() {
                 app.startup_search.clear();
             }
 
@@ -29,7 +30,7 @@ pub(crate) fn paint_filter_bar(app: &mut crate::SystemMonitorApp, ui: &mut egui:
                     .strong()
                     .color(ThemePalette::text_secondary(is_dark)),
             );
-            egui::ComboBox::from_id_salt("startup_impact_filter")
+            egui::ComboBox::from_label("Startup impact")
                 .selected_text(match &app.startup_filter_impact {
                     Some(ImpactTier::High) => "High",
                     Some(ImpactTier::Medium) => "Medium",
@@ -71,7 +72,7 @@ pub(crate) fn paint_filter_bar(app: &mut crate::SystemMonitorApp, ui: &mut egui:
                     .strong()
                     .color(ThemePalette::text_secondary(is_dark)),
             );
-            egui::ComboBox::from_id_salt("startup_signed_filter")
+            egui::ComboBox::from_label("Startup publisher")
                 .selected_text(match app.startup_filter_signed {
                     Some(true) => "Signed",
                     Some(false) => "Unsigned",
@@ -122,7 +123,7 @@ pub(crate) fn paint_filter_bar(app: &mut crate::SystemMonitorApp, ui: &mut egui:
         ui.add_space(4.0);
 
         // Sort controls
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.label(
                 egui::RichText::new("Sort by:")
                     .strong()
@@ -149,7 +150,10 @@ pub(crate) fn paint_filter_bar(app: &mut crate::SystemMonitorApp, ui: &mut egui:
                     ThemePalette::text_primary(is_dark)
                 };
                 if ui
-                    .button(egui::RichText::new(text).small().strong().color(text_color))
+                    .add(
+                        egui::Button::new(egui::RichText::new(text).small().strong().color(text_color))
+                            .selected(is_active),
+                    )
                     .clicked()
                 {
                     if is_active {

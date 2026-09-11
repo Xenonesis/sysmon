@@ -1,180 +1,250 @@
 use crate::app::models::{SystemMonitor, is_excluded};
+use crate::processes::{ProcessIdentity, open_process_for_action, process_identity};
+use windows_sys::Win32::System::Threading::*;
 
-use tracing::{info, warn};
+#[derive(Debug, Default, Clone)]
+pub struct RamCleanOutcome {
+    pub attempted: u32,
+    pub trimmed: u32,
+    pub denied: u32,
+    pub failed: u32,
+    /// Sum of observed per-process working-set decreases; not physical RAM recovered.
+    pub working_set_reduction: u64,
+    pub stopped: bool,
+}
 
-use sysinfo::Pid;
+impl std::fmt::Display for RamCleanOutcome {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Working-set trim: {} attempted, {} trimmed, {} denied, {} failed; observed working-set decrease {} bytes (not guaranteed physical RAM recovered)",
+            self.attempted, self.trimmed, self.denied, self.failed, self.working_set_reduction
+        )
+    }
+}
+
+/// Windows last-input time is session input, independent of repaint activity.
+pub fn user_idle_duration() -> Result<std::time::Duration, String> {
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetLastInputInfo, LASTINPUTINFO};
+    let mut input = LASTINPUTINFO {
+        cbSize: std::mem::size_of::<LASTINPUTINFO>() as u32,
+        dwTime: 0,
+    };
+    if unsafe { GetLastInputInfo(&mut input) } == 0 {
+        return Err(format!("GetLastInputInfo: {}", std::io::Error::last_os_error()));
+    }
+    let now = unsafe { windows_sys::Win32::System::SystemInformation::GetTickCount() };
+    Ok(std::time::Duration::from_millis(now.wrapping_sub(input.dwTime) as u64))
+}
+
+pub(crate) fn should_stop_trim(
+    observed: u64,
+    budget: Option<u64>,
+    usage: f32,
+    target: Option<f32>,
+    idle_allowed: bool,
+) -> bool {
+    !idle_allowed || budget.is_some_and(|limit| observed >= limit) || target.is_some_and(|limit| usage <= limit)
+}
 
 impl SystemMonitor {
-    pub(crate) fn kill_process(&mut self, pid: u32) -> bool {
-        self.sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
-        if let Some(process) = self.sys.process(Pid::from_u32(pid)) {
-            let result = process.kill();
-            if result {
-                info!(pid = pid, "Process killed successfully");
-            } else {
-                warn!(pid = pid, "Failed to kill process");
-            }
-            result
-        } else {
-            warn!(pid = pid, "Process not found for kill");
-            false
+    pub(crate) fn kill_process(&mut self, identity: ProcessIdentity) -> Result<(), String> {
+        let handle = open_process_for_action(identity, PROCESS_TERMINATE)?;
+        if unsafe { TerminateProcess(handle.0, 1) } == 0 {
+            return Err(format!(
+                "TerminateProcess({identity}): {}",
+                std::io::Error::last_os_error()
+            ));
         }
+        Ok(())
     }
 
-    #[cfg(target_os = "windows")]
-    pub(crate) fn suspend_process(&mut self, pid: u32) -> bool {
-        use ntapi::ntpsapi::NtSuspendProcess;
-        use windows::Win32::Foundation::CloseHandle;
-        use windows::Win32::System::Threading::{OpenProcess, PROCESS_SUSPEND_RESUME};
-
-        unsafe {
-            if let Ok(h) = OpenProcess(PROCESS_SUSPEND_RESUME, false, pid) {
-                if !h.is_invalid() {
-                    let result = NtSuspendProcess(h.0 as *mut _);
-                    let _ = CloseHandle(h);
-                    result == 0
-                } else {
-                    false
-                }
-            } else {
-                false
-            }
+    pub(crate) fn suspend_process(&mut self, identity: ProcessIdentity) -> Result<(), String> {
+        let handle = open_process_for_action(identity, PROCESS_SUSPEND_RESUME)?;
+        let status = unsafe { ntapi::ntpsapi::NtSuspendProcess(handle.0.cast()) };
+        if status < 0 {
+            return Err(format!(
+                "NtSuspendProcess({identity}): NTSTATUS {:#010x}",
+                status as u32
+            ));
         }
+        Ok(())
     }
 
-    #[cfg(target_os = "windows")]
-    pub(crate) fn resume_process(&mut self, pid: u32) -> bool {
-        use ntapi::ntpsapi::NtResumeProcess;
-        use windows::Win32::Foundation::CloseHandle;
-        use windows::Win32::System::Threading::{OpenProcess, PROCESS_SUSPEND_RESUME};
-
-        unsafe {
-            if let Ok(h) = OpenProcess(PROCESS_SUSPEND_RESUME, false, pid) {
-                if !h.is_invalid() {
-                    let result = NtResumeProcess(h.0 as *mut _);
-                    let _ = CloseHandle(h);
-                    result == 0
-                } else {
-                    false
-                }
-            } else {
-                false
-            }
+    pub(crate) fn resume_process(&mut self, identity: ProcessIdentity) -> Result<(), String> {
+        let handle = open_process_for_action(identity, PROCESS_SUSPEND_RESUME)?;
+        let status = unsafe { ntapi::ntpsapi::NtResumeProcess(handle.0.cast()) };
+        if status < 0 {
+            return Err(format!("NtResumeProcess({identity}): NTSTATUS {:#010x}", status as u32));
         }
+        Ok(())
     }
 
-    #[cfg(not(target_os = "windows"))]
-    pub(crate) fn suspend_process(&mut self, _pid: u32) -> bool {
-        false
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    pub(crate) fn resume_process(&mut self, _pid: u32) -> bool {
-        false
-    }
-
-    #[cfg(target_os = "windows")]
-    pub fn clean_ram(&mut self, exclusions: &[String], smart_only: bool) -> u64 {
-        use windows::Win32::Foundation::{CloseHandle, E_ACCESSDENIED};
-        use windows::Win32::System::ProcessStatus::EmptyWorkingSet;
-        use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_SET_QUOTA};
-
-        info!(
-            excluded = exclusions.len(),
-            "RAM clean operation initiated (native API)"
-        );
-        let mem_before = self.sys.used_memory();
-        let mut trimmed = 0u32;
-        let mut access_denied = 0u32;
-        let mut errored = 0u32;
-
-        let mut foreground_pid = 0;
-        if smart_only {
-            unsafe {
-                use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId};
-                let hwnd = GetForegroundWindow();
-                if !hwnd.0.is_null() {
-                    GetWindowThreadProcessId(hwnd, Some(&mut foreground_pid));
-                }
-            }
-        }
-
-        unsafe {
-            for (pid, process) in self.sys.processes() {
-                if is_excluded(&process.name().to_string_lossy(), exclusions) {
-                    continue;
-                }
-                let pid_u32 = pid.as_u32();
-                if smart_only && pid_u32 == foreground_pid {
-                    continue;
-                }
-                match OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_SET_QUOTA, false, pid_u32) {
-                    Ok(h) if !h.is_invalid() => {
-                        match EmptyWorkingSet(h) {
-                            Ok(()) => trimmed += 1,
-                            Err(e) if e.code() == E_ACCESSDENIED => access_denied += 1,
-                            Err(_) => errored += 1,
-                        }
-                        let _ = CloseHandle(h);
-                    }
-                    Err(e) if e.code() == E_ACCESSDENIED => access_denied += 1,
-                    _ => errored += 1,
-                }
-            }
-        }
-
-        self.sys.refresh_memory();
-        let mem_after = self.sys.used_memory();
-        let freed = mem_before.saturating_sub(mem_after);
-        info!(
-            freed_mb = freed / 1024 / 1024,
-            trimmed = trimmed,
-            access_denied = access_denied,
-            errored = errored,
-            "RAM clean complete"
-        );
-        freed
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    pub(crate) fn clean_ram(&mut self, _exclusions: &[String], _smart_only: bool) -> u64 {
-        0
-    }
-
-    // Startup item collection and actions are now in startup.rs module
-
-    #[cfg(target_os = "windows")]
-    pub(crate) fn set_process_priority(pid: u32, priority: &str) -> bool {
-        use windows::Win32::Foundation::CloseHandle;
-        use windows::Win32::System::Threading::{OpenProcess, PROCESS_CREATION_FLAGS, SetPriorityClass};
-
-        let priority_class: PROCESS_CREATION_FLAGS = match priority {
-            "Realtime" => windows::Win32::System::Threading::REALTIME_PRIORITY_CLASS,
-            "High" => windows::Win32::System::Threading::HIGH_PRIORITY_CLASS,
-            "AboveNormal" => windows::Win32::System::Threading::ABOVE_NORMAL_PRIORITY_CLASS,
-            "Normal" => windows::Win32::System::Threading::NORMAL_PRIORITY_CLASS,
-            "BelowNormal" => windows::Win32::System::Threading::BELOW_NORMAL_PRIORITY_CLASS,
-            "Idle" => windows::Win32::System::Threading::IDLE_PRIORITY_CLASS,
-            _ => return false,
+    /// Budget is best-effort: a single EmptyWorkingSet may overshoot it by one process.
+    pub fn clean_ram(
+        &mut self,
+        exclusions: &[String],
+        smart_only: bool,
+        budget_bytes: Option<u64>,
+        target_percent: Option<f32>,
+        idle_only: bool,
+    ) -> Result<RamCleanOutcome, String> {
+        use windows_sys::Win32::System::ProcessStatus::{
+            EmptyWorkingSet, GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS,
         };
-
-        unsafe {
-            if let Ok(h) = OpenProcess(windows::Win32::System::Threading::PROCESS_SET_INFORMATION, false, pid) {
-                if !h.is_invalid() {
-                    let result = SetPriorityClass(h, priority_class);
-                    let _ = CloseHandle(h);
-                    result.is_ok()
-                } else {
-                    false
+        use windows_sys::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId};
+        // Refresh before inventory and baseline, including processes launched after worker startup.
+        self.sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+        self.sys.refresh_memory();
+        let mut outcome = RamCleanOutcome::default();
+        let targets: Vec<_> = self
+            .sys
+            .processes()
+            .iter()
+            .filter_map(|(pid, process)| {
+                if pid.as_u32() == std::process::id()
+                    || pid.as_u32() <= 4
+                    || is_excluded(&process.name().to_string_lossy(), exclusions)
+                {
+                    return None;
                 }
+                Some(process_identity(pid.as_u32()))
+            })
+            .collect();
+        for target in targets {
+            self.sys.refresh_memory();
+            let usage = self.sys.used_memory() as f32 / self.sys.total_memory().max(1) as f32 * 100.0;
+            let idle_allowed = !idle_only || user_idle_duration()?.as_secs() >= 120;
+            if should_stop_trim(
+                outcome.working_set_reduction,
+                budget_bytes,
+                usage,
+                target_percent,
+                idle_allowed,
+            ) {
+                outcome.stopped = true;
+                break;
+            }
+            let identity = match target {
+                Ok(identity) => identity,
+                Err(error) => {
+                    outcome.attempted += 1;
+                    if error.contains("os error 5") {
+                        outcome.denied += 1;
+                    } else {
+                        outcome.failed += 1;
+                    }
+                    continue;
+                }
+            };
+            if smart_only {
+                let mut foreground_pid = 0;
+                unsafe {
+                    GetWindowThreadProcessId(GetForegroundWindow(), &mut foreground_pid);
+                }
+                if identity.pid == foreground_pid {
+                    continue;
+                }
+            }
+            outcome.attempted += 1;
+            let handle = match open_process_for_action(identity, PROCESS_QUERY_INFORMATION | PROCESS_SET_QUOTA) {
+                Ok(handle) => handle,
+                Err(error) => {
+                    if error.contains("os error 5") {
+                        outcome.denied += 1;
+                    } else {
+                        outcome.failed += 1;
+                    }
+                    continue;
+                }
+            };
+            let mut before = PROCESS_MEMORY_COUNTERS {
+                cb: std::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32,
+                ..Default::default()
+            };
+            if unsafe {
+                GetProcessMemoryInfo(
+                    handle.0,
+                    &mut before,
+                    std::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32,
+                )
+            } == 0
+            {
+                outcome.failed += 1;
+                continue;
+            }
+            if unsafe { EmptyWorkingSet(handle.0) } == 0 {
+                if std::io::Error::last_os_error().raw_os_error() == Some(5) {
+                    outcome.denied += 1;
+                } else {
+                    outcome.failed += 1;
+                }
+                continue;
+            }
+            outcome.trimmed += 1;
+            let mut after = PROCESS_MEMORY_COUNTERS {
+                cb: std::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32,
+                ..Default::default()
+            };
+            if unsafe {
+                GetProcessMemoryInfo(
+                    handle.0,
+                    &mut after,
+                    std::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32,
+                )
+            } != 0
+            {
+                outcome.working_set_reduction = outcome
+                    .working_set_reduction
+                    .saturating_add(before.WorkingSetSize.saturating_sub(after.WorkingSetSize) as u64);
             } else {
-                false
+                outcome.failed += 1;
             }
         }
+        if outcome.trimmed == 0 && outcome.attempted > 0 {
+            return Err(outcome.to_string());
+        }
+        Ok(outcome)
     }
 
-    #[cfg(not(target_os = "windows"))]
-    pub(crate) fn set_process_priority(_pid: u32, _priority: &str) -> bool {
-        false
+    pub(crate) fn set_process_priority(identity: ProcessIdentity, priority: &str) -> Result<(), String> {
+        let class = match priority {
+            "High" => HIGH_PRIORITY_CLASS,
+            "AboveNormal" => ABOVE_NORMAL_PRIORITY_CLASS,
+            "Normal" => NORMAL_PRIORITY_CLASS,
+            "BelowNormal" => BELOW_NORMAL_PRIORITY_CLASS,
+            "Idle" => IDLE_PRIORITY_CLASS,
+            _ => return Err(format!("Unsupported process priority: {priority}")),
+        };
+        let handle = open_process_for_action(identity, PROCESS_SET_INFORMATION)?;
+        if unsafe { SetPriorityClass(handle.0, class) } == 0 {
+            return Err(format!(
+                "SetPriorityClass({identity}): {}",
+                std::io::Error::last_os_error()
+            ));
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn per_process_policy_stops_after_single_process_overshoot() {
+        let mut operations = 0;
+        let mut measured = 0;
+        for change in [4096, 4096] {
+            if should_stop_trim(measured, Some(1024), 90.0, Some(50.0), true) {
+                break;
+            }
+            operations += 1;
+            measured += change;
+        }
+        assert_eq!(operations, 1);
+        assert_eq!(measured, 4096);
+        assert!(should_stop_trim(0, None, 40.0, Some(50.0), true));
+        assert!(should_stop_trim(0, None, 90.0, None, false));
     }
 }

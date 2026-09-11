@@ -52,6 +52,9 @@ pub(crate) fn render_action_confirmation(app: &mut SystemMonitorApp, ctx: &egui:
         });
 
     if cancel {
+        if matches!(plan.command, app::commands::ActionCommand::ReclaimStorageCaches(_)) {
+            app.storage_page.cleanup_cancelled();
+        }
         app.pending_action_plan = None;
     } else if confirm {
         app.pending_action_plan = None;
@@ -60,7 +63,11 @@ pub(crate) fn render_action_confirmation(app: &mut SystemMonitorApp, ctx: &egui:
         }
         match app.app_channels.action_sender.send(plan.command) {
             Ok(()) => app.action_pending = true,
-            Err(error) => app.action_status = Some(format!("Could not queue action: {error}")),
+            Err(error) => {
+                app.ram_cleaner_state.is_cleaning = false;
+                app.storage_page.cleanup_cancelled();
+                app.action_status = Some(format!("Could not queue action: {error}"));
+            }
         }
     }
 }

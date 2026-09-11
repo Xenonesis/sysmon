@@ -97,7 +97,8 @@ pub(super) fn paint_recorder(app: &mut SystemMonitorApp, ui: &mut egui::Ui, is_d
     });
 
     // ── 1b. Session History & Telemetry Exporter ──
-    let recorded_sessions = crate::persistence::session::list_recorded_sessions();
+    app.session_recorder.refresh();
+    let recorded_sessions = app.session_recorder.sessions.clone();
     if !recorded_sessions.is_empty() {
         ui.add_space(8.0);
         card_frame(is_dark).show(ui, |ui| {
@@ -120,75 +121,77 @@ pub(super) fn paint_recorder(app: &mut SystemMonitorApp, ui: &mut egui::Ui, is_d
 
             ui.add_space(6.0);
 
-            if let Some(latest) = recorded_sessions.first() {
-                if let Ok(summary) = crate::persistence::session::calculate_session_summary(latest) {
-                    ui.horizontal(|ui| {
-                        let file_name = latest.file_name().and_then(|n| n.to_str()).unwrap_or("session.jsonl");
-                        ui.label(
-                            egui::RichText::new(format!("Latest: {file_name}"))
-                                .monospace()
-                                .size(11.5)
-                                .strong()
-                                .color(ThemePalette::text_primary(is_dark)),
-                        );
-                        ui.label(
-                            egui::RichText::new(format!(
-                                "({} samples · {}s)",
-                                summary.sample_count, summary.duration_secs
-                            ))
+            let session_view = app.session_recorder.view.clone();
+            if let Some(view) = session_view.as_ref() {
+                let summary = view.summary.clone();
+                let latest = view.path.clone();
+                ui.horizontal(|ui| {
+                    let file_name = latest.file_name().and_then(|n| n.to_str()).unwrap_or("session.jsonl");
+                    ui.label(
+                        egui::RichText::new(format!("Latest: {file_name}"))
                             .monospace()
-                            .size(11.0)
-                            .color(ThemePalette::text_dimmed(is_dark)),
-                        );
-                    });
+                            .size(11.5)
+                            .strong()
+                            .color(ThemePalette::text_primary(is_dark)),
+                    );
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "({} samples · {}s)",
+                            summary.sample_count, summary.duration_secs
+                        ))
+                        .monospace()
+                        .size(11.0)
+                        .color(ThemePalette::text_dimmed(is_dark)),
+                    );
+                });
 
-                    ui.add_space(4.0);
-                    ui.horizontal(|ui| {
-                        ui.label(
-                            egui::RichText::new(format!("Avg CPU: {:.1}%", summary.avg_cpu))
-                                .monospace()
-                                .size(11.0)
-                                .color(ThemePalette::ACCENT_PRIMARY),
-                        );
-                        ui.add_space(8.0);
-                        ui.label(
-                            egui::RichText::new(format!("Peak CPU: {:.1}%", summary.max_cpu))
-                                .monospace()
-                                .size(11.0)
-                                .color(ThemePalette::STATUS_WARNING),
-                        );
-                        ui.add_space(8.0);
-                        ui.label(
-                            egui::RichText::new(format!("Avg RAM: {:.1}%", summary.avg_memory_pct))
-                                .monospace()
-                                .size(11.0)
-                                .color(ThemePalette::STATUS_HEALTHY),
-                        );
-                        ui.add_space(8.0);
-                        ui.label(
-                            egui::RichText::new(format!(
-                                "Net Total: {:.1} MB",
-                                summary.total_net_recv_mb + summary.total_net_sent_mb
-                            ))
+                ui.add_space(4.0);
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new(format!("Avg CPU: {:.1}%", summary.avg_cpu))
                             .monospace()
                             .size(11.0)
-                            .color(ThemePalette::text_secondary(is_dark)),
-                        );
-                    });
-                }
+                            .color(ThemePalette::ACCENT_PRIMARY),
+                    );
+                    ui.add_space(8.0);
+                    ui.label(
+                        egui::RichText::new(format!("Peak CPU: {:.1}%", summary.max_cpu))
+                            .monospace()
+                            .size(11.0)
+                            .color(ThemePalette::STATUS_WARNING),
+                    );
+                    ui.add_space(8.0);
+                    ui.label(
+                        egui::RichText::new(format!("Avg RAM: {:.1}%", summary.avg_memory_pct))
+                            .monospace()
+                            .size(11.0)
+                            .color(ThemePalette::STATUS_HEALTHY),
+                    );
+                    ui.add_space(8.0);
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "Net Total: {:.1} MB",
+                            summary
+                                .total_net_recv_mb
+                                .zip(summary.total_net_sent_mb)
+                                .map(|(recv, sent)| recv + sent)
+                                .unwrap_or(0.0)
+                        ))
+                        .monospace()
+                        .size(11.0)
+                        .color(ThemePalette::text_secondary(is_dark)),
+                    );
+                });
 
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
-                    let csv_path = latest.with_extension("csv");
                     if ui
                         .button(egui::RichText::new("📊 Export Latest to CSV").strong())
                         .clicked()
                     {
-                        match crate::persistence::session::export_session_to_csv(latest, &csv_path) {
-                            Ok(count) => {
-                                app.session_status =
-                                    Some(format!("Exported {count} telemetry rows to {}", csv_path.display()));
-                            }
+                        let latest = latest.clone();
+                        match app.session_recorder.request_export(latest) {
+                            Ok(()) => {}
                             Err(err) => {
                                 app.session_status = Some(format!("Export error: {err}"));
                             }

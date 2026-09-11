@@ -33,8 +33,26 @@ pub(crate) fn sessions_dir() -> Option<PathBuf> {
     data_local_dir().map(|path| path.join("sessions"))
 }
 
-pub(crate) fn startup_quarantine_dir() -> Option<PathBuf> {
-    data_local_dir().map(|path| path.join("startup-quarantine"))
+/// New backups never share the legacy per-user trust domain.
+#[cfg(target_os = "windows")]
+pub(crate) fn protected_startup_quarantine_dir() -> Result<PathBuf, String> {
+    known_folder(windows::Win32::UI::Shell::CSIDL_COMMON_APPDATA).map(|root| root.join("SysMon-Protected-Startup-v1"))
+}
+
+#[cfg(target_os = "windows")]
+pub(crate) fn startup_folder(common: bool) -> Result<PathBuf, String> {
+    use windows::Win32::UI::Shell::{CSIDL_COMMON_STARTUP, CSIDL_STARTUP};
+    known_folder(if common { CSIDL_COMMON_STARTUP } else { CSIDL_STARTUP })
+}
+
+#[cfg(target_os = "windows")]
+fn known_folder(id: u32) -> Result<PathBuf, String> {
+    use std::os::windows::ffi::OsStringExt;
+    let mut path = [0u16; 260];
+    unsafe { windows::Win32::UI::Shell::SHGetFolderPathW(None, id as i32, None, 0, &mut path) }
+        .map_err(|error| format!("Could not resolve Windows known folder: {error}"))?;
+    let end = path.iter().position(|ch| *ch == 0).unwrap_or(path.len());
+    Ok(std::ffi::OsString::from_wide(&path[..end]).into())
 }
 
 pub(crate) fn timeline_db_path() -> Option<PathBuf> {

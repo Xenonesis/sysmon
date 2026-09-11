@@ -2,7 +2,32 @@ use super::*;
 use rusqlite::{Connection, OptionalExtension, params};
 use std::collections::BTreeSet;
 
+#[cfg(test)]
 pub(super) fn query_window(conn: &Connection, query: TimelineQuery) -> Result<TimelineWindow, String> {
+    query_window_page(conn, query, 0)
+}
+
+pub(super) fn query_selected_window(conn: &Connection, selection: IncidentSelection) -> Result<TimelineWindow, String> {
+    if selection.timestamp_ms < selection.query.start_ms || selection.timestamp_ms > selection.query.end_ms {
+        return Err("The selected incident is outside the displayed range".into());
+    }
+    let window = query_window_page(conn, selection.query, selection.events_offset)?;
+    if let Some(id) = selection.event_id
+        && !window
+            .events
+            .iter()
+            .any(|event| event.id == Some(id) && event.timestamp_ms == selection.timestamp_ms)
+    {
+        return Err("The selected incident is no longer retained; refresh before exporting".into());
+    }
+    Ok(window)
+}
+
+pub(super) fn query_window_page(
+    conn: &Connection,
+    query: TimelineQuery,
+    events_offset: u64,
+) -> Result<TimelineWindow, String> {
     let query = query.validated();
     let mut metrics_statement = conn
         .prepare_cached(
@@ -35,30 +60,41 @@ pub(super) fn query_window(conn: &Connection, query: TimelineQuery) -> Result<Ti
         .prepare_cached(
             "SELECT id, timestamp_ms, kind, source, severity, summary, evidence
              FROM timeline_events WHERE timestamp_ms BETWEEN ?1 AND ?2
-             ORDER BY timestamp_ms DESC LIMIT 500",
+             ORDER BY timestamp_ms DESC, id DESC LIMIT 500 OFFSET ?3",
         )
         .map_err(|error| format!("Could not prepare timeline event query: {error}"))?;
     let events = event_statement
-        .query_map(params![query.start_ms, query.end_ms], |row| {
-            let kind: String = row.get(2)?;
-            Ok(TimelineEvent {
-                id: row.get(0)?,
-                timestamp_ms: row.get(1)?,
-                kind: TimelineEventKind::from_str(&kind),
-                source: row.get(3)?,
-                severity: row.get(4)?,
-                summary: row.get(5)?,
-                evidence: row.get(6)?,
-            })
-        })
+        .query_map(
+            params![query.start_ms, query.end_ms, to_sql_i64(events_offset)],
+            |row| {
+                let kind: String = row.get(2)?;
+                Ok(TimelineEvent {
+                    id: row.get(0)?,
+                    timestamp_ms: row.get(1)?,
+                    kind: TimelineEventKind::from_str(&kind),
+                    source: row.get(3)?,
+                    severity: row.get(4)?,
+                    summary: row.get(5)?,
+                    evidence: row.get(6)?,
+                }
+                .privacy_safe())
+            },
+        )
         .map_err(|error| format!("Could not query timeline events: {error}"))?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|error| format!("Could not decode timeline events: {error}"))?;
+    let total_events = conn
+        .query_row(
+            "SELECT COUNT(*) FROM timeline_events WHERE timestamp_ms BETWEEN ?1 AND ?2",
+            params![query.start_ms, query.end_ms],
+            |row| row.get::<_, i64>(0).map(|count| count as u64),
+        )
+        .map_err(|error| format!("Could not count timeline events: {error}"))?;
 
     // A seven-day window can contain millions of process rows. The UI only needs
     // contributor evidence at the latest sample and around visible events, so
     // fetch those snapshots rather than transferring the full process history.
-    let mut requested_timestamps = BTreeSet::from([query.end_ms]);
+    let mut requested_timestamps = BTreeSet::from([metrics.last().map_or(query.end_ms, |sample| sample.timestamp_ms)]);
     requested_timestamps.extend(events.iter().map(|event| event.timestamp_ms));
     let mut sample_timestamps = BTreeSet::new();
     let mut nearest_statement = conn
@@ -99,7 +135,7 @@ pub(super) fn query_window(conn: &Connection, query: TimelineQuery) -> Result<Ti
                     timestamp_ms: row.get(0)?,
                     pid: row.get(1)?,
                     start_time: from_sql_i64(row.get(2)?),
-                    name: row.get(3)?,
+                    name: super::records::safe_process_name(&row.get::<_, String>(3)?),
                     cpu_pct: row.get(4)?,
                     memory_bytes: from_sql_i64(row.get(5)?),
                     disk_read_bytes: from_sql_i64(row.get(6)?),
@@ -118,6 +154,8 @@ pub(super) fn query_window(conn: &Connection, query: TimelineQuery) -> Result<Ti
         metrics,
         processes,
         events,
+        total_events,
+        events_offset,
     })
 }
 
@@ -125,6 +163,7 @@ pub(crate) fn analyze_window(window: &TimelineWindow, timestamp_ms: i64) -> Inci
     let Some(peak) = window
         .metrics
         .iter()
+        .filter(|sample| sample.timestamp_ms.abs_diff(timestamp_ms) <= 10_000)
         .min_by_key(|sample| sample.timestamp_ms.abs_diff(timestamp_ms))
     else {
         return IncidentAnalysis {
@@ -178,6 +217,16 @@ pub(crate) fn analyze_window(window: &TimelineWindow, timestamp_ms: i64) -> Inci
             contributors: contributors_near(window, peak.timestamp_ms),
         };
     };
+    if comparison.state == crate::diagnostics::ComparisonState::NoMeaningfulChange {
+        return IncidentAnalysis {
+            timestamp_ms: peak.timestamp_ms,
+            title: "No meaningful change".into(),
+            summary: comparison.summary,
+            confidence: comparison.confidence.into(),
+            evidence: comparison.evidence,
+            contributors: Vec::new(),
+        };
+    }
     IncidentAnalysis {
         timestamp_ms: peak.timestamp_ms,
         title: format!("{} change near selected time", comparison.primary_signal),
@@ -192,6 +241,7 @@ fn contributors_near(window: &TimelineWindow, timestamp_ms: i64) -> Vec<Incident
     let nearest = window
         .processes
         .iter()
+        .filter(|process| process.timestamp_ms.abs_diff(timestamp_ms) <= 10_000)
         .min_by_key(|process| process.timestamp_ms.abs_diff(timestamp_ms))
         .map(|process| process.timestamp_ms);
     let Some(nearest) = nearest else {

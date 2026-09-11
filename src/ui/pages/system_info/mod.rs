@@ -55,6 +55,7 @@ mod tests {
                 uptime: 123456,
                 cpu_brand: "12th Gen Intel(R) Core(TM) i9-12900H".to_string(),
                 cpu_count: 14,
+                physical_core_count: None,
                 os_build: Some("22631.3007".to_string()),
                 motherboard: Some("Micro-Star International Co., Ltd. MS-1582".to_string()),
                 bios_version: Some("E1582IMS.10B".to_string()),
@@ -64,11 +65,13 @@ mod tests {
                 CpuCoreInfo {
                     core_id: 0,
                     usage: 12.5,
+                    frequency_mhz: None,
                     name: "Core 0".to_string(),
                 },
                 CpuCoreInfo {
                     core_id: 1,
                     usage: 8.0,
+                    frequency_mhz: None,
                     name: "Core 1".to_string(),
                 },
             ],
@@ -84,7 +87,7 @@ mod tests {
             },
             gpu_info: vec![GpuInfo {
                 name: "NVIDIA GeForce RTX 3070 Ti Laptop GPU".to_string(),
-                utilization: 45.0,
+                utilization: Some(45.0),
                 memory_used: Some(3 * 1024 * 1024 * 1024),
                 memory_total: Some(8 * 1024 * 1024 * 1024),
                 temperature: Some(60),
@@ -124,6 +127,7 @@ mod tests {
                 uptime: 3600,
                 cpu_brand: "AMD EPYC 7763".to_string(),
                 cpu_count: 64,
+                physical_core_count: None,
                 os_build: None,
                 motherboard: None,
                 bios_version: None,
@@ -164,6 +168,7 @@ mod tests {
                 uptime: 999999,
                 cpu_brand: "AMD Ryzen 9 7950X 16-Core Processor".to_string(),
                 cpu_count: 16,
+                physical_core_count: None,
                 os_build: Some("26100.1150".to_string()),
                 motherboard: Some("ASUS ROG CROSSHAIR X670E HERO".to_string()),
                 bios_version: Some("2007".to_string()),
@@ -174,7 +179,7 @@ mod tests {
             gpu_info: vec![
                 GpuInfo {
                     name: "NVIDIA GeForce RTX 4090 #1".to_string(),
-                    utilization: 95.0,
+                    utilization: Some(95.0),
                     memory_used: Some(22 * 1024 * 1024 * 1024),
                     memory_total: Some(24 * 1024 * 1024 * 1024),
                     temperature: Some(78),
@@ -184,7 +189,7 @@ mod tests {
                 },
                 GpuInfo {
                     name: "NVIDIA GeForce RTX 4090 #2".to_string(),
-                    utilization: 12.0,
+                    utilization: Some(12.0),
                     memory_used: Some(2 * 1024 * 1024 * 1024),
                     memory_total: Some(24 * 1024 * 1024 * 1024),
                     temperature: Some(40),
