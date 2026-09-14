@@ -763,8 +763,12 @@ impl SystemMonitorApp {
                         }
                     }
 
-                    let snapshot = crate::snapshot_from_data(&data_clone.read());
-                    let _ = monitoring_events.send(crate::app::events::AppEvent::Snapshot(Box::new(snapshot)));
+                    let ui_snapshot = Arc::new(data_clone.read().clone()); // clone on BACKGROUND thread
+                    let snapshot = crate::snapshot_from_data(&ui_snapshot);
+                    let _ = monitoring_events.send(crate::app::events::AppEvent::Snapshot {
+                        snapshot: Box::new(snapshot),
+                        data_arc: ui_snapshot,
+                    });
 
                     // Process details for the selected row (recompute only when selection changed)
                     let selected_pid = {
@@ -930,7 +934,8 @@ impl SystemMonitorApp {
             timeline,
             timeline_ui: crate::timeline::TimelineUiState::default(),
             telemetry_commands,
-            data,
+            data: data.clone(),
+            data_snapshot: Arc::new(SystemData::default()),
             settings: settings.clone(),
             shared_settings,
             selected_tab: Tab::Overview,
@@ -990,6 +995,9 @@ impl SystemMonitorApp {
             process_tree_view: false,
             affinity_change: None,
             network_socket_search: String::new(),
+            process_cache: crate::monitoring::engine::ProcessListCache::default(),
+            cached_csv_export: None,
+            cached_json_export: None,
             service_page: crate::app::page_state::ServicePageState::default(),
             storage_page: crate::app::page_state::StoragePageState::default(),
             crash_reports: Default::default(),
@@ -1055,6 +1063,7 @@ impl SystemMonitorApp {
             timeline_ui: crate::timeline::TimelineUiState::default(),
             telemetry_commands,
             data,
+            data_snapshot: Arc::new(SystemData::default()),
             settings: settings.clone(),
             shared_settings,
             selected_tab: Tab::Overview,
@@ -1114,6 +1123,9 @@ impl SystemMonitorApp {
             process_tree_view: false,
             affinity_change: None,
             network_socket_search: String::new(),
+            process_cache: crate::monitoring::engine::ProcessListCache::default(),
+            cached_csv_export: None,
+            cached_json_export: None,
             service_page: crate::app::page_state::ServicePageState::default(),
             storage_page: crate::app::page_state::StoragePageState::default(),
             crash_reports: Default::default(),

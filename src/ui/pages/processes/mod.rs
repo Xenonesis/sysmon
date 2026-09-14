@@ -28,10 +28,13 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
         app.process_sort_column = ProcessSortColumn::Memory;
     }
 
-    // Filter and Sort processes upfront
-    let mut filtered_processes = processes::filter_processes(&data.top_processes, &app.process_search);
-    let ascending = app.process_sort_ascending;
-    processes::sort_processes_refs(&mut filtered_processes, app.process_sort_column, ascending);
+    // Filter and Sort processes using cache (recomputes only when telemetry changes or search/sort inputs change)
+    let filtered_processes = app.process_cache.get_filtered_and_sorted(
+        data,
+        &app.process_search,
+        app.process_sort_column,
+        app.process_sort_ascending,
+    );
 
     egui::ScrollArea::vertical().id_salt("process_page").show(ui, |ui| {
         // ── Integrated Toolbar Container ──

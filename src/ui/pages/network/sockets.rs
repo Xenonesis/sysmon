@@ -65,48 +65,58 @@ pub(crate) fn paint_socket_connections(
             ui.add_space(12.0);
         } else {
             // Contained Responsive Socket Table
-            egui::ScrollArea::both()
-                .max_height(340.0)
-                .auto_shrink([false, false])
+            let capped_conns: Vec<_> = filtered_conns.into_iter().take(200).collect();
+            let row_height = 22.0;
+
+            // Sticky header
+            egui::Grid::new("network_sockets_header")
+                .spacing([18.0, 6.0])
+                .min_col_width(55.0)
                 .show(ui, |ui| {
+                    ui.label(
+                        egui::RichText::new("Proto")
+                            .strong()
+                            .color(ThemePalette::text_secondary(is_dark)),
+                    );
+                    ui.label(
+                        egui::RichText::new("Local Address")
+                            .strong()
+                            .color(ThemePalette::text_secondary(is_dark)),
+                    );
+                    ui.label(
+                        egui::RichText::new("Remote Address")
+                            .strong()
+                            .color(ThemePalette::text_secondary(is_dark)),
+                    );
+                    ui.label(
+                        egui::RichText::new("State")
+                            .strong()
+                            .color(ThemePalette::text_secondary(is_dark)),
+                    );
+                    ui.label(
+                        egui::RichText::new("PID")
+                            .strong()
+                            .color(ThemePalette::text_secondary(is_dark)),
+                    );
+                    ui.label(
+                        egui::RichText::new("Process Name")
+                            .strong()
+                            .color(ThemePalette::text_secondary(is_dark)),
+                    );
+                    ui.end_row();
+                });
+
+            // Virtualized rows — only renders visible rows (~15)
+            egui::ScrollArea::vertical()
+                .max_height(310.0)
+                .auto_shrink([false, false])
+                .show_rows(ui, row_height, capped_conns.len(), |ui, row_range| {
                     egui::Grid::new("network_sockets_grid")
                         .striped(true)
                         .spacing([18.0, 6.0])
                         .min_col_width(55.0)
                         .show(ui, |ui| {
-                            ui.label(
-                                egui::RichText::new("Proto")
-                                    .strong()
-                                    .color(ThemePalette::text_secondary(is_dark)),
-                            );
-                            ui.label(
-                                egui::RichText::new("Local Address")
-                                    .strong()
-                                    .color(ThemePalette::text_secondary(is_dark)),
-                            );
-                            ui.label(
-                                egui::RichText::new("Remote Address")
-                                    .strong()
-                                    .color(ThemePalette::text_secondary(is_dark)),
-                            );
-                            ui.label(
-                                egui::RichText::new("State")
-                                    .strong()
-                                    .color(ThemePalette::text_secondary(is_dark)),
-                            );
-                            ui.label(
-                                egui::RichText::new("PID")
-                                    .strong()
-                                    .color(ThemePalette::text_secondary(is_dark)),
-                            );
-                            ui.label(
-                                egui::RichText::new("Process Name")
-                                    .strong()
-                                    .color(ThemePalette::text_secondary(is_dark)),
-                            );
-                            ui.end_row();
-
-                            for conn in filtered_conns.iter().take(200) {
+                            for conn in &capped_conns[row_range] {
                                 let proto_color = if conn.protocol.starts_with("TCP") {
                                     ThemePalette::ACCENT_PRIMARY
                                 } else {

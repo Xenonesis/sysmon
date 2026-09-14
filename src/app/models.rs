@@ -642,6 +642,16 @@ pub(crate) struct SystemData {
     pub(crate) battery_health: crate::power::BatteryHealth,
 }
 
+impl std::fmt::Debug for SystemData {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SystemData")
+            .field("sampled_at", &self.sampled_at)
+            .field("cpu_usage", &self.cpu_usage)
+            .field("memory_percentage", &self.memory_percentage)
+            .finish_non_exhaustive()
+    }
+}
+
 impl Default for SystemData {
     fn default() -> Self {
         Self {

@@ -98,10 +98,10 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ctx: &egui::Context, data:
             let row_height = 26.0;
 
             if !app.process_tree_view {
-                // Filter & Sort processes
-                let mut filtered_processes = processes::filter_processes(&data.top_processes, &app.process_search);
-                processes::sort_processes_refs(
-                    &mut filtered_processes,
+                // Filter & Sort processes using cache
+                let filtered_processes = app.process_cache.get_filtered_and_sorted(
+                    data,
+                    &app.process_search,
                     app.process_sort_column,
                     app.process_sort_ascending,
                 );

@@ -46,6 +46,8 @@ impl SystemMonitor {
 
 pub(crate) struct SystemMonitorApp {
     pub(crate) data: Arc<RwLock<SystemData>>,
+    /// Cheap read-only snapshot for the UI thread — just an Arc clone per frame.
+    pub(crate) data_snapshot: Arc<SystemData>,
     pub(crate) quit_requested: bool,
     pub(crate) settings_save_error: Option<String>,
     pub(crate) settings_integration_error: Option<String>,
@@ -116,6 +118,12 @@ pub(crate) struct SystemMonitorApp {
     pub(crate) process_tree_view: bool,
     pub(crate) affinity_change: Option<(crate::processes::ProcessIdentity, crate::processes::AffinityPreset)>,
     pub(crate) network_socket_search: String,
+    /// Cached filtered+sorted process list to avoid O(N log N) work every frame.
+    pub(crate) process_cache: ProcessListCache,
+    /// Cached CSV export result — computed once when the export window opens.
+    pub(crate) cached_csv_export: Option<Result<String, String>>,
+    /// Cached JSON export result — computed once when the export window opens.
+    pub(crate) cached_json_export: Option<Result<String, String>>,
     #[allow(dead_code)]
     #[cfg(target_os = "windows")]
     pub(crate) tray_icon: Option<tray_icon::TrayIcon>,
@@ -152,6 +160,82 @@ pub(crate) struct SystemMonitorApp {
     pub(crate) widget_open: bool,
     /// Whether we have already applied the start_minimized setting on the first frame.
     pub(crate) start_minimized_applied: bool,
+}
+
+/// Caches the filtered + sorted process list to avoid per-frame O(N log N) work.
+pub(crate) struct ProcessListCache {
+    /// `sampled_at` of the SystemData that was last used.
+    pub snapshot_time: std::time::SystemTime,
+    /// Last search term used for filtering.
+    pub search_term: String,
+    /// Last sort column.
+    pub sort_column: crate::processes::ProcessSortColumn,
+    /// Last sort direction.
+    pub sort_ascending: bool,
+    /// Cached sorted indices into `top_processes`.
+    pub sorted_indices: Vec<usize>,
+}
+
+impl Default for ProcessListCache {
+    fn default() -> Self {
+        Self {
+            snapshot_time: std::time::SystemTime::UNIX_EPOCH,
+            search_term: String::new(),
+            sort_column: crate::processes::ProcessSortColumn::Memory,
+            sort_ascending: false,
+            sorted_indices: Vec::new(),
+        }
+    }
+}
+
+impl ProcessListCache {
+    pub fn is_stale(
+        &self,
+        data_time: std::time::SystemTime,
+        search: &str,
+        col: crate::processes::ProcessSortColumn,
+        asc: bool,
+    ) -> bool {
+        self.snapshot_time != data_time
+            || self.search_term != search
+            || self.sort_column != col
+            || self.sort_ascending != asc
+    }
+
+    pub fn get_filtered_and_sorted<'a>(
+        &mut self,
+        data: &'a SystemData,
+        search: &str,
+        col: crate::processes::ProcessSortColumn,
+        asc: bool,
+    ) -> Vec<&'a crate::processes::ProcessInfo> {
+        if self.is_stale(data.sampled_at, search, col, asc) {
+            let mut filtered_refs = crate::processes::filter_processes(&data.top_processes, search);
+            crate::processes::sort_processes_refs(&mut filtered_refs, col, asc);
+            let base_ptr = data.top_processes.as_ptr() as usize;
+            let item_size = std::mem::size_of::<crate::processes::ProcessInfo>();
+            self.sorted_indices = if item_size > 0 && !data.top_processes.is_empty() {
+                filtered_refs
+                    .iter()
+                    .map(|p| {
+                        let p_ptr = *p as *const crate::processes::ProcessInfo as usize;
+                        (p_ptr - base_ptr) / item_size
+                    })
+                    .collect()
+            } else {
+                Vec::new()
+            };
+            self.snapshot_time = data.sampled_at;
+            self.search_term = search.to_string();
+            self.sort_column = col;
+            self.sort_ascending = asc;
+        }
+
+        self.sorted_indices
+            .iter()
+            .filter_map(|&idx| data.top_processes.get(idx))
+            .collect()
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

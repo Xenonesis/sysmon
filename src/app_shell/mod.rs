@@ -70,13 +70,14 @@ pub(crate) fn logic_shell(app: &mut SystemMonitorApp, ctx: &egui::Context) {
                     item.set_checked(paused);
                 }
             }
-            app::events::AppEvent::Snapshot(snapshot) => {
+            app::events::AppEvent::Snapshot { snapshot, data_arc } => {
                 if let Err(error) = app.session_recorder.record(&snapshot) {
                     app.session_status = Some(format!("Session recording failed: {error}"));
                 }
                 let snapshot = *snapshot;
                 app.timeline.record_snapshot(snapshot.clone());
                 app.latest_snapshot = Some(snapshot);
+                app.data_snapshot = data_arc; // Arc swap — ~1ns!
             }
             app::events::AppEvent::ActionCompleted {
                 command,
@@ -197,7 +198,7 @@ pub(crate) fn logic_shell(app: &mut SystemMonitorApp, ctx: &egui::Context) {
             Err(error) => format!("Incident export failed: {error}"),
         });
     }
-    let active_alerts = app.data.read().alerts.clone();
+    let active_alerts = app.data_snapshot.alerts.clone();
     if let Some(result) = app.timeline.take_clear_result() {
         app.timeline_ui.message = Some(match result {
             Ok(()) => "Timeline cleared; history storage acknowledged the removal.".into(),
@@ -230,7 +231,7 @@ pub(crate) fn logic_shell(app: &mut SystemMonitorApp, ctx: &egui::Context) {
     app.timeline_ui.active_alert_keys = active_keys;
     if app.timeline.status().enabled {
         let services = {
-            let data = app.data.read();
+            let data = &app.data_snapshot;
             (!data.services.is_empty()).then(|| {
                 data.services
                     .iter()
@@ -329,7 +330,7 @@ pub(crate) fn logic_shell(app: &mut SystemMonitorApp, ctx: &egui::Context) {
     // Update tray tooltip with CPU/RAM usage
     #[cfg(target_os = "windows")]
     if let Some(tray) = &mut app.tray_icon {
-        let data = app.data.read();
+        let data = &app.data_snapshot;
         let tooltip = if data.monitoring_paused {
             format!(
                 "⏸ SysMon Paused — CPU {:.0}% | RAM {:.0}%",
@@ -411,10 +412,9 @@ pub(crate) fn logic_shell(app: &mut SystemMonitorApp, ctx: &egui::Context) {
         }
     }
 
-    // Clone a point-in-time snapshot of SystemData so the lock is released instantly.
-    // This completely eliminates reader-writer lock contention and deadlocks between the UI
-    // thread and background monitoring / worker threads.
-    let data = app.data.read().clone();
+    // Arc-clone a point-in-time snapshot — just a pointer copy (~1ns).
+    // The heavy clone now happens on the background monitoring thread instead.
+    let data = app.data_snapshot.clone();
 
     // Handle process kill actions
     if let Some(pid) = app.selected_process_pid.take() {
@@ -493,14 +493,14 @@ pub(crate) fn logic_shell(app: &mut SystemMonitorApp, ctx: &egui::Context) {
     if !ctx.embed_viewports() {
         crate::ui::hud::show_hud(app, &ctx, &data);
     }
-    ctx.data_mut(|state| state.insert_temp(egui::Id::new("render_snapshot"), std::sync::Arc::new(data)));
+    ctx.data_mut(|state| state.insert_temp(egui::Id::new("render_snapshot"), data));
 }
 
 pub(crate) fn ui_shell(app: &mut SystemMonitorApp, ui: &mut egui::Ui) {
     let ctx = ui.ctx().clone();
     let data = ctx
         .data(|state| state.get_temp::<std::sync::Arc<SystemData>>(egui::Id::new("render_snapshot")))
-        .unwrap_or_else(|| std::sync::Arc::new(app.data.read().clone()));
+        .unwrap_or_else(|| app.data_snapshot.clone());
     // Show update notification banner
     let update_info_opt = app.update_info_share.lock().clone();
     if let Some(update_info) = update_info_opt
@@ -639,7 +639,10 @@ pub(crate) fn ui_shell(app: &mut SystemMonitorApp, ui: &mut egui::Ui) {
     // CSV Export window
     let mut show_export_csv = app.show_export_csv;
     if show_export_csv {
-        let csv_result = SystemMonitorApp::export_to_csv(&data);
+        if app.cached_csv_export.is_none() {
+            app.cached_csv_export = Some(SystemMonitorApp::export_to_csv(&data).map_err(|e| e.to_string()));
+        }
+        let csv_result = app.cached_csv_export.as_ref().unwrap();
         egui::Window::new("Export to CSV")
             .open(&mut show_export_csv)
             .resizable(true)
@@ -668,7 +671,7 @@ pub(crate) fn ui_shell(app: &mut SystemMonitorApp, ui: &mut egui::Ui) {
                                     .set_file_name(format!("sysmon_export_{}.csv", date_str))
                                     .add_filter("CSV File", &["csv"])
                                     .save_file()
-                                    && std::fs::write(&path, &csv_data).is_ok()
+                                    && std::fs::write(&path, csv_data.as_bytes()).is_ok()
                                 {
                                     #[cfg(target_os = "windows")]
                                     play_success_sound();
@@ -684,13 +687,21 @@ pub(crate) fn ui_shell(app: &mut SystemMonitorApp, ui: &mut egui::Ui) {
                     }
                 }
             });
+    } else {
+        app.cached_csv_export = None;
     }
     app.show_export_csv = show_export_csv;
+    if !app.show_export_csv {
+        app.cached_csv_export = None;
+    }
 
     // JSON Export window
     let mut show_export = app.show_export;
     if show_export {
-        let json_result = app.export_data_to_json(&data);
+        if app.cached_json_export.is_none() {
+            app.cached_json_export = Some(app.export_data_to_json(&data).map_err(|e| e.to_string()));
+        }
+        let json_result = app.cached_json_export.as_ref().unwrap();
         egui::Window::new("Export Data")
             .open(&mut show_export)
             .resizable(true)
@@ -719,7 +730,7 @@ pub(crate) fn ui_shell(app: &mut SystemMonitorApp, ui: &mut egui::Ui) {
                                     .set_file_name(format!("sysmon_export_{}.json", date_str))
                                     .add_filter("JSON File", &["json"])
                                     .save_file()
-                                    && std::fs::write(&path, &json_data).is_ok()
+                                    && std::fs::write(&path, json_data.as_bytes()).is_ok()
                                 {
                                     #[cfg(target_os = "windows")]
                                     play_success_sound();
@@ -735,8 +746,13 @@ pub(crate) fn ui_shell(app: &mut SystemMonitorApp, ui: &mut egui::Ui) {
                     }
                 }
             });
+    } else {
+        app.cached_json_export = None;
     }
     app.show_export = show_export;
+    if !app.show_export {
+        app.cached_json_export = None;
+    }
 
     // Alerts window
     let mut show_alerts = app.show_alerts;
