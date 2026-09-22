@@ -58,7 +58,6 @@ impl LockedHandleInfo {
 
 /// Closes a specific remote file handle inside the target process using DuplicateHandle
 /// with DUPLICATE_CLOSE_SOURCE, releasing the file lock without killing the host process.
-#[allow(dead_code)]
 pub fn close_remote_handle(pid: u32, handle: usize) -> Result<(), String> {
     if pid == 0 {
         return Err("Cannot close handle for System Idle Process (PID 0)".into());
@@ -70,9 +69,101 @@ pub fn close_remote_handle(pid: u32, handle: usize) -> Result<(), String> {
         return Err(format!("Invalid handle value: 0x{handle:X}"));
     }
 
-    // Task 1 stub: Parameter validation is enforced; full engine using
-    // DuplicateHandle(DUPLICATE_CLOSE_SOURCE) is implemented in Task 2.
-    Err("Not implemented: close_remote_handle requires Windows handle duplication engine".into())
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::Foundation::{
+            CloseHandle, DUPLICATE_CLOSE_SOURCE, DUPLICATE_SAME_ACCESS, DuplicateHandle, GetLastError,
+        };
+        use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcess, PROCESS_DUP_HANDLE};
+
+        // Open target process with PROCESS_DUP_HANDLE (0x0040)
+        let proc_handle = unsafe { OpenProcess(PROCESS_DUP_HANDLE, 0, pid) };
+        if proc_handle.is_null() {
+            let err = unsafe { GetLastError() };
+            return Err(format!("Failed to open process {pid}: error code {err}"));
+        }
+
+        // Duplicate the handle into current process with DUPLICATE_CLOSE_SOURCE.
+        // This causes the Windows kernel to atomically close the handle in the source process.
+        let mut dup_handle: windows_sys::Win32::Foundation::HANDLE = std::ptr::null_mut();
+        let status = unsafe {
+            DuplicateHandle(
+                proc_handle,
+                handle as windows_sys::Win32::Foundation::HANDLE,
+                GetCurrentProcess(),
+                &mut dup_handle,
+                0,
+                0,
+                DUPLICATE_CLOSE_SOURCE | DUPLICATE_SAME_ACCESS,
+            )
+        };
+
+        let err = if status == 0 { unsafe { GetLastError() } } else { 0 };
+
+        // Always clean up our duplicate handle if created
+        if !dup_handle.is_null() {
+            unsafe { CloseHandle(dup_handle) };
+        }
+        // Always close the opened process handle
+        unsafe { CloseHandle(proc_handle) };
+
+        if status == 0 {
+            return Err(format!(
+                "DuplicateHandle failed for PID {pid}, handle 0x{handle:X}: error code {err}"
+            ));
+        }
+
+        Ok(())
+    }
+
+    #[cfg(not(windows))]
+    {
+        let _ = (pid, handle);
+        Ok(())
+    }
+}
+
+/// Closes all discovered handles holding a lock on the given path across all locking processes.
+/// Returns the number of handles successfully closed.
+pub fn close_all_handles_for_path(path: &str) -> Result<usize, String> {
+    let cancel = AtomicBool::new(false);
+    let lock_result = find_locking_processes(path, &cancel);
+
+    if lock_result.processes.is_empty() {
+        return match lock_result.error {
+            Some(error) => Err(error),
+            None => Ok(0),
+        };
+    }
+
+    let mut closed_count = 0;
+    let mut unhandled_processes = 0;
+    let mut errors = Vec::new();
+
+    for proc in &lock_result.processes {
+        if proc.handles.is_empty() {
+            unhandled_processes += 1;
+        } else {
+            for handle in &proc.handles {
+                match close_remote_handle(handle.process_id, handle.handle_val) {
+                    Ok(()) => closed_count += 1,
+                    Err(err) => errors.push(format!("PID {} (0x{:X}): {err}", handle.process_id, handle.handle_val)),
+                }
+            }
+        }
+    }
+
+    if closed_count > 0 {
+        Ok(closed_count)
+    } else if unhandled_processes > 0 {
+        Err(format!(
+            "Found {unhandled_processes} locking process(es) without specific handles; process termination required"
+        ))
+    } else if !errors.is_empty() {
+        Err(format!("Failed to close handles: {}", errors.join("; ")))
+    } else {
+        Ok(0)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

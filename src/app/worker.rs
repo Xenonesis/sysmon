@@ -99,6 +99,20 @@ pub(crate) fn run_action_worker(commands: Receiver<ActionCommand>, events: Sende
                     Ok(message)
                 }
             }
+            ActionCommand::CloseFileHandle { pid, handle, path } => {
+                if pid <= 4 {
+                    Err(format!("Cannot close handle on critical system process (PID {pid})"))
+                } else if !crate::storage::file_locks::LockedHandleInfo::is_valid_handle_value(handle) {
+                    Err(format!("Invalid handle value: 0x{handle:X}"))
+                } else {
+                    crate::storage::file_locks::close_remote_handle(pid, handle)
+                        .map(|_| format!("Closed handle 0x{handle:X} in process {pid} for {path}"))
+                }
+            }
+            ActionCommand::UnlockAllProcessesForPath { path } => {
+                crate::storage::file_locks::close_all_handles_for_path(&path)
+                    .map(|count| format!("Unlocked {path}: closed {count} handle(s)"))
+            }
         };
         let undo = if result.is_ok() {
             dynamic_undo.or(plan.undo.clone())

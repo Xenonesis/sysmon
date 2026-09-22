@@ -70,6 +70,16 @@ pub(crate) enum ActionCommand {
         review: ReviewedStartupRestore,
     },
     ReclaimStorageCaches(ReviewedCleanup),
+    #[allow(dead_code)]
+    CloseFileHandle {
+        pid: u32,
+        handle: usize,
+        path: String,
+    },
+    #[allow(dead_code)]
+    UnlockAllProcessesForPath {
+        path: String,
+    },
 }
 
 impl ActionCommand {
@@ -90,6 +100,12 @@ impl ActionCommand {
                 review.size_bytes(),
                 review.category_ids().join(", ")
             ),
+            Self::CloseFileHandle { pid, handle, path } => {
+                format!("Close handle 0x{handle:X} in process {pid} for {path}")
+            }
+            Self::UnlockAllProcessesForPath { path } => {
+                format!("Unlock all locking processes for {path}")
+            }
             _ => format!("{:?}", self),
         }
     }

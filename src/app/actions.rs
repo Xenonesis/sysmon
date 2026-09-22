@@ -195,6 +195,22 @@ impl ActionPlan {
                     None,
                 )
             }
+            ActionCommand::CloseFileHandle { pid, handle, path } => Self::new(
+                command.clone(),
+                "Close remote file handle".into(),
+                format!("Close handle 0x{handle:X} in process {pid} for {path}"),
+                RiskLevel::Medium,
+                true,
+                None,
+            ),
+            ActionCommand::UnlockAllProcessesForPath { path } => Self::new(
+                command.clone(),
+                "Unlock file path".into(),
+                format!("Close all locking handles for {path}"),
+                RiskLevel::Medium,
+                true,
+                None,
+            ),
         }
     }
 
@@ -284,5 +300,47 @@ mod tests {
         let record = ActionAuditRecord::from_result(&plan, &Err("access denied".into()));
         assert!(!record.succeeded);
         assert!(!record.reversible);
+    }
+
+    #[test]
+    fn close_file_handle_action_plan_properties() {
+        let cmd = ActionCommand::CloseFileHandle {
+            pid: 1234,
+            handle: 0x44,
+            path: "C:\\test\\file.txt".into(),
+        };
+        let plan = ActionPlan::from_command(cmd);
+        assert_eq!(plan.title, "Close remote file handle");
+        assert_eq!(plan.risk, RiskLevel::Medium);
+        assert!(!plan.reversible);
+        assert!(plan.undo.is_none());
+
+        let record = ActionAuditRecord::from_result(
+            &plan,
+            &Ok("Closed handle 0x44 in process 1234 for C:\\test\\file.txt".into()),
+        );
+        assert_eq!(record.action, "Close remote file handle");
+        assert_eq!(record.risk, RiskLevel::Medium);
+        assert!(!record.reversible);
+        assert!(record.succeeded);
+    }
+
+    #[test]
+    fn unlock_all_processes_for_path_action_plan_properties() {
+        let cmd = ActionCommand::UnlockAllProcessesForPath {
+            path: "C:\\test\\file.txt".into(),
+        };
+        let plan = ActionPlan::from_command(cmd);
+        assert_eq!(plan.title, "Unlock file path");
+        assert_eq!(plan.risk, RiskLevel::Medium);
+        assert!(!plan.reversible);
+        assert!(plan.undo.is_none());
+
+        let record =
+            ActionAuditRecord::from_result(&plan, &Ok("Unlocked C:\\test\\file.txt: closed 1 handle(s)".into()));
+        assert_eq!(record.action, "Unlock file path");
+        assert_eq!(record.risk, RiskLevel::Medium);
+        assert!(!record.reversible);
+        assert!(record.succeeded);
     }
 }

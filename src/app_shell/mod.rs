@@ -143,6 +143,10 @@ pub(crate) fn logic_shell(app: &mut SystemMonitorApp, ctx: &egui::Context) {
                     app::commands::ActionCommand::ReclaimStorageCaches(_) => {
                         app.storage_page.cleanup_finished(record.message.clone());
                     }
+                    app::commands::ActionCommand::CloseFileHandle { .. }
+                    | app::commands::ActionCommand::UnlockAllProcessesForPath { .. } => {
+                        app.storage_page.locks_invalidated();
+                    }
                     _ => {}
                 }
                 if matches!(

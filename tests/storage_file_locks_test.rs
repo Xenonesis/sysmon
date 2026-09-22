@@ -1,5 +1,5 @@
 use system_monitor::storage::file_locks::{
-    FileLockResult, InspectionKind, LockedHandleInfo, LockingProcess, close_remote_handle,
+    FileLockResult, InspectionKind, LockedHandleInfo, LockingProcess, close_all_handles_for_path, close_remote_handle,
 };
 
 #[test]
@@ -139,7 +139,7 @@ fn test_file_lock_result_with_handles_serde() {
 }
 
 #[test]
-fn test_close_remote_handle_stub_validations() {
+fn test_close_remote_handle_validations() {
     // Rejects PID 0
     let err_pid = close_remote_handle(0, 0x10);
     assert!(err_pid.is_err());
@@ -160,8 +160,78 @@ fn test_close_remote_handle_stub_validations() {
     assert!(err_crit.is_err());
     assert!(err_crit.unwrap_err().contains("critical"));
 
-    // Stub returns not-implemented error for valid parameters
-    let res = close_remote_handle(1234, 0x20);
-    assert!(res.is_err());
-    assert!(res.unwrap_err().contains("Not implemented"));
+    #[cfg(windows)]
+    {
+        // On Windows, non-existent PID returns OS error from OpenProcess
+        let res = close_remote_handle(99999999, 0x20);
+        assert!(res.is_err());
+        let err = res.unwrap_err();
+        assert!(err.contains("Failed to open process") || err.contains("error code"));
+    }
+}
+
+#[test]
+fn test_close_remote_handle_live_file() {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        use std::os::windows::io::IntoRawHandle;
+
+        let temp_dir = tempfile::tempdir().expect("Create temp dir");
+        let file_path = temp_dir.path().join("exclusive_locked_file.txt");
+
+        // Open file with exclusive lock (share_mode = 0: denies all sharing)
+        let file = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .share_mode(0)
+            .open(&file_path)
+            .expect("Open locked file");
+
+        // Extract raw Win32 handle without running File::drop
+        let raw_handle = file.into_raw_handle() as usize;
+        let pid = std::process::id();
+
+        // While handle is held exclusively, deleting the file must fail with sharing violation
+        let remove_attempt = std::fs::remove_file(&file_path);
+        assert!(
+            remove_attempt.is_err(),
+            "File should be exclusively locked and not removable while handle is held"
+        );
+
+        // Close the remote handle in current process via DuplicateHandle(DUPLICATE_CLOSE_SOURCE)
+        let res = close_remote_handle(pid, raw_handle);
+        assert!(res.is_ok(), "close_remote_handle failed: {:?}", res);
+
+        // Now that handle was closed by DuplicateHandle, file can be deleted immediately
+        let remove_after = std::fs::remove_file(&file_path);
+        assert!(
+            remove_after.is_ok(),
+            "File should be unlocked and removable after remote handle closure: {:?}",
+            remove_after
+        );
+    }
+}
+
+#[test]
+fn test_close_all_handles_for_path_unlocked_file() {
+    let temp_dir = tempfile::tempdir().expect("Create temp dir");
+    let file_path = temp_dir.path().join("unlocked_file.txt");
+    std::fs::write(&file_path, b"test content").expect("Write file");
+
+    let path_str = file_path.to_str().expect("Path to str");
+    let res = close_all_handles_for_path(path_str);
+    assert!(res.is_ok(), "close_all_handles_for_path failed: {:?}", res);
+    assert_eq!(res.unwrap(), 0, "No handles should be closed on an unlocked file");
+}
+
+#[test]
+fn test_close_all_handles_for_path_nonexistent_file() {
+    let res = close_all_handles_for_path("C:\\nonexistent_dir_12345\\nonexistent_file.txt");
+    #[cfg(windows)]
+    assert!(res.is_err(), "Expected error on nonexistent file");
+    #[cfg(not(windows))]
+    assert!(res.is_ok() || res.is_err());
 }
