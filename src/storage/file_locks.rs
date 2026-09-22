@@ -65,7 +65,7 @@ impl LockedHandleInfo {
 pub fn query_process_name(pid: u32) -> Option<String> {
     use windows_sys::Win32::Foundation::CloseHandle;
     use windows_sys::Win32::System::Threading::{
-        OpenProcess, QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION,
+        OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
     };
 
     if pid <= 4 {
@@ -103,7 +103,7 @@ pub fn query_process_name(_pid: u32) -> Option<String> {
 pub fn terminate_locking_process(pid: u32) -> Result<(), String> {
     use windows_sys::Win32::Foundation::{CloseHandle, GetLastError};
     use windows_sys::Win32::System::Threading::{
-        IsProcessCritical, OpenProcess, TerminateProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_TERMINATE,
+        IsProcessCritical, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_TERMINATE, TerminateProcess,
     };
 
     if pid <= 4 {
@@ -132,7 +132,9 @@ pub fn terminate_locking_process(pid: u32) -> Result<(), String> {
 
     if proc_handle.is_null() {
         let err = unsafe { GetLastError() };
-        return Err(format!("Failed to open process {pid} for termination: error code {err}"));
+        return Err(format!(
+            "Failed to open process {pid} for termination: error code {err}"
+        ));
     }
 
     let success = unsafe { TerminateProcess(proc_handle, 1) };
@@ -168,7 +170,9 @@ pub fn close_remote_handle(pid: u32, handle: usize) -> Result<(), String> {
         if let Some(name) = query_process_name(pid)
             && LockedHandleInfo::is_critical_process(&name, pid)
         {
-            return Err(format!("Cannot close handle on critical system process {name} (PID {pid})"));
+            return Err(format!(
+                "Cannot close handle on critical system process {name} (PID {pid})"
+            ));
         }
 
         use windows_sys::Win32::Foundation::{

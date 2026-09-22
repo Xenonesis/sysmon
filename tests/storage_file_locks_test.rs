@@ -258,12 +258,30 @@ fn test_critical_process_rejection_in_batch_unlock() {
 
 #[test]
 fn test_critical_process_with_path_and_pid() {
-    assert!(LockedHandleInfo::is_critical_process("C:\\Windows\\System32\\csrss.exe", 500));
-    assert!(LockedHandleInfo::is_critical_process("C:\\Windows\\System32\\CSRSS.EXE", 500));
-    assert!(LockedHandleInfo::is_critical_process("C:\\Windows\\System32\\lsass.exe", 600));
-    assert!(LockedHandleInfo::is_critical_process("C:\\Windows\\System32\\services.exe", 700));
-    assert!(LockedHandleInfo::is_critical_process("C:\\Windows\\System32\\winlogon.exe", 800));
-    assert!(LockedHandleInfo::is_critical_process("C:\\Windows\\System32\\smss.exe", 300));
+    assert!(LockedHandleInfo::is_critical_process(
+        "C:\\Windows\\System32\\csrss.exe",
+        500
+    ));
+    assert!(LockedHandleInfo::is_critical_process(
+        "C:\\Windows\\System32\\CSRSS.EXE",
+        500
+    ));
+    assert!(LockedHandleInfo::is_critical_process(
+        "C:\\Windows\\System32\\lsass.exe",
+        600
+    ));
+    assert!(LockedHandleInfo::is_critical_process(
+        "C:\\Windows\\System32\\services.exe",
+        700
+    ));
+    assert!(LockedHandleInfo::is_critical_process(
+        "C:\\Windows\\System32\\winlogon.exe",
+        800
+    ));
+    assert!(LockedHandleInfo::is_critical_process(
+        "C:\\Windows\\System32\\smss.exe",
+        300
+    ));
     // Any process with PID <= 4 is critical
     assert!(LockedHandleInfo::is_critical_process("random_name.exe", 4));
     assert!(LockedHandleInfo::is_critical_process("unknown.exe", 0));
@@ -280,7 +298,10 @@ fn test_service_process_actionable_guidance_in_batch_unlock() {
         handles: Vec::new(),
     };
     let res = unlock_locking_processes("C:\\test\\printer_spool.dat", &[proc]);
-    assert!(res.is_err(), "Service process with empty handles should not be blindly terminated");
+    assert!(
+        res.is_err(),
+        "Service process with empty handles should not be blindly terminated"
+    );
     let err = res.unwrap_err();
     assert!(
         err.contains("Windows service process cannot be terminated via batch unlock")
