@@ -106,6 +106,7 @@ mod tests {
                 name: "test_process.exe".into(),
                 app_type: "Desktop App".into(),
                 is_service: false,
+                handles: Vec::new(),
             }],
             error: None,
             files_scanned: 1,
@@ -113,6 +114,7 @@ mod tests {
             partial: false,
             cancelled: false,
             coverage: Vec::new(),
+            handles: Vec::new(),
         });
 
         let ctx = egui::Context::default();
