@@ -6,6 +6,75 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
+/// Detailed information about an individual file handle held by a process.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct LockedHandleInfo {
+    pub process_id: u32,
+    pub handle_val: usize,
+    pub file_path: String,
+    pub access_mask: u32,
+}
+#[allow(dead_code)]
+impl LockedHandleInfo {
+    pub fn new(process_id: u32, handle_val: usize, file_path: impl Into<String>, access_mask: u32) -> Self {
+        Self {
+            process_id,
+            handle_val,
+            file_path: file_path.into(),
+            access_mask,
+        }
+    }
+
+    /// Validates whether the handle value and process ID are syntactically valid on Windows.
+    /// Handles cannot be 0 (NULL) or INVALID_HANDLE_VALUE (usize::MAX or 0xFFFF_FFFF),
+    /// and PID 0 is the System Idle Process.
+    pub fn is_valid(&self) -> bool {
+        Self::is_valid_pid(self.process_id) && Self::is_valid_handle_value(self.handle_val)
+    }
+
+    /// Checks if a PID is valid for handle operations (must not be PID 0).
+    pub fn is_valid_pid(pid: u32) -> bool {
+        pid != 0
+    }
+
+    /// Checks if a handle value is valid (non-null and not INVALID_HANDLE_VALUE).
+    pub fn is_valid_handle_value(handle_val: usize) -> bool {
+        handle_val != 0 && handle_val != usize::MAX && handle_val != 0xFFFF_FFFF
+    }
+
+    /// Checks if the process is a protected Windows system process that must never be mutated.
+    pub fn is_critical_process(name: &str, pid: u32) -> bool {
+        if pid <= 4 {
+            return true;
+        }
+        let clean = name.trim().to_lowercase();
+        let stem = clean.strip_suffix(".exe").unwrap_or(&clean);
+        matches!(
+            stem,
+            "idle" | "system" | "csrss" | "smss" | "lsass" | "services" | "winlogon"
+        )
+    }
+}
+
+/// Closes a specific remote file handle inside the target process using DuplicateHandle
+/// with DUPLICATE_CLOSE_SOURCE, releasing the file lock without killing the host process.
+#[allow(dead_code)]
+pub fn close_remote_handle(pid: u32, handle: usize) -> Result<(), String> {
+    if pid == 0 {
+        return Err("Cannot close handle for System Idle Process (PID 0)".into());
+    }
+    if pid <= 4 {
+        return Err(format!("Cannot close handle on critical system process (PID {pid})"));
+    }
+    if !LockedHandleInfo::is_valid_handle_value(handle) {
+        return Err(format!("Invalid handle value: 0x{handle:X}"));
+    }
+
+    // Task 1 stub: Parameter validation is enforced; full engine using
+    // DuplicateHandle(DUPLICATE_CLOSE_SOURCE) is implemented in Task 2.
+    Err("Not implemented: close_remote_handle requires Windows handle duplication engine".into())
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct LockingProcess {
     pub identity: Option<ProcessIdentity>,
@@ -13,6 +82,8 @@ pub struct LockingProcess {
     pub name: String,
     pub app_type: String,
     pub is_service: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub handles: Vec<LockedHandleInfo>,
 }
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum InspectionKind {
@@ -32,7 +103,10 @@ pub struct FileLockResult {
     pub partial: bool,
     pub cancelled: bool,
     pub coverage: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub handles: Vec<LockedHandleInfo>,
 }
+
 impl FileLockResult {
     fn new(path: &str) -> Self {
         Self {
@@ -48,6 +122,7 @@ impl FileLockResult {
                 "No result guarantees safe deletion or device ejection; users may change immediately after inspection."
                     .into(),
             ],
+            handles: Vec::new(),
         }
     }
     fn gap(&mut self, message: String) {
@@ -350,6 +425,7 @@ fn restart_manager_users(paths: &[PathBuf], cancel: &AtomicBool) -> Result<Vec<L
                         }
                         .into(),
                         is_service: matches!(info.kind, 3 | 1000),
+                        handles: Vec::new(),
                     }
                 })
                 .collect());
@@ -426,6 +502,7 @@ fn volume_users(path: &Path) -> Result<Vec<LockingProcess>, String> {
             name: format!("PID {pid}"),
             app_type: "Native volume handle user (identity unavailable; not an ejection veto)".into(),
             is_service: false,
+            handles: Vec::new(),
         })
         .collect())
 }
