@@ -124,4 +124,102 @@ mod tests {
         .textures_delta
         .clear();
     }
+
+    #[derive(Debug)]
+    struct DummyDroppedFile(std::path::PathBuf);
+    impl egui::DroppedFile for DummyDroppedFile {
+        fn path(&self) -> &std::path::Path {
+            &self.0
+        }
+        fn bytes(&self) -> Result<Vec<u8>, String> {
+            Ok(Vec::new())
+        }
+    }
+
+    #[test]
+    fn test_storage_page_drag_and_drop_file_inspection() {
+        let mut app = crate::SystemMonitorApp::test_app();
+        let data = SystemData::default();
+        let ctx = egui::Context::default();
+
+        let dummy = std::sync::Arc::new(DummyDroppedFile(std::path::PathBuf::from("C:\\test\\dropped_file.exe")));
+        let mut raw_input = egui::RawInput::default();
+        raw_input.dropped_files.push(dummy);
+
+        ctx.run_ui(raw_input, |ui| {
+            egui::CentralPanel::default().show(ui, |ui| show(&mut app, ui, &data));
+        })
+        .textures_delta
+        .clear();
+
+        assert_eq!(app.storage_page.lock_path, "C:\\test\\dropped_file.exe");
+        assert!(app.storage_page.lock_busy() || app.storage_page.lock_result.is_some());
+    }
+
+    #[test]
+    fn test_storage_page_render_with_handles_and_unlock_buttons() {
+        let mut app = crate::SystemMonitorApp::test_app();
+        let data = SystemData::default();
+
+        let handle1 = crate::storage::file_locks::LockedHandleInfo::new(1234, 0x40, "C:\\test\\locked.dll", 0x100);
+        let handle2 = crate::storage::file_locks::LockedHandleInfo::new(1234, 0x44, "C:\\test\\locked_sub.dll", 0x200);
+
+        app.storage_page.lock_result = Some(crate::storage::file_locks::FileLockResult {
+            path: "C:\\test\\locked.dll".into(),
+            kind: crate::storage::file_locks::InspectionKind::File,
+            processes: vec![crate::storage::file_locks::LockingProcess {
+                identity: None,
+                pid: 1234,
+                name: "test_process.exe".into(),
+                app_type: "Desktop App".into(),
+                is_service: false,
+                handles: vec![handle1, handle2],
+            }],
+            error: None,
+            files_scanned: 1,
+            entries_skipped: 0,
+            partial: false,
+            cancelled: false,
+            coverage: Vec::new(),
+            handles: Vec::new(),
+        });
+
+        let ctx = egui::Context::default();
+        ctx.run_ui(Default::default(), |ui| {
+            egui::CentralPanel::default().show(ui, |ui| show(&mut app, ui, &data));
+        })
+        .textures_delta
+        .clear();
+    }
+
+    #[test]
+    fn test_storage_page_unlock_and_close_handle_actions() {
+        let mut app = crate::SystemMonitorApp::test_app();
+        assert!(!app.action_pending);
+
+        let unlock_cmd = crate::app::commands::ActionCommand::UnlockAllProcessesForPath {
+            path: "C:\\test\\locked.dll".into(),
+        };
+        let queued = app.queue_action(unlock_cmd);
+        assert!(queued);
+        assert!(app.pending_action_plan.is_some());
+
+        let plan = app.pending_action_plan.as_ref().unwrap();
+        assert_eq!(plan.title, "Unlock file path");
+
+        // Clear pending plan to test close handle action
+        app.pending_action_plan = None;
+
+        let close_cmd = crate::app::commands::ActionCommand::CloseFileHandle {
+            pid: 1234,
+            handle: 0x40,
+            path: "C:\\test\\locked.dll".into(),
+        };
+        let queued = app.queue_action(close_cmd);
+        assert!(queued);
+        assert!(app.pending_action_plan.is_some());
+
+        let plan = app.pending_action_plan.as_ref().unwrap();
+        assert_eq!(plan.title, "Close remote file handle");
+    }
 }

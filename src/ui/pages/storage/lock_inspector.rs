@@ -1,9 +1,25 @@
+use crate::app::commands::ActionCommand;
 use crate::ui::components::*;
 use crate::ui::theme::ThemePalette;
 use eframe::egui;
-
 pub(super) fn paint_lock_inspector_card(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, is_dark: bool) {
     app.storage_page.poll_background(ui.ctx());
+    if ui.ctx().input(|i| !i.raw.dropped_files.is_empty()) {
+        let dropped = ui.ctx().input(|i| {
+            i.raw
+                .dropped_files
+                .first()
+                .map(|f| f.path().to_string_lossy().to_string())
+        });
+        if let Some(path) = dropped
+            && !path.is_empty()
+        {
+            app.storage_page.lock_path = path;
+            app.storage_page.inspect_locks();
+        }
+    }
+
+    let mut queued_action: Option<ActionCommand> = None;
     card_frame(is_dark).show(ui, |ui| {
         ui.horizontal(|ui| {
             ui.label(
@@ -43,12 +59,22 @@ pub(super) fn paint_lock_inspector_card(app: &mut crate::SystemMonitorApp, ui: &
             .color(ThemePalette::text_secondary(is_dark)),
         );
 
+        if ui.ctx().input(|i| !i.raw.hovered_files.is_empty()) {
+            ui.add_space(4.0);
+            ui.label(
+                egui::RichText::new("📁 Drop file or folder to inspect locking processes")
+                    .size(12.0)
+                    .strong()
+                    .color(ThemePalette::ACCENT_PRIMARY),
+            );
+        }
+
         ui.add_space(8.0);
         ui.horizontal(|ui| {
             let avail_w = ui.available_width();
             let input_w = (avail_w - 270.0).max(140.0);
             let path_input = egui::TextEdit::singleline(&mut app.storage_page.lock_path)
-                .hint_text("Absolute file, folder or volume path (e.g. D:\\)...")
+                .hint_text("Drop file/folder here or enter path (e.g. D:\\)...")
                 .desired_width(input_w);
             if ui.add(path_input).changed() {
                 app.storage_page.cancel_inspection();
@@ -120,18 +146,38 @@ pub(super) fn paint_lock_inspector_card(app: &mut crate::SystemMonitorApp, ui: &
                     });
                 });
             } else if !res.processes.is_empty() {
-                ui.label(
-                    egui::RichText::new(format!(
-                        "Reported users of \"{}\":",
-                        res.path
-                    ))
-                    .size(12.0)
-                    .strong()
-                    .color(ThemePalette::text_primary(is_dark)),
-                );
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new(format!("Reported users of \"{}\":", res.path))
+                            .size(12.0)
+                            .strong()
+                            .color(ThemePalette::text_primary(is_dark)),
+                    );
+
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        let unlock_all_btn = egui::Button::new(
+                            egui::RichText::new("⚡ Unlock All Handles")
+                                .size(12.0)
+                                .strong()
+                                .color(ThemePalette::ACCENT_PRIMARY),
+                        )
+                        .fill(ThemePalette::ACCENT_PRIMARY.gamma_multiply(if is_dark { 0.18 } else { 0.12 }))
+                        .stroke(egui::Stroke::new(1.0, ThemePalette::ACCENT_PRIMARY.gamma_multiply(0.5)))
+                        .corner_radius(egui::CornerRadius::same(4));
+
+                        if ui
+                            .add(unlock_all_btn)
+                            .on_hover_text("Safely close all locking file handles across all processes without terminating them.")
+                            .clicked()
+                        {
+                            queued_action = Some(ActionCommand::UnlockAllProcessesForPath {
+                                path: res.path.clone(),
+                            });
+                        }
+                    });
+                });
                 ui.add_space(4.0);
 
-                let mut kill_pid = None;
                 for proc in &res.processes {
                     ui.group(|ui| {
                         ui.horizontal(|ui| {
@@ -166,19 +212,66 @@ pub(super) fn paint_lock_inspector_card(app: &mut crate::SystemMonitorApp, ui: &
                                 .stroke(egui::Stroke::new(1.0, ThemePalette::STATUS_CRITICAL.gamma_multiply(0.5)))
                                 .corner_radius(egui::CornerRadius::same(4));
 
-                                if ui.add_enabled(proc.identity.is_some(), kill_btn).on_hover_text("Request termination using the captured native process creation identity; confirmation and process safety checks apply.").clicked() {
-                                    kill_pid = proc.identity;
+                                if ui.add_enabled(proc.identity.is_some(), kill_btn).on_hover_text("Request termination using the captured native process creation identity; confirmation and process safety checks apply.").clicked()
+                                    && let Some(identity) = proc.identity
+                                {
+                                    queued_action = Some(ActionCommand::KillProcess(identity));
                                 }
                             });
                         });
+
+                        if !proc.handles.is_empty() {
+                            ui.add_space(2.0);
+                            for h in &proc.handles {
+                                ui.horizontal(|ui| {
+                                    ui.add_space(16.0);
+                                    ui.label(
+                                        egui::RichText::new(format!("Handle 0x{:X}", h.handle_val))
+                                            .monospace()
+                                            .size(11.0)
+                                            .color(ThemePalette::text_secondary(is_dark)),
+                                    );
+                                    if !h.file_path.is_empty() && h.file_path != res.path {
+                                        ui.label(
+                                            egui::RichText::new(&h.file_path)
+                                                .size(11.0)
+                                                .color(ThemePalette::text_dimmed(is_dark)),
+                                        );
+                                    }
+                                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                        let close_btn = egui::Button::new(
+                                            egui::RichText::new("🔓 Close Handle")
+                                                .size(11.0)
+                                                .strong()
+                                                .color(ThemePalette::ACCENT_PRIMARY),
+                                        )
+                                        .fill(ThemePalette::ACCENT_PRIMARY.gamma_multiply(if is_dark { 0.18 } else { 0.12 }))
+                                        .stroke(egui::Stroke::new(1.0, ThemePalette::ACCENT_PRIMARY.gamma_multiply(0.5)))
+                                        .corner_radius(egui::CornerRadius::same(4));
+
+                                        if ui
+                                            .add(close_btn)
+                                            .on_hover_text("Safely duplicate and close the remote file handle without terminating the host process.")
+                                            .clicked()
+                                        {
+                                            queued_action = Some(ActionCommand::CloseFileHandle {
+                                                pid: proc.pid,
+                                                handle: h.handle_val,
+                                                path: res.path.clone(),
+                                            });
+                                        }
+                                    });
+                                });
+                            }
+                        }
                     });
                     ui.add_space(3.0);
-                }
-
-                if let Some(pid) = kill_pid {
-                    app.queue_action(crate::app::commands::ActionCommand::KillProcess(pid));
                 }
             }
         }
     });
+
+    if let Some(action) = queued_action {
+        app.queue_action(action);
+    }
 }
