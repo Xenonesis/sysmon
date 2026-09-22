@@ -14,6 +14,7 @@ pub(super) fn paint_lock_inspector_card(app: &mut crate::SystemMonitorApp, ui: &
         if let Some(path) = dropped
             && !path.is_empty()
         {
+            app.storage_page.cancel_inspection();
             app.storage_page.lock_path = path;
             app.storage_page.inspect_locks();
         }

@@ -157,6 +157,47 @@ mod tests {
     }
 
     #[test]
+    fn test_storage_page_drag_and_drop_cancels_previous_inspection() {
+        let mut app = crate::SystemMonitorApp::test_app();
+        let data = SystemData::default();
+        let ctx = egui::Context::default();
+
+        // Populate initial inspection state
+        app.storage_page.lock_path = "C:\\test\\old_file.txt".to_string();
+        app.storage_page.lock_result = Some(crate::storage::file_locks::FileLockResult {
+            path: "C:\\test\\old_file.txt".into(),
+            kind: crate::storage::file_locks::InspectionKind::File,
+            processes: Vec::new(),
+            error: None,
+            files_scanned: 1,
+            entries_skipped: 0,
+            partial: false,
+            cancelled: false,
+            coverage: Vec::new(),
+            handles: Vec::new(),
+        });
+        let initial_generation = app.storage_page.lock_generation;
+
+        // Simulate dropping a new file
+        let dummy = std::sync::Arc::new(DummyDroppedFile(std::path::PathBuf::from("C:\\test\\new_file.docx")));
+        let mut raw_input = egui::RawInput::default();
+        raw_input.dropped_files.push(dummy);
+
+        ctx.run_ui(raw_input, |ui| {
+            egui::CentralPanel::default().show(ui, |ui| show(&mut app, ui, &data));
+        })
+        .textures_delta
+        .clear();
+
+        // Verify that cancel_inspection was invoked before inspect_locks:
+        // lock_path is updated to the new dropped file,
+        // lock_generation was advanced due to cancellation,
+        // and a new inspection was scheduled.
+        assert_eq!(app.storage_page.lock_path, "C:\\test\\new_file.docx");
+        assert!(app.storage_page.lock_generation > initial_generation);
+    }
+
+    #[test]
     fn test_storage_page_render_with_handles_and_unlock_buttons() {
         let mut app = crate::SystemMonitorApp::test_app();
         let data = SystemData::default();

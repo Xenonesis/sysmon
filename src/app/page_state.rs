@@ -94,8 +94,8 @@ pub(crate) struct StoragePageState {
     pub(crate) reclaimer_selected: HashSet<String>,
     pub(crate) reclaimer_scanned: bool,
     pub(crate) reclaimer_status: Option<String>,
-    lock_generation: u64,
-    scan_generation: u64,
+    pub(crate) lock_generation: u64,
+    pub(crate) scan_generation: u64,
     lock_job: Option<StorageJob<FileLockResult>>,
     scan_job: Option<StorageJob<Vec<ReclaimCategory>>>,
 }

@@ -1,5 +1,6 @@
 use system_monitor::storage::file_locks::{
     FileLockResult, InspectionKind, LockedHandleInfo, LockingProcess, close_all_handles_for_path, close_remote_handle,
+    query_process_name, unlock_locking_processes,
 };
 
 #[test]
@@ -234,4 +235,95 @@ fn test_close_all_handles_for_path_nonexistent_file() {
     assert!(res.is_err(), "Expected error on nonexistent file");
     #[cfg(not(windows))]
     assert!(res.is_ok() || res.is_err());
+}
+
+#[test]
+fn test_critical_process_rejection_in_batch_unlock() {
+    let proc = LockingProcess {
+        identity: None,
+        pid: 500,
+        name: "csrss.exe".into(),
+        app_type: "Application".into(),
+        is_service: false,
+        handles: Vec::new(),
+    };
+    let res = unlock_locking_processes("C:\\test\\locked.txt", &[proc]);
+    assert!(res.is_err(), "Critical process should not be unlocked or terminated");
+    let err = res.unwrap_err();
+    assert!(
+        err.contains("critical system process"),
+        "Error message should explain critical process rejection: {err}"
+    );
+}
+
+#[test]
+fn test_critical_process_with_path_and_pid() {
+    assert!(LockedHandleInfo::is_critical_process("C:\\Windows\\System32\\csrss.exe", 500));
+    assert!(LockedHandleInfo::is_critical_process("C:\\Windows\\System32\\CSRSS.EXE", 500));
+    assert!(LockedHandleInfo::is_critical_process("C:\\Windows\\System32\\lsass.exe", 600));
+    assert!(LockedHandleInfo::is_critical_process("C:\\Windows\\System32\\services.exe", 700));
+    assert!(LockedHandleInfo::is_critical_process("C:\\Windows\\System32\\winlogon.exe", 800));
+    assert!(LockedHandleInfo::is_critical_process("C:\\Windows\\System32\\smss.exe", 300));
+    // Any process with PID <= 4 is critical
+    assert!(LockedHandleInfo::is_critical_process("random_name.exe", 4));
+    assert!(LockedHandleInfo::is_critical_process("unknown.exe", 0));
+}
+
+#[test]
+fn test_service_process_actionable_guidance_in_batch_unlock() {
+    let proc = LockingProcess {
+        identity: None,
+        pid: 3456,
+        name: "spoolsv.exe".into(),
+        app_type: "Windows Service".into(),
+        is_service: true,
+        handles: Vec::new(),
+    };
+    let res = unlock_locking_processes("C:\\test\\printer_spool.dat", &[proc]);
+    assert!(res.is_err(), "Service process with empty handles should not be blindly terminated");
+    let err = res.unwrap_err();
+    assert!(
+        err.contains("Windows service process cannot be terminated via batch unlock")
+            && err.contains("Services manager"),
+        "Error message should give actionable guidance: {err}"
+    );
+}
+
+#[test]
+fn test_current_process_protected_from_termination() {
+    let own_pid = std::process::id();
+    let proc = LockingProcess {
+        identity: None,
+        pid: own_pid,
+        name: "system-monitor.exe".into(),
+        app_type: "Application".into(),
+        is_service: false,
+        handles: Vec::new(),
+    };
+    let res = unlock_locking_processes("C:\\test\\active_file.bin", &[proc]);
+    assert!(res.is_err(), "Current process should never be self-terminated");
+    let err = res.unwrap_err();
+    assert!(
+        err.contains("cannot terminate current system monitor process"),
+        "Error message should indicate self-termination protection: {err}"
+    );
+}
+
+#[test]
+fn test_batch_unlock_empty_processes() {
+    let res = unlock_locking_processes("C:\\test\\empty.txt", &[]);
+    assert!(res.is_ok());
+    assert_eq!(res.unwrap(), 0);
+}
+
+#[test]
+fn test_query_process_name_on_current_process() {
+    #[cfg(windows)]
+    {
+        let own_pid = std::process::id();
+        let name = query_process_name(own_pid);
+        assert!(name.is_some(), "query_process_name should resolve for current process");
+        let name_str = name.unwrap();
+        assert!(name_str.ends_with(".exe") || !name_str.is_empty());
+    }
 }

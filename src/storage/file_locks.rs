@@ -48,12 +48,106 @@ impl LockedHandleInfo {
             return true;
         }
         let clean = name.trim().to_lowercase();
-        let stem = clean.strip_suffix(".exe").unwrap_or(&clean);
+        let file_name = std::path::Path::new(&clean)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or(&clean);
+        let stem = file_name.strip_suffix(".exe").unwrap_or(file_name);
         matches!(
             stem,
             "idle" | "system" | "csrss" | "smss" | "lsass" | "services" | "winlogon"
         )
     }
+}
+
+/// Queries the process image name for a given PID.
+#[cfg(windows)]
+pub fn query_process_name(pid: u32) -> Option<String> {
+    use windows_sys::Win32::Foundation::CloseHandle;
+    use windows_sys::Win32::System::Threading::{
+        OpenProcess, QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+
+    if pid <= 4 {
+        return None;
+    }
+    let proc_handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+    if proc_handle.is_null() {
+        return None;
+    }
+    let mut buf = [0u16; 1024];
+    let mut len = buf.len() as u32;
+    let ok = unsafe { QueryFullProcessImageNameW(proc_handle, 0, buf.as_mut_ptr(), &mut len) };
+    unsafe { CloseHandle(proc_handle) };
+    if ok != 0 && len > 0 {
+        let full = String::from_utf16_lossy(&buf[..len as usize]);
+        let name = std::path::Path::new(&full)
+            .file_name()
+            .and_then(|f| f.to_str())
+            .unwrap_or(&full)
+            .to_string();
+        Some(name)
+    } else {
+        None
+    }
+}
+
+#[cfg(not(windows))]
+pub fn query_process_name(_pid: u32) -> Option<String> {
+    None
+}
+
+/// Attempts to terminate a locking process by PID when handles cannot be closed individually.
+/// Rejects critical system processes, services, and the system monitor process itself.
+#[cfg(windows)]
+pub fn terminate_locking_process(pid: u32) -> Result<(), String> {
+    use windows_sys::Win32::Foundation::{CloseHandle, GetLastError};
+    use windows_sys::Win32::System::Threading::{
+        IsProcessCritical, OpenProcess, TerminateProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_TERMINATE,
+    };
+
+    if pid <= 4 {
+        return Err(format!("Cannot terminate critical system process (PID {pid})"));
+    }
+    if pid == std::process::id() {
+        return Err(format!("Cannot terminate current system monitor process (PID {pid})"));
+    }
+    if let Some(name) = query_process_name(pid)
+        && LockedHandleInfo::is_critical_process(&name, pid)
+    {
+        return Err(format!("Cannot terminate critical system process {name} (PID {pid})"));
+    }
+
+    let proc_handle = unsafe { OpenProcess(PROCESS_TERMINATE | PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+    let proc_handle = if proc_handle.is_null() {
+        unsafe { OpenProcess(PROCESS_TERMINATE, 0, pid) }
+    } else {
+        let mut is_crit: i32 = 0;
+        if unsafe { IsProcessCritical(proc_handle, &mut is_crit) } != 0 && is_crit != 0 {
+            unsafe { CloseHandle(proc_handle) };
+            return Err(format!("Cannot terminate critical system process (PID {pid})"));
+        }
+        proc_handle
+    };
+
+    if proc_handle.is_null() {
+        let err = unsafe { GetLastError() };
+        return Err(format!("Failed to open process {pid} for termination: error code {err}"));
+    }
+
+    let success = unsafe { TerminateProcess(proc_handle, 1) };
+    let err = if success == 0 { unsafe { GetLastError() } } else { 0 };
+    unsafe { CloseHandle(proc_handle) };
+
+    if success == 0 {
+        return Err(format!("Failed to terminate process {pid}: error code {err}"));
+    }
+    Ok(())
+}
+
+#[cfg(not(windows))]
+pub fn terminate_locking_process(_pid: u32) -> Result<(), String> {
+    Ok(())
 }
 
 /// Closes a specific remote file handle inside the target process using DuplicateHandle
@@ -62,7 +156,7 @@ pub fn close_remote_handle(pid: u32, handle: usize) -> Result<(), String> {
     if pid == 0 {
         return Err("Cannot close handle for System Idle Process (PID 0)".into());
     }
-    if pid <= 4 {
+    if pid <= 4 || LockedHandleInfo::is_critical_process("", pid) {
         return Err(format!("Cannot close handle on critical system process (PID {pid})"));
     }
     if !LockedHandleInfo::is_valid_handle_value(handle) {
@@ -71,13 +165,32 @@ pub fn close_remote_handle(pid: u32, handle: usize) -> Result<(), String> {
 
     #[cfg(windows)]
     {
+        if let Some(name) = query_process_name(pid)
+            && LockedHandleInfo::is_critical_process(&name, pid)
+        {
+            return Err(format!("Cannot close handle on critical system process {name} (PID {pid})"));
+        }
+
         use windows_sys::Win32::Foundation::{
             CloseHandle, DUPLICATE_CLOSE_SOURCE, DUPLICATE_SAME_ACCESS, DuplicateHandle, GetLastError,
         };
-        use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcess, PROCESS_DUP_HANDLE};
+        use windows_sys::Win32::System::Threading::{
+            GetCurrentProcess, IsProcessCritical, OpenProcess, PROCESS_DUP_HANDLE, PROCESS_QUERY_LIMITED_INFORMATION,
+        };
 
-        // Open target process with PROCESS_DUP_HANDLE (0x0040)
-        let proc_handle = unsafe { OpenProcess(PROCESS_DUP_HANDLE, 0, pid) };
+        // Open target process with PROCESS_DUP_HANDLE and PROCESS_QUERY_LIMITED_INFORMATION
+        let proc_handle = unsafe { OpenProcess(PROCESS_DUP_HANDLE | PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+        let proc_handle = if proc_handle.is_null() {
+            unsafe { OpenProcess(PROCESS_DUP_HANDLE, 0, pid) }
+        } else {
+            let mut is_crit: i32 = 0;
+            if unsafe { IsProcessCritical(proc_handle, &mut is_crit) } != 0 && is_crit != 0 {
+                unsafe { CloseHandle(proc_handle) };
+                return Err(format!("Cannot close handle on critical system process (PID {pid})"));
+            }
+            proc_handle
+        };
+
         if proc_handle.is_null() {
             let err = unsafe { GetLastError() };
             return Err(format!("Failed to open process {pid}: error code {err}"));
@@ -123,26 +236,48 @@ pub fn close_remote_handle(pid: u32, handle: usize) -> Result<(), String> {
     }
 }
 
-/// Closes all discovered handles holding a lock on the given path across all locking processes.
-/// Returns the number of handles successfully closed.
-pub fn close_all_handles_for_path(path: &str) -> Result<usize, String> {
-    let cancel = AtomicBool::new(false);
-    let lock_result = find_locking_processes(path, &cancel);
-
-    if lock_result.processes.is_empty() {
-        return match lock_result.error {
-            Some(error) => Err(error),
-            None => Ok(0),
-        };
+/// Unlocks all processes holding a lock on the given path.
+/// - If handles are populated, closes individual handles via DuplicateHandle without terminating the host process.
+/// - If handles are empty (e.g. from Restart Manager), checks `is_critical_process` and `is_service`:
+///   - Critical processes: skipped with explanation.
+///   - Windows services: skipped with actionable guidance (stop service in Services manager).
+///   - Current process: protected from self-termination.
+///   - Non-critical non-service processes: gracefully terminates process to release lock.
+pub fn unlock_locking_processes(path: &str, processes: &[LockingProcess]) -> Result<usize, String> {
+    if processes.is_empty() {
+        return Ok(0);
     }
 
     let mut closed_count = 0;
-    let mut unhandled_processes = 0;
     let mut errors = Vec::new();
 
-    for proc in &lock_result.processes {
+    for proc in processes {
+        // Enforce critical process check
+        if LockedHandleInfo::is_critical_process(&proc.name, proc.pid) {
+            errors.push(format!(
+                "PID {} ({}): cannot close handles on or terminate critical system process",
+                proc.pid, proc.name
+            ));
+            continue;
+        }
+
         if proc.handles.is_empty() {
-            unhandled_processes += 1;
+            if proc.is_service {
+                errors.push(format!(
+                    "PID {} ({}): Windows service process cannot be terminated via batch unlock; stop the service in Services manager",
+                    proc.pid, proc.name
+                ));
+            } else if proc.pid == std::process::id() {
+                errors.push(format!(
+                    "PID {} ({}): cannot terminate current system monitor process",
+                    proc.pid, proc.name
+                ));
+            } else {
+                match terminate_locking_process(proc.pid) {
+                    Ok(()) => closed_count += 1,
+                    Err(err) => errors.push(format!("PID {} ({}): {err}", proc.pid, proc.name)),
+                }
+            }
         } else {
             for handle in &proc.handles {
                 match close_remote_handle(handle.process_id, handle.handle_val) {
@@ -155,15 +290,27 @@ pub fn close_all_handles_for_path(path: &str) -> Result<usize, String> {
 
     if closed_count > 0 {
         Ok(closed_count)
-    } else if unhandled_processes > 0 {
-        Err(format!(
-            "Found {unhandled_processes} locking process(es) without specific handles; process termination required"
-        ))
     } else if !errors.is_empty() {
-        Err(format!("Failed to close handles: {}", errors.join("; ")))
+        Err(format!("Failed to unlock {path}: {}", errors.join("; ")))
     } else {
         Ok(0)
     }
+}
+
+/// Closes all discovered handles holding a lock on the given path across all locking processes.
+/// Returns the number of handles successfully closed or processes terminated.
+pub fn close_all_handles_for_path(path: &str) -> Result<usize, String> {
+    let cancel = AtomicBool::new(false);
+    let lock_result = find_locking_processes(path, &cancel);
+
+    if lock_result.processes.is_empty() {
+        return match lock_result.error {
+            Some(error) => Err(error),
+            None => Ok(0),
+        };
+    }
+
+    unlock_locking_processes(path, &lock_result.processes)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
