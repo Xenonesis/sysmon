@@ -1,5 +1,6 @@
 mod buttons;
 mod control_hub;
+mod dispatcher;
 mod health_board;
 mod incidents_feed;
 mod proximity;
@@ -13,12 +14,7 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
     let is_dark = ui.visuals().dark_mode;
     paint_section_header(ui, "System Alerts & Incident Feed", is_dark);
 
-    let mut remove_alert_idx: Option<usize> = None;
-    let mut clear_all_alerts = false;
-    let mut trigger_test_alert = false;
-    let mut navigate_tab: Option<Tab> = None;
-    let mut run_ram_clean = false;
-
+    let mut actions = dispatcher::AlertActions::default();
     egui::ScrollArea::vertical().show(ui, |ui| {
         card_frame(is_dark).show(ui, |ui| {
             let avail_w = ui.available_width();
@@ -44,8 +40,8 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
                             ui,
                             data,
                             is_dark,
-                            &mut trigger_test_alert,
-                            &mut clear_all_alerts,
+                            &mut actions.trigger_test_alert,
+                            &mut actions.clear_all_alerts,
                         );
                     });
                 });
@@ -120,7 +116,7 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
                         )
                         .clicked()
                         {
-                            trigger_test_alert = true;
+                            actions.trigger_test_alert = true;
                         }
 
                         if !data.alerts.is_empty() {
@@ -142,7 +138,7 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
                                 .on_hover_text("Dismiss all active system alerts")
                                 .clicked()
                             {
-                                clear_all_alerts = true;
+                                actions.clear_all_alerts = true;
                             }
                         }
                     });
@@ -175,9 +171,9 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
                             ui,
                             data,
                             is_dark,
-                            &mut remove_alert_idx,
-                            &mut navigate_tab,
-                            &mut run_ram_clean,
+                            &mut actions.remove_alert_idx,
+                            &mut actions.navigate_tab,
+                            &mut actions.run_ram_clean,
                         );
                     }
                 });
@@ -193,52 +189,15 @@ pub(crate) fn show(app: &mut crate::SystemMonitorApp, ui: &mut egui::Ui, data: &
                     ui,
                     data,
                     is_dark,
-                    &mut remove_alert_idx,
-                    &mut navigate_tab,
-                    &mut run_ram_clean,
+                    &mut actions.remove_alert_idx,
+                    &mut actions.navigate_tab,
+                    &mut actions.run_ram_clean,
                 );
             }
         }
     });
 
-    if let Some(idx) = remove_alert_idx {
-        let mut d = app.data.write();
-        if idx < d.alerts.len() {
-            d.alerts.remove(idx);
-        }
-    }
-
-    if clear_all_alerts {
-        app.data.write().alerts.clear();
-    }
-
-    if trigger_test_alert {
-        play_alert_sound();
-        if app.settings.show_notifications {
-            let _ = notify_rust::Notification::new()
-                .summary("SysMon Alert Simulation")
-                .body("Diagnostic test alert triggered. Audio chime & notification verified.")
-                .timeout(notify_rust::Timeout::Milliseconds(5000))
-                .show();
-        }
-        let mut d = app.data.write();
-        d.alerts.push(AlertInfo {
-            timestamp: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
-            alert_type: AlertType::CpuHigh,
-            source: AlertSource::Cpu,
-            message: "Simulated Test Alert: CPU load threshold exceeded (Diagnostic Test)".to_string(),
-            resolved_at: None,
-            value: 95.0,
-        });
-    }
-
-    if let Some(tab) = navigate_tab {
-        app.selected_tab = tab;
-    }
-
-    if run_ram_clean {
-        app.start_ram_clean(ui.ctx());
-    }
+    actions.dispatch(app, ui.ctx());
 }
 
 #[cfg(test)]
