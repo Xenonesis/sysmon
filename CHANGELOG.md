@@ -13,9 +13,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Dependency modernization:** sysinfo 0.30 to 0.39, wmi 0.9 to 0.18 (COM initialization now handled internally), ureq 2 to 3, windows crate 0.52 to 0.62. Minimum supported Rust version is now 1.95.
 
 ### Added
+- **1-Click File Unlocker & Extended Handle Inspector:** Resolves the Windows "File in Use" / "Action Can't Be Completed Because the File Is Open in Another Program" limitation.
+  - Implements surgical Win32 `DuplicateHandle` with `DUPLICATE_CLOSE_SOURCE` (`0x00000001`) to selectively duplicate and close remote file handles without crashing or terminating host applications (e.g. Word, VS Code, Photoshop).
+  - **1-Click Batch Unlock:** Prominent `[ ⚡ Unlock All Handles ]` action safely closes locking handles across all detected processes in a single transaction.
+  - **Explorer Drag-and-Drop:** Dragging any file or directory from File Explorer or Desktop onto the SysMon window automatically detects the dropped item and triggers immediate lock inspection with visual drop cues.
+  - **Kernel Safety Guards:** `LockedHandleInfo::is_critical_process` prevents accidental termination or handle closures on core Windows services (`csrss.exe`, `lsass.exe`, `smss.exe`, `services.exe`, `winlogon.exe`, PID $\le$ 4), eliminating blue-screen risks.
+  - **Audit Logging:** Every handle release action records a medium-risk audit event to `action-audit.jsonl` with reversible metadata.
+- **Big Pages Modularization & Architecture Decoupling:** Monolithic UI page files (`timeline.rs`, `processes/table.rs`, `ram_cleaner.rs`, `alerts/mod.rs`, `network/interfaces.rs`) were decomposed into cohesive sub-component modules under 200 lines each, improving code maintainability, compile times, and testability with zero functionality or visual regressions.
 - **Scoop distribution:** the repository doubles as a Scoop bucket (`scoop bucket add sysmon` then `scoop install sysmon`).
 - **winget manifest:** published under `deploy/winget/` for submission to winget-pkgs.
-
 ### Fixed
 - **Release checksum consistency:** republished installer and SHA-256 checksum from a single verified workflow run, restoring self-update verification that v3.8.0 asset drift had broken.
 - CI: security-audit job granted `checks: write` so audit results publish; formatting and clippy gates green.

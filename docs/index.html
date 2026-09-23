@@ -66,7 +66,7 @@
                 </div>
                 <div class="hero-spec">
                     <div class="spec-item"><span class="spec-key">Platform</span><span class="spec-val">Windows 10/11 · x64</span></div>
-                    <div class="spec-item"><span class="spec-key">Latest</span><span class="spec-val mono" id="latestVersion" data-version-display>v3.7.7</span></div>
+                    <div class="spec-item"><span class="spec-key">Latest</span><span class="spec-val mono" id="latestVersion" data-version-display>v3.8.1</span></div>
                     <div class="spec-item"><span class="spec-key">Installer</span><span class="spec-val">~5 MB</span></div>
                     <div class="spec-item"><span class="spec-key">Refresh</span><span class="spec-val">1–10 s</span></div>
                 </div>
@@ -114,6 +114,13 @@
                             <span class="feature-tag is-new">TelemetryHub</span>
                             <h3 class="feature-title">Multi-Tier Telemetry Architecture</h3>
                             <p class="feature-desc">Dedicated background engine separating responsive UI rendering from 1–5 Hz hardware sampling. Includes vendor-independent provider abstractions and bounded multi-resolution ring buffers.</p>
+                        </article>
+
+                        <article class="feature-card feature-wide">
+                            <div class="feature-icon"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/><polyline points="15 6 17 6 17 8"/></svg></div>
+                            <span class="feature-tag is-new">File Unlocker</span>
+                            <h3 class="feature-title">1-Click File Unlocker &amp; Remote Handle Closer</h3>
+                            <p class="feature-desc">Safely close locking file handles via Win32 <code>DuplicateHandle</code> with <code>DUPLICATE_CLOSE_SOURCE</code> without terminating host applications. Drag-and-drop locked files directly from Explorer, with 1-click batch unlock and built-in Windows kernel safety guards (csrss, lsass, smss).</p>
                         </article>
 
                         <article class="feature-card">
@@ -277,40 +284,40 @@
                 <div class="container">
                     <div class="section-head">
                         <p class="eyebrow">Release notes</p>
-                        <h2 class="section-title">What's new in v3.7.7</h2>
-                        <p class="section-lede" id="changelogLede">Reversible startup quarantine, exact Windows target selection, correct process trees and more reliable alert and service actions.</p>
+                        <h2 class="section-title">What's new in v3.8.1</h2>
+                        <p class="section-lede" id="changelogLede">1-Click File Unlocker with surgical handle closure, explorer drag-and-drop inspection, and decoupled modular page architecture.</p>
                     </div>
                     <div class="changelog-grid">
                         <div class="change-item change-major">
-                            <span class="change-type">Reversible Startup Quarantine</span>
-                            <p class="change-desc">Startup entries are backed up locally before removal and can be restored from persistent system action history.</p>
+                            <span class="change-type">1-Click File Unlocker</span>
+                            <p class="change-desc">DuplicateHandle with DUPLICATE_CLOSE_SOURCE selectively closes file locks without terminating host applications.</p>
                         </div>
                         <div class="change-item change-major">
-                            <span class="change-type">Exact Windows Targeting</span>
-                            <p class="change-desc">Registry hives and keys, startup-file paths, and scheduled task paths are retained so duplicate names stay isolated.</p>
+                            <span class="change-type">Explorer Drag-and-Drop</span>
+                            <p class="change-desc">Drag any locked file or folder directly from File Explorer onto SysMon to trigger instant lock inspection.</p>
                         </div>
                         <div class="change-item change-major">
-                            <span class="change-type">Correct Process Trees</span>
-                            <p class="change-desc">Process Manager now uses actual parent PIDs and preserves ancestor context when filtering the hierarchical view.</p>
+                            <span class="change-type">Modular Page Architecture</span>
+                            <p class="change-desc">Decomposed large UI page files into focused sub-components under 200 lines each, improving responsiveness and maintainability.</p>
                         </div>
                         <div class="change-item">
-                            <span class="change-type">Consistent Alerts</span>
-                            <p class="change-desc">In-app alerts work independently of desktop notifications and disk alerts honor the configured threshold.</p>
+                            <span class="change-type">Kernel Safety Guards</span>
+                            <p class="change-desc">Automated protection for core Windows services (csrss, lsass, smss, services, winlogon, PID &le; 4) against accidental closure.</p>
                         </div>
                         <div class="change-item">
-                            <span class="change-type">Safer Service Restarts</span>
-                            <p class="change-desc">Windows state, checkpoints and wait hints drive bounded restart waits with explicit partial-failure reporting.</p>
+                            <span class="change-type">Action Audit History</span>
+                            <p class="change-desc">Every handle release and process action is appended to a local audit trail (action-audit.jsonl) with risk levels.</p>
                         </div>
                         <div class="change-item">
-                            <span class="change-type">Supply-Chain Hardening</span>
-                            <p class="change-desc">Immutable GitHub Action pins, scheduled RustSec scans and automated dependency update checks.</p>
+                            <span class="change-type">Packaging &amp; Distribution</span>
+                            <p class="change-desc">Official Scoop bucket distribution and winget-pkgs manifest support for seamless command-line installation.</p>
                         </div>
                     </div>
                     <div class="version-compare">
                         <h3 class="compare-title">Compared with previous releases</h3>
                         <table class="compare-table">
                             <thead>
-                                <tr><th>Capability</th><th>1.x</th><th>2.6.x</th><th>3.7.7</th></tr>
+                                <tr><th>Capability</th><th>1.x</th><th>2.6.x</th><th>3.8.1</th></tr>
                             </thead>
                             <tbody>
                                 <tr><td>Telemetry engine</td><td>Single polling thread</td><td>Legacy polling thread</td><td><strong>TelemetryHub</strong> (provider abstraction)</td></tr>
@@ -319,7 +326,8 @@
                                 <tr><td>Diagnostics</td><td>—</td><td>—</td><td><strong>Evidence + confidence + recording</strong></td></tr>
                                 <tr><td>Action safety</td><td>—</td><td>—</td><td><strong>Risk preview, audit, Undo</strong></td></tr>
                                 <tr><td>Update verification</td><td>Plain download</td><td>HTTPS + basic checks</td><td><strong>SHA-256 checksum + provenance</strong></td></tr>
-                                <tr><td>Modules</td><td>4 tabs</td><td>7 tabs</td><td><strong>14 modules</strong></td></tr>
+                                <tr><td>File Unlocker</td><td>—</td><td>—</td><td><strong>DuplicateHandle remote closure</strong> (drag-and-drop, batch release)</td></tr>
+                                <tr><td>Modules</td><td>4 tabs</td><td>7 tabs</td><td><strong>15 modules</strong></td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -329,7 +337,35 @@
                         <div class="timeline">
                             <article class="timeline-card">
                                 <div class="timeline-head">
-                                    <span class="timeline-ver">v3.7.7 <span class="feature-tag is-new">Latest</span></span>
+                                    <span class="timeline-ver">v3.8.1 <span class="feature-tag is-new">Latest</span></span>
+                                    <span class="timeline-date">2026-08-27</span>
+                                </div>
+                                <div class="timeline-title">1-Click File Unlocker, Modular Architecture &amp; Package Distribution</div>
+                                <ul class="timeline-list">
+                                    <li>Surgical Win32 DuplicateHandle (DUPLICATE_CLOSE_SOURCE) remote handle closer without terminating host processes.</li>
+                                    <li>1-click batch unlock and direct File Explorer drag-and-drop file inspection.</li>
+                                    <li>Kernel safety guards preventing closure on critical Windows services (csrss, lsass, smss, services, winlogon).</li>
+                                    <li>Decomposed large monolithic UI pages into clean, modular sub-components under 200 lines.</li>
+                                    <li>Scoop bucket and winget manifest distribution support.</li>
+                                </ul>
+                            </article>
+
+                            <article class="timeline-card">
+                                <div class="timeline-head">
+                                    <span class="timeline-ver">v3.8.0</span>
+                                    <span class="timeline-date">2026-08-21</span>
+                                </div>
+                                <div class="timeline-title">Trusted Timeline &amp; Certificate-Free Release Trust</div>
+                                <ul class="timeline-list">
+                                    <li>Local SQLite history with 5-second metric sampling and synchronized utilization charts.</li>
+                                    <li>Sanitized incident exports declaring omissions in summary.json.</li>
+                                    <li>Certificate-free release trust with SHA-256 verification and GitHub build attestations.</li>
+                                </ul>
+                            </article>
+
+                            <article class="timeline-card">
+                                <div class="timeline-head">
+                                    <span class="timeline-ver">v3.7.7</span>
                                     <span class="timeline-date">2026-08-21</span>
                                 </div>
                                 <div class="timeline-title">Safety, Correctness &amp; Supply-Chain Hardening</div>

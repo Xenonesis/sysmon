@@ -18,6 +18,7 @@ SysMon runs as a normal desktop application. Standard monitoring never requires 
 - **Floating Desktop HUD:** always-on-top compact telemetry widget (`Ctrl + M` or `[ ◰ HUD ]` header button) showing live CPU%, RAM%, GPU%, disk throughput, network rates, and an instant 1-click RAM cleaner.
 - **Active network socket inspection:** real-time TCP and UDP socket connection tables with PID resolution, process name mapping, and connection state filtering (`ESTABLISHED`, `LISTEN`, `TIME_WAIT`, `CLOSE_WAIT`).
 - **Storage S.M.A.R.T. and hardware detection:** auto-detects physical drives (`NVMe SSD`, `SATA SSD`, `USB`, `Virtual`) with health states, S.M.A.R.T. status, and media types.
+- **1-Click File Unlocker & Remote Handle Inspector:** identify which processes hold a file locked, selectively close remote file handles via Win32 `DuplicateHandle` (`DUPLICATE_CLOSE_SOURCE`) without killing host applications, batch release locks with 1-click `[ ⚡ Unlock All Handles ]`, inspect files directly via Explorer drag-and-drop, and stay protected with kernel-level critical process guards (`csrss`, `lsass`, `smss`, etc.).
 - **Process forensics & hierarchy:** search, inspect, sort by live per-process disk read/write bandwidth, toggle parent-child process tree hierarchy (`🌲 Process Tree`), and adjust CPU core affinity masks.
 - **Guided, explainable diagnostics:** the "Why is my PC slow?" workflow captures a personal baseline, guides reproduction, ranks CPU/memory/disk/network changes, names a likely process contributor, and links directly to the relevant evidence view. Recorded JSONL sessions remain local and exportable to CSV.
 - **Battery health & power plan switching:** live battery charge metrics, AC power status, and 1-click power scheme toggles (*Balanced*, *High Performance*, *Power Saver*).
@@ -36,7 +37,7 @@ SysMon organizes its fifteen modules around the questions users actually ask:
 - **Processes** — search, sort by CPU, memory, PID, or per-process live disk read/write throughput; switch to hierarchical parent-child process tree mode (`🌲 Process Tree`); manage CPU core affinities; and execute kill, kill-tree, suspend, resume and priority actions behind explicit confirmation.
 - **Services** — start, stop or restart Windows services with dependency visibility before you confirm.
 - **Startup Manager** — inspect executable existence, publisher information, signature state, boot evidence and estimated impact; prefer reversible disable over permanent removal.
-- **Storage** — capacity, partition usage, physical drive hardware detection (`NVMe SSD`, `SATA SSD`, `USB`), media types, and live S.M.A.R.T. health status.
+- **Storage** — capacity, partition usage, physical drive hardware detection (`NVMe SSD`, `SATA SSD`, `USB`), media types, live S.M.A.R.T. health status, and the 1-click File Unlocker & Remote Handle Inspector.
 - **Network** — per-interface download/upload rates, live bandwidth graphs, and active TCP/UDP socket tables with PID and process name resolution.
 - **RAM Cleaner** — bounded working-set cleanup with exclusions, idle-only option, per-pass limits, and global `Ctrl + Alt + C` hotkey.
 - **Alerts** — threshold-based notifications for CPU, memory, GPU temperature and disk, with alert sound chime toggle and deduplication.
@@ -46,18 +47,19 @@ SysMon organizes its fifteen modules around the questions users actually ask:
 
 ## Version comparison
 
-| Capability | 1.x (2024) | 2.6.x (2026-01) | 3.8.0 (current) |
+| Capability | 1.x (2024) | 2.6.x (2026-01) | 3.8.1 (current) |
 | --- | --- | --- | --- |
-| GUI framework | egui / eframe | egui / eframe | egui / eframe |
+| GUI framework | egui / eframe | egui / eframe | egui / eframe (modular sub-components) |
 | Telemetry engine | Single polling thread | Legacy polling thread | **TelemetryHub** (multi-tier, provider abstraction, background workers) |
 | UI and sampling | Full poll per refresh | Full poll per refresh | **Decoupled UI** and 1–5 Hz hardware sampling |
 | History resolution | ~2 min graphs | ~2 min graphs | **60s / 5m / 30m / 1hr** live buffers plus optional **15m–7d local timeline** |
 | GPU support | NVIDIA only (NVML) | NVIDIA only (NVML) | **Vendor-neutral** — NVML + Windows/WMI adapters, Intel/AMD via counters |
+| File Unlocker | — | — | **DuplicateHandle remote closure**, drag-and-drop, batch unlock & OS guards |
 | Diagnostics | — | — | **Evidence-based findings + confidence**, opt-in JSONL session recording |
 | Action safety | — | — | **Risk preview, elevation disclosure, audit history, Undo** |
 | Update verification | Plain download | HTTPS + basic checks | **SHA-256 checksum verification**, SBOM, build provenance |
 | Supply chain / CI | — | Basic scripts | **Checksum + provenance release workflow**, Windows CI quality gates |
-| Views / modules | 4 tabs | 7 tabs | **15 modules** (incl. Trusted Timeline, Process Tree, Sockets, Storage S.M.A.R.T., Desktop HUD) |
+| Views / modules | 4 tabs | 7 tabs | **15 modules** (incl. Trusted Timeline, Process Tree, Sockets, Storage S.M.A.R.T., File Unlocker, Desktop HUD) |
 
 See the [changelog](CHANGELOG.md) for the complete per-version history.
 
@@ -107,8 +109,9 @@ src/
 ├── monitoring/      # legacy engine, snapshots, rates, history
 ├── diagnostics/     # evidence-based finding rules
 ├── persistence/     # settings, sessions, action audit log
-├── timeline.rs      # dedicated SQLite worker, queries, analysis and export
-├── ui/              # pages, windows, components, theme
+├── storage/         # volumes, S.M.A.R.T., file locks & DuplicateHandle engine
+├── timeline/        # dedicated SQLite worker, queries, analysis and export
+├── ui/              # modular pages, windows, components, theme
 └── updater.rs       # release check and verified install
 ```
 
