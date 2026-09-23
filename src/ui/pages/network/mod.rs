@@ -1,3 +1,4 @@
+pub(crate) mod adapter_card;
 pub(crate) mod interfaces;
 pub(crate) mod sockets;
 
