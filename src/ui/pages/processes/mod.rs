@@ -1,5 +1,7 @@
+mod details_panel;
 mod row_actions;
 mod table;
+mod table_header;
 mod toolbar;
 
 use crate::processes::ProcessSortColumn;

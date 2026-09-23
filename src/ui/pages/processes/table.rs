@@ -1,4 +1,5 @@
-use crate::processes::ProcessSortColumn;
+use super::details_panel::paint_process_details_card;
+use super::table_header::{TableLayout, paint_table_header};
 use crate::ui::components::*;
 use crate::ui::theme::ThemePalette;
 use crate::*;
@@ -12,157 +13,15 @@ pub(super) fn paint_process_table(
     is_dark: bool,
 ) {
     card_frame(is_dark).show(ui, |ui| {
-        let show_gpu = app.settings.show_gpu;
-        let minimum_width = if show_gpu { 976.0 } else { 893.0 };
-        let total_w = ui.available_width().max(minimum_width);
+        let layout = TableLayout::compute(ui.available_width(), app.settings.show_gpu);
         egui::ScrollArea::horizontal()
             .id_salt("process_columns")
             .auto_shrink([false, false])
             .show(ui, |ui| {
-                ui.set_min_width(total_w);
-                let spacing = 8.0;
-                let pid_w = 60.0;
-                let mem_w = 85.0;
-                let vram_w = if show_gpu { 75.0 } else { 0.0 };
-                let cpu_w = 70.0;
-                let disk_read_w = 85.0;
-                let disk_write_w = 85.0;
-                let action_w = 175.0;
-
-                let fixed_w = pid_w
-                    + mem_w
-                    + vram_w
-                    + cpu_w
-                    + disk_read_w
-                    + disk_write_w
-                    + action_w
-                    + (if show_gpu { 7.0 } else { 6.0 } * spacing);
-                let name_w = (total_w - fixed_w).max(180.0);
+                ui.set_min_width(layout.total_w);
 
                 // Sticky Header with sortable columns
-                let sort_col = app.process_sort_column;
-                let sort_asc = app.process_sort_ascending;
-
-                let header_button = |ui: &mut egui::Ui,
-                                     label: &str,
-                                     width: f32,
-                                     col: ProcessSortColumn,
-                                     current_col: ProcessSortColumn,
-                                     asc: bool|
-                 -> egui::Response {
-                    let text = super::sort_header_label(label, col, current_col, asc);
-                    let is_active = col == current_col;
-                    let text_color = if is_active {
-                        ThemePalette::ACCENT_PRIMARY
-                    } else {
-                        ThemePalette::text_primary(is_dark)
-                    };
-                    let btn = egui::Button::new(egui::RichText::new(text).strong().size(11.5).color(text_color))
-                        .selected(is_active)
-                        .fill(egui::Color32::TRANSPARENT)
-                        .stroke(egui::Stroke::NONE);
-                    ui.add_sized([width, 22.0], btn)
-                };
-
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = spacing;
-
-                    if header_button(ui, "PID", pid_w, ProcessSortColumn::Pid, sort_col, sort_asc).clicked() {
-                        if app.process_sort_column == ProcessSortColumn::Pid {
-                            app.process_sort_ascending = !app.process_sort_ascending;
-                        } else {
-                            app.process_sort_column = ProcessSortColumn::Pid;
-                            app.process_sort_ascending = true;
-                        }
-                    }
-
-                    if header_button(ui, "Process Name", name_w, ProcessSortColumn::Name, sort_col, sort_asc).clicked()
-                    {
-                        if app.process_sort_column == ProcessSortColumn::Name {
-                            app.process_sort_ascending = !app.process_sort_ascending;
-                        } else {
-                            app.process_sort_column = ProcessSortColumn::Name;
-                            app.process_sort_ascending = true;
-                        }
-                    }
-
-                    if header_button(ui, "Memory", mem_w, ProcessSortColumn::Memory, sort_col, sort_asc).clicked() {
-                        if app.process_sort_column == ProcessSortColumn::Memory {
-                            app.process_sort_ascending = !app.process_sort_ascending;
-                        } else {
-                            app.process_sort_column = ProcessSortColumn::Memory;
-                            app.process_sort_ascending = false;
-                        }
-                    }
-
-                    if show_gpu
-                        && header_button(ui, "VRAM", vram_w, ProcessSortColumn::Vram, sort_col, sort_asc).clicked()
-                    {
-                        if app.process_sort_column == ProcessSortColumn::Vram {
-                            app.process_sort_ascending = !app.process_sort_ascending;
-                        } else {
-                            app.process_sort_column = ProcessSortColumn::Vram;
-                            app.process_sort_ascending = false;
-                        }
-                    }
-                    if header_button(ui, "CPU %", cpu_w, ProcessSortColumn::Cpu, sort_col, sort_asc).clicked() {
-                        if app.process_sort_column == ProcessSortColumn::Cpu {
-                            app.process_sort_ascending = !app.process_sort_ascending;
-                        } else {
-                            app.process_sort_column = ProcessSortColumn::Cpu;
-                            app.process_sort_ascending = false;
-                        }
-                    }
-
-                    if header_button(
-                        ui,
-                        "Disk Read",
-                        disk_read_w,
-                        ProcessSortColumn::Disk,
-                        sort_col,
-                        sort_asc,
-                    )
-                    .clicked()
-                    {
-                        if app.process_sort_column == ProcessSortColumn::Disk {
-                            app.process_sort_ascending = !app.process_sort_ascending;
-                        } else {
-                            app.process_sort_column = ProcessSortColumn::Disk;
-                            app.process_sort_ascending = false;
-                        }
-                    }
-
-                    if header_button(
-                        ui,
-                        "Disk Write",
-                        disk_write_w,
-                        ProcessSortColumn::Disk,
-                        sort_col,
-                        sort_asc,
-                    )
-                    .clicked()
-                    {
-                        if app.process_sort_column == ProcessSortColumn::Disk {
-                            app.process_sort_ascending = !app.process_sort_ascending;
-                        } else {
-                            app.process_sort_column = ProcessSortColumn::Disk;
-                            app.process_sort_ascending = false;
-                        }
-                    }
-
-                    ui.allocate_ui_with_layout(
-                        egui::vec2(action_w, 22.0),
-                        egui::Layout::left_to_right(egui::Align::Center),
-                        |ui| {
-                            ui.label(
-                                egui::RichText::new("Actions")
-                                    .strong()
-                                    .size(11.5)
-                                    .color(ThemePalette::text_secondary(is_dark)),
-                            );
-                        },
-                    );
-                });
+                paint_table_header(app, ui, &layout, is_dark);
 
                 ui.add_space(4.0);
                 ui.separator();
@@ -186,7 +45,7 @@ pub(super) fn paint_process_table(
                             let is_even = idx % 2 == 0;
 
                             let (row_rect, _) =
-                                ui.allocate_exact_size(egui::vec2(total_w, row_height), egui::Sense::hover());
+                                ui.allocate_exact_size(egui::vec2(layout.total_w, row_height), egui::Sense::hover());
 
                             // Row background styling
                             if selected {
@@ -209,11 +68,11 @@ pub(super) fn paint_process_table(
 
                             ui.new_child(egui::UiBuilder::new().max_rect(row_rect)).scope(|ui| {
                                 ui.horizontal(|ui| {
-                                    ui.spacing_mut().item_spacing.x = spacing;
+                                    ui.spacing_mut().item_spacing.x = layout.spacing;
 
                                     // PID
                                     ui.add_sized(
-                                        [pid_w, row_height],
+                                        [layout.pid_w, row_height],
                                         egui::Label::new(
                                             egui::RichText::new(process.pid.to_string())
                                                 .monospace()
@@ -223,7 +82,6 @@ pub(super) fn paint_process_table(
                                     );
 
                                     // Process Name (Dynamic width with responsive truncation)
-
                                     let name_btn = egui::Button::new(
                                         egui::RichText::new(&process.name)
                                             .monospace()
@@ -241,7 +99,7 @@ pub(super) fn paint_process_table(
 
                                     if ui
                                         .add_enabled_ui(process.identity.is_some(), |ui| {
-                                            ui.add_sized([name_w, row_height], name_btn)
+                                            ui.add_sized([layout.name_w, row_height], name_btn)
                                         })
                                         .inner
                                         .on_hover_text(format!(
@@ -267,7 +125,7 @@ pub(super) fn paint_process_table(
                                     };
 
                                     ui.add_sized(
-                                        [mem_w, row_height],
+                                        [layout.mem_w, row_height],
                                         egui::Label::new(
                                             egui::RichText::new(format!("{:.1} MB", memory_mb))
                                                 .monospace()
@@ -288,7 +146,7 @@ pub(super) fn paint_process_table(
                                     };
 
                                     // VRAM
-                                    if show_gpu {
+                                    if layout.show_gpu {
                                         let (vram_label, vram_color) = match process.vram_bytes {
                                             Some(bytes) => {
                                                 let vram_mb = bytes_to_mb(bytes);
@@ -307,7 +165,7 @@ pub(super) fn paint_process_table(
                                         };
 
                                         ui.add_sized(
-                                            [vram_w, row_height],
+                                            [layout.vram_w, row_height],
                                             egui::Label::new(
                                                 egui::RichText::new(vram_label)
                                                     .monospace()
@@ -318,7 +176,7 @@ pub(super) fn paint_process_table(
                                     }
 
                                     ui.add_sized(
-                                        [cpu_w, row_height],
+                                        [layout.cpu_w, row_height],
                                         egui::Label::new(
                                             egui::RichText::new(format!("{:.1}%", process.cpu_usage))
                                                 .monospace()
@@ -346,7 +204,7 @@ pub(super) fn paint_process_table(
                                     let (read_label, read_color) = rate_display(process.disk_read_bytes_per_second);
 
                                     ui.add_sized(
-                                        [disk_read_w, row_height],
+                                        [layout.disk_read_w, row_height],
                                         egui::Label::new(
                                             egui::RichText::new(read_label).monospace().size(11.0).color(read_color),
                                         ),
@@ -356,7 +214,7 @@ pub(super) fn paint_process_table(
                                         rate_display(process.disk_written_bytes_per_second);
 
                                     ui.add_sized(
-                                        [disk_write_w, row_height],
+                                        [layout.disk_write_w, row_height],
                                         egui::Label::new(
                                             egui::RichText::new(write_label)
                                                 .monospace()
@@ -366,7 +224,13 @@ pub(super) fn paint_process_table(
                                     );
 
                                     super::row_actions::paint_row_actions(
-                                        app, ui, process, data, is_dark, row_height, action_w,
+                                        app,
+                                        ui,
+                                        process,
+                                        data,
+                                        is_dark,
+                                        row_height,
+                                        layout.action_w,
                                     );
                                 });
                             });
@@ -379,55 +243,6 @@ pub(super) fn paint_process_table(
     if let Some((pid, details)) = &data.selected_process_details
         && app.details_pid == Some(*pid)
     {
-        ui.add_space(12.0);
-        card_frame(is_dark).show(ui, |ui| {
-            ui.horizontal_wrapped(|ui| {
-                ui.heading(
-                    egui::RichText::new(format!("Process Details — PID {}", pid.pid))
-                        .color(ThemePalette::text_primary(is_dark)),
-                );
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.small_button("× Close").clicked() {
-                        app.details_pid = None;
-                    }
-                });
-            });
-            ui.separator();
-            egui::Grid::new("process_details_grid")
-                .num_columns(2)
-                .spacing([16.0, 6.0])
-                .show(ui, |ui| {
-                    details_row(ui, "Executable", details.exe_path.as_deref().unwrap_or("N/A"), is_dark);
-                    details_row(ui, "Command Line", &details.command_line, is_dark);
-                    details_row(
-                        ui,
-                        "Working Directory",
-                        details.cwd.as_deref().unwrap_or("N/A"),
-                        is_dark,
-                    );
-                    details_row(ui, "Started", &format_started(details.start_time), is_dark);
-                    details_row(
-                        ui,
-                        "Run Time",
-                        &format!("{}m {}s", details.run_time / 60, details.run_time % 60),
-                        is_dark,
-                    );
-                    details_row(
-                        ui,
-                        "Parent PID",
-                        &details
-                            .parent_pid
-                            .map(|p| p.to_string())
-                            .unwrap_or_else(|| "—".to_string()),
-                        is_dark,
-                    );
-                    details_row(
-                        ui,
-                        "Parent Name",
-                        details.parent_name.as_deref().unwrap_or("—"),
-                        is_dark,
-                    );
-                });
-        });
+        paint_process_details_card(app, ui, pid, details, is_dark);
     }
 }
