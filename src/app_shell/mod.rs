@@ -808,10 +808,103 @@ pub(crate) fn ui_shell(app: &mut SystemMonitorApp, ui: &mut egui::Ui) {
         app.data.write().alerts.clear();
     }
 
+    fn paint_sidebar_nav_button(
+        ui: &mut egui::Ui,
+        selected: bool,
+        icon: &str,
+        name: &str,
+        is_collapsed: bool,
+        is_dark: bool,
+    ) -> egui::Response {
+        let height = 32.0;
+        let width = ui.available_width();
+        let (rect, response) = ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::click());
+
+        let is_hovered = response.hovered();
+        let rnd = egui::CornerRadius::same(5);
+
+        // Background & Stroke
+        if selected {
+            let fill = ThemePalette::ACCENT_PRIMARY.gamma_multiply(if is_dark { 0.12 } else { 0.09 });
+            let stroke = egui::Stroke::new(1.0, ThemePalette::ACCENT_PRIMARY.gamma_multiply(0.28));
+            ui.painter().rect_filled(rect, rnd, fill);
+            ui.painter().rect_stroke(rect, rnd, stroke, egui::StrokeKind::Inside);
+
+            // Sharp 3px vertical accent indicator bar on the left edge
+            let indicator_rect = egui::Rect::from_min_max(
+                egui::pos2(rect.min.x + 2.0, rect.min.y + 6.0),
+                egui::pos2(rect.min.x + 5.5, rect.max.y - 6.0),
+            );
+            ui.painter().rect_filled(
+                indicator_rect,
+                egui::CornerRadius::same(1),
+                ThemePalette::ACCENT_PRIMARY,
+            );
+        } else if is_hovered {
+            let fill = ThemePalette::bg_track(is_dark).gamma_multiply(0.5);
+            ui.painter().rect_filled(rect, rnd, fill);
+        }
+
+        if is_collapsed {
+            let icon_color = if selected {
+                ThemePalette::ACCENT_PRIMARY
+            } else if is_hovered {
+                ThemePalette::text_primary(is_dark)
+            } else {
+                ThemePalette::text_secondary(is_dark)
+            };
+            ui.painter().text(
+                rect.center(),
+                egui::Align2::CENTER_CENTER,
+                icon,
+                egui::FontId::proportional(14.0),
+                icon_color,
+            );
+        } else {
+            let icon_color = if selected {
+                ThemePalette::ACCENT_PRIMARY
+            } else if is_hovered {
+                ThemePalette::text_primary(is_dark)
+            } else {
+                ThemePalette::text_secondary(is_dark)
+            };
+            let text_color = if selected || is_hovered {
+                ThemePalette::text_primary(is_dark)
+            } else {
+                ThemePalette::text_secondary(is_dark)
+            };
+
+            // Icon at left padding 14px
+            ui.painter().text(
+                egui::pos2(rect.min.x + 14.0, rect.center().y),
+                egui::Align2::LEFT_CENTER,
+                icon,
+                egui::FontId::proportional(13.0),
+                icon_color,
+            );
+
+            // Text label at left padding 36px
+            ui.painter().text(
+                egui::pos2(rect.min.x + 36.0, rect.center().y),
+                egui::Align2::LEFT_CENTER,
+                name,
+                if selected {
+                    egui::FontId::new(12.5, egui::FontFamily::Proportional)
+                } else {
+                    egui::FontId::new(12.0, egui::FontFamily::Proportional)
+                },
+                text_color,
+            );
+        }
+
+        response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, selected, name));
+        response.on_hover_text(name)
+    }
+
     let is_dark = ThemePalette::is_dark_mode(app.settings.theme);
 
     let is_collapsed = app.settings.sidebar_collapsed;
-    let sidebar_width = if is_collapsed { 52.0 } else { 200.0 };
+    let sidebar_width = if is_collapsed { 52.0 } else { 212.0 };
     let sidebar_frame = egui::Frame::NONE
         .fill(ThemePalette::bg_surface(is_dark))
         .stroke(egui::Stroke::new(1.0, ThemePalette::border(is_dark)));
@@ -821,27 +914,47 @@ pub(crate) fn ui_shell(app: &mut SystemMonitorApp, ui: &mut egui::Ui) {
         .exact_size(sidebar_width)
         .frame(sidebar_frame)
         .show(ui, |ui| {
-            // Reserve the utility dock before allocating the scrollable navigation.
-            // Neither region can paint or receive input over the other.
-            egui::Panel::bottom("sidebar_utilities")
-                .exact_size(132.0)
-                .show_separator_line(true)
-                .show(ui, |ui| {
-                    let status = if data.monitoring_paused {
-                        "Paused"
-                    } else {
-                        "Last sample"
-                    };
-                    ui.label(egui::RichText::new(status).small());
-                    ui.label(egui::RichText::new(&data.last_update).small())
-                        .on_hover_text("Timestamp of the last collected sample; not a health assessment");
-                    for (icon, name) in [("⚙", "Settings"), ("⌨", "Shortcuts"), ("ℹ", "About")] {
-                        let text = if is_collapsed {
-                            icon.to_owned()
+            // 1. Bottom Utility Dock — allocated first via bottom_up to guarantee ZERO overlap.
+            // ScrollArea above will strictly consume whatever remaining vertical space exists.
+            ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
+                ui.add_space(8.0);
+
+                // Status / Last sample indicator
+                if !is_collapsed {
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 5.0;
+                        let (dot_color, status_text) = if data.monitoring_paused {
+                            (ThemePalette::STATUS_WARNING, "Paused")
                         } else {
-                            format!("{icon}  {name}")
+                            (ThemePalette::STATUS_HEALTHY, "Live")
                         };
-                        let response = ui.add_sized([ui.available_width(), 24.0], egui::Button::new(text));
+                        let (dot_rect, _) = ui.allocate_exact_size(egui::vec2(7.0, 7.0), egui::Sense::hover());
+                        ui.painter().circle_filled(dot_rect.center(), 3.0, dot_color);
+                        ui.label(egui::RichText::new(status_text).size(10.5).strong().color(dot_color));
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.label(
+                                egui::RichText::new(&data.last_update)
+                                    .size(10.0)
+                                    .monospace()
+                                    .color(ThemePalette::text_dimmed(is_dark)),
+                            )
+                            .on_hover_text("Timestamp of the last collected sample; not a health assessment");
+                        });
+                    });
+                    ui.add_space(4.0);
+                }
+
+                // Sleek utility buttons (Settings, Shortcuts, About)
+                if is_collapsed {
+                    for (icon, name) in [("ℹ", "About"), ("⌨", "Shortcuts"), ("⚙", "Settings")] {
+                        let btn = egui::Button::new(
+                            egui::RichText::new(icon)
+                                .size(12.0)
+                                .color(ThemePalette::text_secondary(is_dark)),
+                        )
+                        .fill(egui::Color32::TRANSPARENT)
+                        .corner_radius(egui::CornerRadius::same(4));
+                        let response = ui.add_sized([ui.available_width(), 26.0], btn);
                         response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, name));
                         if response.on_hover_text(name).clicked() {
                             match name {
@@ -851,32 +964,97 @@ pub(crate) fn ui_shell(app: &mut SystemMonitorApp, ui: &mut egui::Ui) {
                             }
                         }
                     }
-                });
+                } else {
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 4.0;
+                        let btn_w = (ui.available_width() - 8.0) / 3.0;
+                        for (icon, name, short) in [
+                            ("⚙", "Settings", "Settings"),
+                            ("⌨", "Shortcuts", "Keys"),
+                            ("ℹ", "About", "About"),
+                        ] {
+                            let btn = egui::Button::new(
+                                egui::RichText::new(format!("{icon} {short}"))
+                                    .size(11.0)
+                                    .color(ThemePalette::text_secondary(is_dark)),
+                            )
+                            .fill(ThemePalette::bg_deepest(is_dark))
+                            .stroke(egui::Stroke::new(1.0, ThemePalette::border(is_dark)))
+                            .corner_radius(egui::CornerRadius::same(4));
+                            let response = ui.add_sized([btn_w, 24.0], btn);
+                            response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, name));
+                            if response.on_hover_text(name).clicked() {
+                                match name {
+                                    "Settings" => app.show_settings = true,
+                                    "Shortcuts" => app.show_shortcuts = true,
+                                    _ => app.selected_tab = Tab::About,
+                                }
+                            }
+                        }
+                    });
+                }
+
+                ui.add_space(4.0);
+                ui.separator();
+                ui.add_space(4.0);
+            });
+
+            // 2. Top Header (Logo + Toggle Collapse)
+            ui.add_space(4.0);
             ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 6.0;
                 if !is_collapsed {
+                    let (dot_rect, _) = ui.allocate_exact_size(egui::vec2(8.0, 8.0), egui::Sense::hover());
+                    ui.painter()
+                        .circle_filled(dot_rect.center(), 3.5, ThemePalette::ACCENT_PRIMARY);
+
                     ui.label(
                         egui::RichText::new("SysMon")
+                            .size(15.0)
                             .strong()
                             .color(ThemePalette::ACCENT_PRIMARY),
                     );
-                }
-                let label = if is_collapsed {
-                    "Expand sidebar"
+
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        let label = "Collapse sidebar";
+                        let btn = egui::Button::new(
+                            egui::RichText::new("◀")
+                                .size(11.0)
+                                .color(ThemePalette::text_secondary(is_dark)),
+                        )
+                        .fill(egui::Color32::TRANSPARENT)
+                        .corner_radius(egui::CornerRadius::same(4));
+                        let response = ui.add_sized([22.0, 22.0], btn);
+                        response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label));
+                        if response.on_hover_text(format!("{label} (Ctrl+B)")).clicked() {
+                            app.settings.sidebar_collapsed = true;
+                            crate::ui::pages::settings::commit_settings(app);
+                        }
+                    });
                 } else {
-                    "Collapse sidebar"
-                };
-                let response = ui.button(if is_collapsed { "▶" } else { "◀" });
-                response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label));
-                if response.on_hover_text(format!("{label} (Ctrl+B)")).clicked() {
-                    app.settings.sidebar_collapsed = !is_collapsed;
-                    crate::ui::pages::settings::commit_settings(app);
+                    let label = "Expand sidebar";
+                    let btn =
+                        egui::Button::new(egui::RichText::new("▶").size(11.0).color(ThemePalette::ACCENT_PRIMARY))
+                            .fill(egui::Color32::TRANSPARENT)
+                            .corner_radius(egui::CornerRadius::same(4));
+                    let response = ui.add_sized([ui.available_width(), 22.0], btn);
+                    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label));
+                    if response.on_hover_text(format!("{label} (Ctrl+B)")).clicked() {
+                        app.settings.sidebar_collapsed = false;
+                        crate::ui::pages::settings::commit_settings(app);
+                    }
                 }
             });
+            ui.add_space(4.0);
             ui.separator();
+            ui.add_space(2.0);
+
+            // 3. Scrollable Navigation List (immune to overlapping the bottom dock)
             egui::ScrollArea::vertical()
                 .id_salt("sidebar_navigation")
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
+                    ui.spacing_mut().item_spacing.y = 2.0;
                     for (group, tab, icon, name) in [
                         ("TELEMETRY", Tab::Overview, "📊", "Overview"),
                         ("", Tab::Performance, "📈", "Performance"),
@@ -896,30 +1074,25 @@ pub(crate) fn ui_shell(app: &mut SystemMonitorApp, ui: &mut egui::Ui) {
                             continue;
                         }
                         if !group.is_empty() {
-                            ui.add_space(6.0);
+                            ui.add_space(8.0);
                             if !is_collapsed {
                                 ui.label(
                                     egui::RichText::new(group)
-                                        .small()
-                                        .color(ThemePalette::text_secondary(is_dark)),
+                                        .size(9.5)
+                                        .strong()
+                                        .color(ThemePalette::text_dimmed(is_dark)),
                                 );
+                                ui.add_space(2.0);
+                            } else {
+                                ui.separator();
                             }
                         }
                         let selected = app.selected_tab == tab;
-                        let text = if is_collapsed {
-                            icon.to_owned()
-                        } else {
-                            format!("{icon}  {name}")
-                        };
-                        let response =
-                            ui.add_sized([ui.available_width(), 30.0], egui::Button::selectable(selected, text));
-                        response.widget_info(|| {
-                            egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, selected, name)
-                        });
-                        if response.on_hover_text(name).clicked() {
+                        if paint_sidebar_nav_button(ui, selected, icon, name, is_collapsed, is_dark).clicked() {
                             app.selected_tab = tab;
                         }
                     }
+                    ui.add_space(6.0);
                 });
         });
 
