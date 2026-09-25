@@ -1,0 +1,1 @@
+Windows Task Manager taking 5 seconds to open is over. SysMon gives you pro-grade Windows diagnostics written in pure Rust with 1-click RAM cleaner, process tree forensics, and zero background services.

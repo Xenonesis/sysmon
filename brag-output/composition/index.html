@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>SysMon — Launch Brag</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+  <style>
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    :root {
+      --bg: #09090b;
+      --surface: #18181b;
+      --surface-bright: #27272a;
+      --border: rgba(255, 255, 255, 0.12);
+      --accent: #10b981;
+      --accent-glow: rgba(16, 185, 129, 0.25);
+      --amber: #f59e0b;
+      --red: #ef4444;
+      --text: #f4f4f5;
+      --text-muted: #a1a1aa;
+      --mono: ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", Menlo, Consolas, monospace;
+      --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+
+    body {
+      margin: 0;
+      padding: 0;
+      background: #000;
+      overflow: hidden;
+      font-family: var(--sans);
+    }
+
+    #composition-root {
+      width: 1920px;
+      height: 1080px;
+      background: var(--bg);
+      color: var(--text);
+      overflow: hidden;
+      position: relative;
+    }
+
+    /* Subdued grid background pattern */
+    .grid-bg {
+      position: absolute;
+      inset: 0;
+      background-image: 
+        linear-gradient(to right, rgba(255,255,255,0.03) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(255,255,255,0.03) 1px, transparent 1px);
+      background-size: 60px 60px;
+      opacity: 0.8;
+      pointer-events: none;
+    }
+
+    .glow-orb {
+      position: absolute;
+      width: 700px;
+      height: 700px;
+      border-radius: 50%;
+      background: radial-gradient(circle, var(--accent-glow) 0%, transparent 70%);
+      filter: blur(80px);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* Scene Container */
+    .scene {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 80px;
+      z-index: 10;
+    }
+
+    /* Scene 1: The Hook */
+    .hook-card {
+      background: rgba(24, 24, 27, 0.95);
+      border: 1px solid var(--red);
+      box-shadow: 0 0 50px rgba(239, 68, 68, 0.25);
+      border-radius: 16px;
+      padding: 50px 70px;
+      text-align: center;
+      max-width: 1050px;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 16px;
+      border-radius: 9999px;
+      font-family: var(--mono);
+      font-size: 15px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 24px;
+    }
+
+    .badge-red {
+      background: rgba(239, 68, 68, 0.15);
+      color: #fca5a5;
+      border: 1px solid rgba(239, 68, 68, 0.4);
+    }
+
+    .badge-green {
+      background: rgba(16, 185, 129, 0.15);
+      color: #6ee7b7;
+      border: 1px solid rgba(16, 185, 129, 0.4);
+    }
+
+    .hook-title {
+      font-size: 58px;
+      font-weight: 800;
+      line-height: 1.15;
+      letter-spacing: -0.02em;
+      margin-bottom: 24px;
+      color: #ffffff;
+    }
+
+    .hook-sub {
+      font-family: var(--mono);
+      color: #cbd5e1;
+      font-size: 22px;
+    }
+
+    /* Scene 2: Cockpit HUD Grid */
+    .cockpit-header {
+      text-align: center;
+      margin-bottom: 48px;
+    }
+
+    .cockpit-title {
+      font-size: 50px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      margin-bottom: 12px;
+      color: #ffffff;
+    }
+
+    .grid-4 {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 28px;
+      width: 100%;
+      max-width: 1600px;
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 32px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .card::before {
+      content: "";
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 3px;
+      background: var(--accent);
+      opacity: 0.9;
+    }
+
+    .card-label {
+      font-family: var(--mono);
+      font-size: 14px;
+      color: #cbd5e1;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 14px;
+      display: flex;
+      justify-content: space-between;
+    }
+
+    .card-val {
+      font-size: 56px;
+      font-weight: 800;
+      font-family: var(--mono);
+      line-height: 1;
+      margin-bottom: 16px;
+      color: #ffffff;
+    }
+
+    .card-detail {
+      font-size: 15px;
+      color: #94a3b8;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .bar-track {
+      width: 100%;
+      height: 8px;
+      background: var(--surface-bright);
+      border-radius: 4px;
+      overflow: hidden;
+      margin-top: 20px;
+    }
+
+    .bar-fill {
+      height: 100%;
+      background: var(--accent);
+      border-radius: 4px;
+      box-shadow: 0 0 12px var(--accent-glow);
+    }
+
+    /* Scene 3: 1-Click RAM Cleaner */
+    .cleaner-container {
+      width: 100%;
+      max-width: 1100px;
+      background: var(--surface);
+      border: 1px solid rgba(16, 185, 129, 0.4);
+      border-radius: 20px;
+      padding: 60px 80px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+      text-align: center;
+    }
+
+    .ram-number-wrap {
+      display: flex;
+      align-items: baseline;
+      justify-content: center;
+      gap: 16px;
+      margin: 36px 0;
+    }
+
+    .ram-percent {
+      font-size: 124px;
+      font-family: var(--mono);
+      font-weight: 900;
+      line-height: 1;
+      letter-spacing: -0.04em;
+    }
+
+    .ram-detail-text {
+      font-family: var(--mono);
+      font-size: 26px;
+      color: #cbd5e1;
+    }
+
+    .clean-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 14px;
+      background: var(--accent);
+      color: #042f2e;
+      font-size: 22px;
+      font-weight: 700;
+      font-family: var(--mono);
+      padding: 18px 42px;
+      border-radius: 12px;
+      box-shadow: 0 0 35px var(--accent-glow);
+    }
+
+    /* Scene 4: Process Forensics */
+    .tree-box {
+      width: 100%;
+      max-width: 1350px;
+      background: #111114;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 36px 44px;
+      font-family: var(--mono);
+    }
+
+    .tree-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 18px;
+      margin-bottom: 24px;
+    }
+
+    .tree-title {
+      font-size: 26px;
+      font-weight: 700;
+      color: #ffffff;
+    }
+
+    .tree-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 18px;
+      border-radius: 8px;
+      font-size: 17px;
+      margin-bottom: 6px;
+      color: #e2e8f0;
+    }
+
+    .tree-row:nth-child(even) {
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .tree-row.highlight {
+      background: rgba(16, 185, 129, 0.1);
+      border-left: 4px solid var(--accent);
+    }
+
+    /* Scene 5: Outro */
+    .outro-card {
+      text-align: center;
+    }
+
+    .brand-logo {
+      font-size: 110px;
+      font-weight: 900;
+      font-family: var(--mono);
+      letter-spacing: -0.03em;
+      margin-bottom: 16px;
+      background: linear-gradient(135deg, #ffffff 40%, var(--accent) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .brand-tagline {
+      font-size: 32px;
+      font-weight: 600;
+      color: #cbd5e1;
+      margin-bottom: 40px;
+    }
+
+    .badges-row {
+      display: flex;
+      gap: 20px;
+      justify-content: center;
+    }
+
+    .badge-chip {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      padding: 14px 28px;
+      border-radius: 10px;
+      font-family: var(--mono);
+      font-size: 18px;
+      color: #f1f5f9;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Root Composition Container -->
+  <div id="composition-root" 
+       data-composition-id="sysmon-brag" 
+       data-width="1920" 
+       data-height="1080" 
+       data-duration="19.5" 
+       data-fps="30">
+
+    <!-- Ambient Visuals -->
+    <div class="grid-bg"></div>
+    <div class="glow-orb" style="top: 20%; left: 30%;"></div>
+
+    <!-- Audio Track Layout -->
+    <audio id="bgm" class="clip" data-start="0" data-duration="19.5" data-volume="0.8" src="assets/music/music.mp3"></audio>
+    <audio id="sfx-impact" class="clip" data-start="0.1" data-duration="2.0" data-volume="0.9" src="assets/sfx/impact.ogg"></audio>
+    <audio id="sfx-switch1" class="clip" data-start="3.5" data-duration="1.5" data-volume="0.7" src="assets/sfx/switch.ogg"></audio>
+    <audio id="sfx-click" class="clip" data-start="9.2" data-duration="1.0" data-volume="0.85" src="assets/sfx/click.ogg"></audio>
+    <audio id="sfx-clean" class="clip" data-start="9.6" data-duration="2.0" data-volume="0.9" src="assets/sfx/clean.ogg"></audio>
+    <audio id="sfx-switch2" class="clip" data-start="12.5" data-duration="1.5" data-volume="0.7" src="assets/sfx/switch.ogg"></audio>
+    <audio id="sfx-outro" class="clip" data-start="16.6" data-duration="2.5" data-volume="0.9" src="assets/sfx/impact.ogg"></audio>
+
+    <!-- SCENE 1: The Hook (0.0s - 3.5s) -->
+    <div class="scene clip" id="scene1" data-start="0" data-duration="3.5">
+      <div class="hook-card" id="hook-box">
+        <div class="badge badge-red">⚠️ Windows 11 Task Manager • High Latency Alert</div>
+        <h1 class="hook-title">Still waiting for Task Manager to open?</h1>
+        <p class="hook-sub">&gt; Process enumeration stalled... 100% Disk spike mystery</p>
+      </div>
+    </div>
+
+    <!-- SCENE 2: The Cockpit (3.5s - 8.0s) -->
+    <div class="scene clip" id="scene2" data-start="3.5" data-duration="4.5">
+      <div class="cockpit-header" id="cockpit-head">
+        <div class="badge badge-green">🚀 TelemetryHub • 1–5 Hz Decoupled Hardware Engine</div>
+        <h2 class="cockpit-title">Ultra-Fast Native Windows Telemetry</h2>
+      </div>
+      <div class="grid-4" id="cards-grid">
+        <!-- Card 1 -->
+        <div class="card" id="card-cpu">
+          <div>
+            <div class="card-label"><span>CPU Utilization</span> <span>38%</span></div>
+            <div class="card-val" id="val-cpu">4.82 GHz</div>
+            <div class="card-detail">16 Cores • 8P + 8E Intel i9-12900H</div>
+          </div>
+          <div class="bar-track"><div class="bar-fill" style="width: 38%;"></div></div>
+        </div>
+        <!-- Card 2 -->
+        <div class="card" id="card-ram">
+          <div>
+            <div class="card-label"><span>Memory In Use</span> <span>47%</span></div>
+            <div class="card-val">30.1 GB</div>
+            <div class="card-detail">64.0 GB DDR5-4800 Dual Channel</div>
+          </div>
+          <div class="bar-track"><div class="bar-fill" style="width: 47%;"></div></div>
+        </div>
+        <!-- Card 3 -->
+        <div class="card" id="card-disk">
+          <div>
+            <div class="card-label"><span>NVMe SSD Speed</span> <span>S.M.A.R.T. OK</span></div>
+            <div class="card-val">842 MB/s</div>
+            <div class="card-detail">Samsung 980 PRO 2TB • 34°C</div>
+          </div>
+          <div class="bar-track"><div class="bar-fill" style="width: 62%;"></div></div>
+        </div>
+        <!-- Card 4 -->
+        <div class="card" id="card-gpu">
+          <div>
+            <div class="card-label"><span>GPU Core Load</span> <span>NVIDIA NVML</span></div>
+            <div class="card-val">42°C</div>
+            <div class="card-detail">RTX 4090 • 16,384 CUDA Cores</div>
+          </div>
+          <div class="bar-track"><div class="bar-fill" style="width: 28%;"></div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCENE 3: 1-Click RAM Cleaner (8.0s - 12.5s) -->
+    <div class="scene clip" id="scene3" data-start="8.0" data-duration="4.5">
+      <div class="cleaner-container" id="cleaner-card">
+        <div class="badge badge-green">⚡ Surgical RAM Cleaner • Instant Working-Set Trim</div>
+        <div class="ram-number-wrap">
+          <span class="ram-percent" id="ram-count" style="color: #ef4444;">88%</span>
+          <span class="ram-detail-text" id="ram-bytes">56.3 GB / 64.0 GB</span>
+        </div>
+        <div class="bar-track" style="height: 16px; max-width: 800px; margin: 0 auto 36px auto;">
+          <div class="bar-fill" id="ram-progress" style="width: 88%; background: #ef4444;"></div>
+        </div>
+        <div class="clean-btn" id="clean-trigger">
+          <span>⚡</span> <span>TRIM WORKING SETS (Ctrl + Alt + C)</span>
+        </div>
+        <div id="clean-recovered-badge" style="opacity: 0; margin-top: 24px; font-family: var(--mono); font-size: 20px; color: #10b981; font-weight: 700;">
+          ✓ 244 processes trimmed • +2.41 GB physical memory recovered
+        </div>
+      </div>
+    </div>
+
+    <!-- SCENE 4: Forensic Process Tree (12.5s - 16.5s) -->
+    <div class="scene clip" id="scene4" data-start="12.5" data-duration="4.0">
+      <div class="tree-box" id="tree-container">
+        <div class="tree-header">
+          <div class="tree-title">🌲 Process Hierarchy & Identity-Guarded Control</div>
+          <div class="badge badge-green">PID + Creation-Time Verified</div>
+        </div>
+        <div class="tree-row highlight">
+          <span>├─ 🌲 rust-analyzer.exe [PID 18290]</span>
+          <span style="color: var(--accent);">CPU 24.2% • 1.4 GB RAM • Affinity: Cores 0-15</span>
+        </div>
+        <div class="tree-row">
+          <span>│   ├─ cargo-check.exe [PID 20412]</span>
+          <span>CPU 12.1% • 420 MB RAM</span>
+        </div>
+        <div class="tree-row">
+          <span>│   └─ rustc.exe [PID 21908]</span>
+          <span>CPU 8.4% • 680 MB RAM</span>
+        </div>
+        <div class="tree-row">
+          <span>└─ 🌐 chrome.exe [PID 14320]</span>
+          <span>CPU 2.1% • 850 MB RAM</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCENE 5: Authority Outro (16.5s - 19.5s) -->
+    <div class="scene clip" id="scene5" data-start="16.5" data-duration="3.0">
+      <div class="outro-card" id="outro-content">
+        <div class="badge badge-green" style="margin-bottom: 16px;">🦀 WRITTEN IN 100% PURE RUST (EFRAME/EGUI)</div>
+        <h1 class="brand-logo">SYSMON</h1>
+        <p class="brand-tagline">Native Windows Observability. Pure Rust. Zero Bloat.</p>
+        <div class="badges-row">
+          <div class="badge-chip">v3.8.1 Enterprise</div>
+          <div class="badge-chip">Zero Background Services</div>
+          <div class="badge-chip">100% Local Privacy</div>
+          <div class="badge-chip">github.com/Xenonesis/sysmon</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Hyperframes GSAP Registration & Animation Timeline -->
+  <script>
+    window.__timelines = window.__timelines || {};
+
+    const tl = gsap.timeline({ paused: true });
+
+    // Scene 1 Hook Animation (0.0s - 3.5s)
+    tl.fromTo("#hook-box", 
+      { scale: 0.9, opacity: 0 }, 
+      { scale: 1.0, opacity: 1, duration: 0.6, ease: "power2.out" }, 
+      0
+    );
+
+    // Scene 2 Cockpit Entrance (3.5s - 8.0s)
+    tl.fromTo("#cockpit-head", 
+      { y: -30, opacity: 0 }, 
+      { y: 0, opacity: 1, duration: 0.5, ease: "power2.out" }, 
+      3.5
+    );
+    // beat-grid: cards popping sequentially
+    tl.fromTo("#card-cpu", 
+      { y: 40, opacity: 0 }, 
+      { y: 0, opacity: 1, duration: 0.45, ease: "back.out(1.4)" }, 
+      3.7
+    );
+    tl.fromTo("#card-ram", 
+      { y: 40, opacity: 0 }, 
+      { y: 0, opacity: 1, duration: 0.45, ease: "back.out(1.4)" }, 
+      3.9
+    );
+    tl.fromTo("#card-disk", 
+      { y: 40, opacity: 0 }, 
+      { y: 0, opacity: 1, duration: 0.45, ease: "back.out(1.4)" }, 
+      4.1
+    );
+    tl.fromTo("#card-gpu", 
+      { y: 40, opacity: 0 }, 
+      { y: 0, opacity: 1, duration: 0.45, ease: "back.out(1.4)" }, 
+      4.3
+    );
+
+    // Scene 3 RAM Cleaner (8.0s - 12.5s)
+    tl.fromTo("#cleaner-card", 
+      { scale: 0.92, opacity: 0 }, 
+      { scale: 1.0, opacity: 1, duration: 0.5, ease: "power2.out" }, 
+      8.0
+    );
+
+    // RAM Drop Animation (starting at 9.4s after simulated click)
+    const ramProxy = { val: 88, gb: 56.3 };
+    tl.to(ramProxy, {
+      val: 34,
+      gb: 21.8,
+      duration: 1.2,
+      ease: "power2.inOut",
+      onUpdate: () => {
+        const currentVal = Math.round(ramProxy.val);
+        const countEl = document.getElementById("ram-count");
+        const bytesEl = document.getElementById("ram-bytes");
+        const progEl = document.getElementById("ram-progress");
+
+        if (countEl) countEl.innerText = `${currentVal}%`;
+        if (bytesEl) bytesEl.innerText = `${ramProxy.gb.toFixed(1)} GB / 64.0 GB`;
+        if (progEl) progEl.style.width = `${currentVal}%`;
+
+        if (currentVal < 50) {
+          if (countEl) countEl.style.color = "#10b981";
+          if (progEl) progEl.style.background = "#10b981";
+        }
+      }
+    }, 9.4);
+
+    tl.fromTo("#clean-recovered-badge", 
+      { opacity: 0, y: 15 }, 
+      { opacity: 1, y: 0, duration: 0.4, ease: "power2.out" }, 
+      10.5
+    );
+
+    // Scene 4 Process Forensics (12.5s - 16.5s)
+    tl.fromTo("#tree-container", 
+      { y: 30, opacity: 0 }, 
+      { y: 0, opacity: 1, duration: 0.5, ease: "power2.out" }, 
+      12.5
+    );
+
+    // Scene 5 Authority Outro (16.5s - 19.5s)
+    tl.fromTo("#outro-content", 
+      { scale: 0.9, opacity: 0 }, 
+      { scale: 1.0, opacity: 1, duration: 0.6, ease: "power2.out" }, 
+      16.5
+    );
+
+    // Register with Hyperframes
+    window.__timelines["sysmon-brag"] = tl;
+  </script>
+</body>
+</html>

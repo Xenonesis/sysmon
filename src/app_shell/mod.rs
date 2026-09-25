@@ -827,14 +827,20 @@ pub(crate) fn ui_shell(app: &mut SystemMonitorApp, ui: &mut egui::Ui) {
                 .exact_size(132.0)
                 .show_separator_line(true)
                 .show(ui, |ui| {
-                    let status = if data.monitoring_paused {
-                        "Paused"
+                    let status = if data.monitoring_paused { "Paused" } else { "Live" };
+                    if is_collapsed {
+                        let color = if data.monitoring_paused {
+                            ThemePalette::STATUS_WARNING
+                        } else {
+                            ThemePalette::STATUS_HEALTHY
+                        };
+                        ui.label(egui::RichText::new("●").color(color))
+                            .on_hover_text(format!("{status} · Last sample: {}", data.last_update));
                     } else {
-                        "Last sample"
-                    };
-                    ui.label(egui::RichText::new(status).small());
-                    ui.label(egui::RichText::new(&data.last_update).small())
-                        .on_hover_text("Timestamp of the last collected sample; not a health assessment");
+                        ui.label(egui::RichText::new(status).small());
+                        ui.label(egui::RichText::new(&data.last_update).small())
+                            .on_hover_text("Timestamp of the last collected sample; not a health assessment");
+                    }
                     for (icon, name) in [("⚙", "Settings"), ("⌨", "Shortcuts"), ("ℹ", "About")] {
                         let text = if is_collapsed {
                             icon.to_owned()

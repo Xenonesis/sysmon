@@ -1,0 +1,13 @@
+{
+  "name": "sysmon-brag-video",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "check": "hyperframes check",
+    "preview": "hyperframes preview",
+    "render": "hyperframes render"
+  },
+  "dependencies": {
+    "hyperframes": "^0.8.61"
+  }
+}
