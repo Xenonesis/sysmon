@@ -1,0 +1,799 @@
+use serde::{Deserialize, Serialize};
+use std::collections::VecDeque;
+use std::fs;
+use std::time::Instant;
+use sysinfo::{Disks, Networks, System};
+
+#[cfg(target_os = "windows")]
+use nvml_wrapper::Nvml;
+#[cfg(target_os = "windows")]
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "PascalCase")]
+pub struct Win32Battery {
+    pub design_capacity: Option<u32>,
+    pub full_charge_capacity: Option<u32>,
+    pub battery_status: Option<u16>,
+}
+
+#[cfg(target_os = "windows")]
+fn battery_status_label(status: u16) -> Option<&'static str> {
+    match status {
+        1 => Some("Discharging"),
+        2 => Some("AC Power"),
+        3 => Some("Fully Charged"),
+        4 => Some("Low"),
+        5 => Some("Critical"),
+        6 => Some("Charging"),
+        7 => Some("Charging and High"),
+        8 => Some("Charging and Low"),
+        9 => Some("Charging and Critical"),
+        10 => Some("Undefined"),
+        11 => Some("Partially Charged"),
+        _ => Some("Unknown"),
+    }
+}
+
+#[cfg(target_os = "windows")]
+pub fn get_battery_info(wmi_con: &wmi::WMIConnection) -> Option<BatteryInfo> {
+    let results: Result<Vec<Win32Battery>, _> =
+        wmi_con.raw_query("SELECT DesignCapacity, FullChargeCapacity, BatteryStatus, DischargeRate FROM Win32_Battery");
+    if let Ok(mut bats) = results
+        && let Some(bat) = bats.pop()
+    {
+        let discharge_state = bat.battery_status.and_then(battery_status_label).map(|s| s.to_string());
+        return Some(BatteryInfo {
+            design_capacity: bat.design_capacity.unwrap_or(0),
+            full_charge_capacity: bat.full_charge_capacity.unwrap_or(0),
+            status: bat.battery_status.unwrap_or(0),
+            discharge_state,
+            present: true,
+        });
+    }
+    None
+}
+
+#[cfg(target_os = "windows")]
+unsafe extern "system" {
+    fn MessageBeep(u_type: u32) -> i32;
+}
+
+#[cfg(target_os = "windows")]
+pub fn play_alert_sound() {
+    unsafe {
+        MessageBeep(0x00000030); // MB_ICONEXCLAMATION
+    }
+}
+
+#[cfg(target_os = "windows")]
+pub fn play_success_sound() {
+    unsafe {
+        MessageBeep(0x00000040); // MB_ICONASTERISK
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn play_alert_sound() {}
+
+#[cfg(not(target_os = "windows"))]
+pub fn play_success_sound() {}
+
+// Data structures
+#[derive(Clone)]
+pub struct CpuCoreInfo {
+    pub core_id: usize,
+    pub usage: f32,
+    pub frequency_mhz: Option<u64>,
+    #[allow(dead_code)]
+    pub name: String,
+}
+
+#[derive(Clone, Serialize)]
+pub struct GpuInfo {
+    pub name: String,
+    pub utilization: Option<f32>,
+    pub memory_used: Option<u64>,
+    pub memory_total: Option<u64>,
+    pub temperature: Option<u32>,
+    pub clock_mhz: Option<u32>,
+    pub power_watts: Option<f32>,
+    pub fan_percent: Option<u32>,
+}
+
+pub fn cpu_cores_from_telemetry(snapshot: &crate::telemetry::TelemetrySnapshot) -> Vec<CpuCoreInfo> {
+    let count = snapshot.metrics.get("cpu.core_count").copied().unwrap_or_default() as usize;
+    (0..count)
+        .filter_map(|core_id| {
+            snapshot
+                .metrics
+                .get(&format!("cpu.core.{core_id}.usage"))
+                .map(|usage| CpuCoreInfo {
+                    core_id,
+                    usage: *usage as f32,
+                    frequency_mhz: snapshot
+                        .metrics
+                        .get(&format!("cpu.core.{core_id}.frequency"))
+                        .copied()
+                        .filter(|v| *v > 0.0)
+                        .map(|v| v as u64),
+                    name: format!("Core {core_id}"),
+                })
+        })
+        .collect()
+}
+
+pub fn gpus_from_telemetry(snapshot: &crate::telemetry::TelemetrySnapshot) -> Vec<GpuInfo> {
+    let count = snapshot.metrics.get("gpu.device_count").copied().unwrap_or_default() as usize;
+    let mut gpus: Vec<_> = (0..count)
+        .map(|index| {
+            let prefix = format!("gpu.{index}");
+            let metric = |name: &str| snapshot.metrics.get(&format!("{prefix}.{name}")).copied();
+            GpuInfo {
+                name: snapshot
+                    .labels
+                    .get(&format!("{prefix}.name"))
+                    .cloned()
+                    .unwrap_or_else(|| format!("GPU {index}")),
+                utilization: metric("utilization").map(|v| v as f32),
+                memory_used: metric("vram_used").map(|value| value as u64),
+                memory_total: metric("vram_total").map(|value| value as u64),
+                temperature: metric("temperature").map(|value| value as u32),
+                clock_mhz: metric("clock_graphics").map(|value| value as u32),
+                power_watts: metric("power_draw_mw").map(|value| value as f32 / 1_000.0),
+                fan_percent: metric("fan_speed").map(|value| value as u32),
+            }
+        })
+        .collect();
+
+    let mut adapter_keys: Vec<_> = snapshot
+        .labels
+        .keys()
+        .filter(|key| key.starts_with("gpu.windows.") && key.ends_with(".name"))
+        .collect();
+    adapter_keys.sort();
+    if !adapter_keys.is_empty() {
+        return adapter_keys
+            .iter()
+            .map(|key| {
+                let prefix = key.trim_end_matches(".name");
+                let name = snapshot.labels[*key].clone();
+                let metric = |suffix: &str| snapshot.metrics.get(&format!("{prefix}.{suffix}")).copied();
+                // Names are only safe for optional sensor enrichment if unique on both sides.
+                let unique = adapter_keys.iter().filter(|k| snapshot.labels[**k] == name).count() == 1;
+                let matches: Vec<_> = gpus.iter().filter(|gpu| gpu.name == name).collect();
+                let sensor = if unique && matches.len() == 1 {
+                    Some(matches[0])
+                } else {
+                    None
+                };
+                GpuInfo {
+                    name,
+                    utilization: metric("utilization").map(|v| v as f32),
+                    memory_used: metric("vram_used").map(|v| v as u64),
+                    memory_total: metric("vram_total").map(|v| v as u64),
+                    temperature: sensor.and_then(|gpu| gpu.temperature),
+                    clock_mhz: sensor.and_then(|gpu| gpu.clock_mhz),
+                    power_watts: sensor.and_then(|gpu| gpu.power_watts),
+                    fan_percent: sensor.and_then(|gpu| gpu.fan_percent),
+                }
+            })
+            .collect();
+    }
+    let generic_count = snapshot.metrics.get("gpu.generic_count").copied().unwrap_or_default() as usize;
+    for index in 0..generic_count {
+        let prefix = format!("gpu.generic.{index}");
+        let name = snapshot
+            .labels
+            .get(&format!("{prefix}.name"))
+            .cloned()
+            .unwrap_or_else(|| format!("GPU {index}"));
+        if gpus.iter().any(|gpu| gpu.name.eq_ignore_ascii_case(&name)) {
+            continue;
+        }
+        gpus.push(GpuInfo {
+            name,
+            utilization: snapshot
+                .metrics
+                .get(&format!("{prefix}.utilization"))
+                .map(|v| *v as f32),
+            memory_used: snapshot.metrics.get(&format!("{prefix}.vram_used")).map(|v| *v as u64),
+            memory_total: snapshot
+                .metrics
+                .get(&format!("{prefix}.vram_total"))
+                .map(|value| *value as u64),
+            temperature: None,
+            clock_mhz: None,
+            power_watts: None,
+            fan_percent: None,
+        });
+    }
+    gpus
+}
+
+#[derive(Clone, Serialize)]
+pub struct DiskInfo {
+    pub name: String,
+    pub mount_point: String,
+    pub total_space: u64,
+    pub available_space: u64,
+    pub usage_percentage: f32,
+    pub file_system: String,
+}
+
+#[derive(Clone, Serialize)]
+pub struct NetworkInfo {
+    pub interface: String,
+    pub received: u64,
+    pub transmitted: u64,
+    pub received_rate: f64,
+    pub transmitted_rate: f64,
+}
+
+#[derive(Clone)]
+pub struct AlertInfo {
+    pub timestamp: String,
+    pub alert_type: AlertType,
+    pub source: AlertSource,
+    pub message: String,
+    pub resolved_at: Option<String>,
+    pub value: f32,
+}
+
+impl AlertInfo {
+    pub fn key(&self) -> String {
+        let source = match &self.source {
+            AlertSource::Cpu => "cpu".into(),
+            AlertSource::Memory => "memory".into(),
+            AlertSource::Gpu { index, name } => format!("gpu:{index}:{name}"),
+            AlertSource::Disk { mount_point, .. } => format!("disk:{mount_point}"),
+            AlertSource::Startup => "startup".into(),
+        };
+        format!("{:?}:{source}", self.alert_type)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum AlertSource {
+    Cpu,
+    Memory,
+    Gpu { index: usize, name: String },
+    Disk { mount_point: String, name: String },
+    Startup,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum AlertType {
+    CpuHigh,
+    MemoryHigh,
+    GpuTempHigh,
+    DiskSpaceLow,
+    #[allow(dead_code)]
+    StartupHighImpact,
+}
+
+// Swap / Page File info
+#[derive(Clone, Serialize)]
+pub struct SwapInfo {
+    pub total: u64,
+    pub used: u64,
+    pub percentage: f32,
+}
+
+// Battery info
+
+// StartupItem is now in startup.rs module
+
+// RAM Cleaner state
+#[derive(Clone)]
+pub struct RamCleanerState {
+    pub last_cleaned: Option<Instant>,
+    pub last_cleaned_display: String,
+    pub bytes_freed: u64,
+    pub auto_clean_enabled: bool,
+    pub auto_clean_threshold: f32, // percentage threshold for auto-clean
+    pub auto_clean_interval: u64,  // seconds between auto-cleans
+    pub auto_clean_target: f32,    // stop cleaning once usage drops below this
+    pub auto_clean_exclusions: Vec<String>, // process names never touched
+    pub auto_clean_idle_only: bool, // clean only after idle period
+    pub auto_clean_smart_only: bool, // only clean inactive/background apps
+    pub auto_clean_notify: bool,   // show freed-MB notification per auto-clean
+    pub auto_clean_max_mb: u64,    // max MB freed per pass (0 = unlimited)
+    pub is_cleaning: bool,
+    pub clean_count: u32,
+}
+
+#[derive(Clone, Serialize)]
+pub struct SystemInfo {
+    pub os_name: String,
+    pub os_version: String,
+    pub kernel_version: String,
+    pub hostname: String,
+    pub uptime: u64,
+    pub cpu_count: usize,
+    pub physical_core_count: Option<usize>,
+    pub cpu_brand: String,
+    pub motherboard: Option<String>,
+    pub bios_version: Option<String>,
+    pub gpu_driver: Option<String>,
+    pub os_build: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum AppTheme {
+    #[default]
+    Dark,
+    Light,
+    System,
+}
+
+fn deserialize_app_theme<'de, D>(deserializer: D) -> Result<AppTheme, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    struct AppThemeVisitor;
+
+    impl serde::de::Visitor<'_> for AppThemeVisitor {
+        type Value = AppTheme;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("a boolean or theme string ('Dark', 'Light', 'System')")
+        }
+
+        fn visit_bool<E>(self, v: bool) -> Result<Self::Value, E>
+        where
+            E: serde::de::Error,
+        {
+            Ok(if v { AppTheme::Dark } else { AppTheme::Light })
+        }
+
+        fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+        where
+            E: serde::de::Error,
+        {
+            match v.to_ascii_lowercase().as_str() {
+                "dark" => Ok(AppTheme::Dark),
+                "light" => Ok(AppTheme::Light),
+                "system" => Ok(AppTheme::System),
+                _ => Err(serde::de::Error::unknown_variant(v, &["Dark", "Light", "System"])),
+            }
+        }
+    }
+
+    deserializer.deserialize_any(AppThemeVisitor)
+}
+
+// Settings structure
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct AppSettings {
+    pub refresh_interval: u64,
+    pub show_graphs: bool,
+    pub show_gpu: bool,
+    pub show_processes: bool,
+    pub show_notifications: bool,
+    pub notification_cpu_threshold: f32,
+    pub notification_memory_threshold: f32,
+    pub notification_temp_threshold: u32,
+    #[serde(default, alias = "theme_dark", deserialize_with = "deserialize_app_theme")]
+    pub theme: AppTheme,
+    pub show_per_core_cpu: bool,
+    pub process_count: usize,
+    pub auto_clear_alerts: bool,
+    pub auto_start: bool,
+    pub start_minimized: bool,
+    #[serde(default = "default_show_cpu_cores")]
+    pub show_cpu_cores: bool,
+    #[serde(default = "default_show_widget")]
+    pub show_widget: bool,
+    pub minimize_to_tray: bool,
+    #[serde(default = "default_auto_ram_clean")]
+    pub auto_ram_clean: bool,
+    #[serde(default = "default_ram_clean_threshold")]
+    pub ram_clean_threshold: f32,
+    #[serde(default = "default_enable_sounds")]
+    pub enable_sounds: bool,
+    #[serde(default = "default_enable_alert_sound")]
+    pub enable_alert_sound: bool,
+    #[serde(default)]
+    pub startup_optimization_history: Vec<crate::startup::StartupOptimizationEntry>,
+    #[serde(default)]
+    pub last_boot_diagnostics: Option<crate::startup::BootDiagnostics>,
+    #[serde(default = "default_auto_clean_interval")]
+    pub auto_clean_interval: u64,
+    #[serde(default = "default_auto_clean_target")]
+    pub auto_clean_target: f32,
+    #[serde(default)]
+    pub auto_clean_exclusions: Vec<String>,
+    #[serde(default)]
+    pub auto_clean_idle_only: bool,
+    #[serde(default)]
+    pub auto_clean_smart_only: bool,
+    #[serde(default = "default_auto_clean_notify")]
+    pub auto_clean_notify: bool,
+    #[serde(default)]
+    pub auto_clean_max_mb: u64,
+    #[serde(default = "default_notification_disk_threshold")]
+    pub notification_disk_threshold: f32,
+    #[serde(default)]
+    pub sidebar_collapsed: bool,
+    #[serde(default)]
+    pub timeline_enabled: bool,
+    #[serde(default = "default_timeline_retention_days")]
+    pub timeline_retention_days: u16,
+}
+
+fn default_timeline_retention_days() -> u16 {
+    7
+}
+
+fn default_enable_alert_sound() -> bool {
+    true
+}
+
+fn default_notification_disk_threshold() -> f32 {
+    90.0
+}
+
+fn default_auto_clean_interval() -> u64 {
+    300
+}
+
+fn default_auto_clean_target() -> f32 {
+    70.0
+}
+
+fn default_auto_clean_notify() -> bool {
+    true
+}
+
+fn default_enable_sounds() -> bool {
+    true
+}
+
+fn default_show_cpu_cores() -> bool {
+    true
+}
+fn default_show_widget() -> bool {
+    false
+}
+fn default_auto_ram_clean() -> bool {
+    false
+}
+fn default_ram_clean_threshold() -> f32 {
+    85.0
+}
+
+// RAM cleaner pure logic
+pub fn is_excluded(name: &str, exclusions: &[String]) -> bool {
+    let name = name.to_lowercase();
+    exclusions.iter().any(|ex| name == ex.to_lowercase())
+}
+
+pub struct SystemMonitor {
+    pub sys: System,
+    pub disks: Disks,
+    pub networks: Networks,
+    #[cfg(target_os = "windows")]
+    pub nvml: Option<Nvml>,
+    #[cfg(target_os = "windows")]
+    pub wmi_thermal: Option<wmi::WMIConnection>,
+    #[cfg(target_os = "windows")]
+    pub last_network_update: Instant,
+    pub last_disk_update: Instant,
+    pub previous_network_totals: std::collections::HashMap<String, (u64, u64)>,
+    pub previous_disk_totals: std::collections::HashMap<(u32, u64), (u64, u64)>,
+}
+
+impl Default for AppSettings {
+    fn default() -> Self {
+        Self {
+            refresh_interval: 2,
+            show_graphs: true,
+            show_gpu: true,
+            show_processes: true,
+            show_notifications: false,
+            notification_cpu_threshold: 90.0,
+            notification_memory_threshold: 90.0,
+            notification_temp_threshold: 85,
+            theme: AppTheme::Dark,
+            show_per_core_cpu: false,
+            process_count: 15,
+            auto_clear_alerts: false,
+            auto_start: false,
+            start_minimized: false,
+            minimize_to_tray: false,
+            auto_ram_clean: false,
+            ram_clean_threshold: 85.0,
+            enable_sounds: true,
+            enable_alert_sound: true,
+            startup_optimization_history: Vec::new(),
+            last_boot_diagnostics: None,
+            auto_clean_interval: 300,
+            auto_clean_target: 70.0,
+            auto_clean_exclusions: Vec::new(),
+            auto_clean_idle_only: false,
+            auto_clean_smart_only: false,
+            auto_clean_notify: true,
+            auto_clean_max_mb: 0,
+            show_cpu_cores: true,
+            show_widget: false,
+            notification_disk_threshold: 90.0,
+            sidebar_collapsed: false,
+            timeline_enabled: false,
+            timeline_retention_days: default_timeline_retention_days(),
+        }
+    }
+}
+
+impl AppSettings {
+    #[cfg(target_os = "windows")]
+    pub fn set_auto_start(&self, enable: bool) -> Result<(), Box<dyn std::error::Error>> {
+        use winreg::RegKey;
+        use winreg::enums::*;
+
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        let path = r"Software\Microsoft\Windows\CurrentVersion\Run";
+        let (key, _) = hkcu.create_subkey(path)?;
+
+        if enable {
+            let exe_path = std::env::current_exe()?;
+            key.set_value("SystemMonitor", &format!("\"{}\"", exe_path.to_string_lossy()))?;
+        } else {
+            match key.delete_value("SystemMonitor") {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error.into()),
+            }
+        }
+        Ok(())
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    fn set_auto_start(&self, _enable: bool) -> Result<(), Box<dyn std::error::Error>> {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "Windows auto-start is unavailable on this platform",
+        )
+        .into())
+    }
+}
+
+impl AppSettings {
+    pub fn load() -> Self {
+        if let Some(config_dir) = crate::app_paths::config_dir() {
+            let config_path = config_dir.join("settings.json");
+            if let Ok(settings) = crate::persistence::settings::load(&config_path) {
+                return settings;
+            }
+        }
+        Self::default()
+    }
+
+    pub fn save(&self) -> Result<(), Box<dyn std::error::Error>> {
+        let config_path = crate::app_paths::config_dir()
+            .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "Settings directory is unavailable"))?;
+        fs::create_dir_all(&config_path)?;
+        crate::persistence::settings::save(&config_path.join("settings.json"), self)?;
+        Ok(())
+    }
+}
+
+// Historical data point
+#[derive(Clone, Copy, Serialize)]
+pub struct DataPoint {
+    pub time: f64,
+    pub value: f64,
+}
+
+// Shared state between threads
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct BatteryInfo {
+    pub design_capacity: u32,
+    pub full_charge_capacity: u32,
+    pub status: u16,
+    pub discharge_state: Option<String>,
+    pub present: bool,
+}
+#[derive(Clone)]
+
+pub struct SystemData {
+    pub sampled_at: std::time::SystemTime,
+    pub metric_status: std::collections::HashMap<String, crate::monitoring::snapshot::MetricObservation>,
+    pub memory_total: u64,
+    pub memory_used: u64,
+    pub memory_percentage: f32,
+    pub cpu_usage: f32,
+    pub cpu_cores: Vec<CpuCoreInfo>,
+    pub gpu_info: Vec<GpuInfo>,
+    pub top_processes: Vec<crate::processes::ProcessInfo>,
+    pub timeline_processes: Vec<crate::processes::ProcessInfo>,
+    pub monitoring_paused: bool,
+    pub selected_process_pid: Option<crate::processes::ProcessIdentity>,
+    pub selected_process_details: Option<(crate::processes::ProcessIdentity, crate::processes::ProcessDetails)>,
+    pub disk_info: Vec<DiskInfo>,
+    pub network_info: Vec<NetworkInfo>,
+    pub system_info: SystemInfo,
+    pub cpu_temperature: Option<f32>,
+    pub last_update: String,
+    pub cpu_history: crate::monitoring::history::BoundedHistory<DataPoint>,
+    pub memory_history: crate::monitoring::history::BoundedHistory<DataPoint>,
+    pub gpu_history: crate::monitoring::history::BoundedHistory<DataPoint>,
+    pub cpu_temp_history: crate::monitoring::history::BoundedHistory<DataPoint>,
+    pub network_download_history: VecDeque<DataPoint>,
+    pub network_upload_history: VecDeque<DataPoint>,
+    pub alerts: Vec<AlertInfo>,
+    pub start_time: Instant,
+    pub swap_info: SwapInfo,
+    pub battery_info: Option<BatteryInfo>,
+    pub network_sample_count: u32,
+    pub high_impact_startup_count: usize,
+    pub ram_clean_freed_bytes: u64,
+    pub disk_read_rate: f64,
+    pub disk_write_rate: f64,
+    pub disk_read_history: VecDeque<DataPoint>,
+    pub disk_write_history: VecDeque<DataPoint>,
+    pub is_hidden: bool,
+    pub selected_tab: Tab,
+    pub services: Vec<crate::services::ServiceInfo>,
+    pub telemetry_history_stats: std::collections::HashMap<String, crate::telemetry::HistoryStats>,
+    pub provider_status: std::collections::HashMap<String, bool>,
+    pub physical_disks: Vec<crate::storage::PhysicalDiskHealth>,
+    pub disk_perf: Vec<crate::storage::DiskPerfStats>,
+    pub socket_connections: Vec<crate::network::SocketConnection>,
+    pub power_plans: Vec<crate::power::PowerPlan>,
+    pub battery_health: crate::power::BatteryHealth,
+}
+
+impl std::fmt::Debug for SystemData {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SystemData")
+            .field("sampled_at", &self.sampled_at)
+            .field("cpu_usage", &self.cpu_usage)
+            .field("memory_percentage", &self.memory_percentage)
+            .finish_non_exhaustive()
+    }
+}
+
+impl Default for SystemData {
+    fn default() -> Self {
+        Self {
+            sampled_at: std::time::SystemTime::UNIX_EPOCH,
+            metric_status: std::collections::HashMap::new(),
+            memory_total: 0,
+            memory_used: 0,
+            memory_percentage: 0.0,
+            cpu_usage: 0.0,
+            cpu_cores: Vec::new(),
+            gpu_info: Vec::new(),
+            top_processes: Vec::new(),
+            timeline_processes: Vec::new(),
+            monitoring_paused: false,
+            selected_process_pid: None,
+            selected_process_details: None,
+            disk_info: Vec::new(),
+            network_info: Vec::new(),
+            system_info: SystemInfo {
+                os_name: String::new(),
+                os_version: String::new(),
+                kernel_version: String::new(),
+                hostname: String::new(),
+                uptime: 0,
+                cpu_count: 0,
+                physical_core_count: None,
+                cpu_brand: String::new(),
+                motherboard: None,
+                bios_version: None,
+                gpu_driver: None,
+                os_build: None,
+            },
+            cpu_temperature: None,
+            last_update: String::new(),
+            cpu_history: crate::monitoring::history::BoundedHistory::new(60),
+            memory_history: crate::monitoring::history::BoundedHistory::new(60),
+            gpu_history: crate::monitoring::history::BoundedHistory::new(60),
+            cpu_temp_history: crate::monitoring::history::BoundedHistory::new(60),
+            network_download_history: VecDeque::new(),
+            network_upload_history: VecDeque::new(),
+            alerts: Vec::new(),
+            start_time: Instant::now(),
+            swap_info: SwapInfo {
+                total: 0,
+                used: 0,
+                percentage: 0.0,
+            },
+            battery_info: None,
+            network_sample_count: 0,
+            high_impact_startup_count: 0,
+            ram_clean_freed_bytes: 0,
+            disk_read_rate: 0.0,
+            disk_write_rate: 0.0,
+            disk_read_history: VecDeque::new(),
+            disk_write_history: VecDeque::new(),
+            is_hidden: false,
+            selected_tab: Tab::Overview,
+            services: Vec::new(),
+            telemetry_history_stats: std::collections::HashMap::new(),
+            provider_status: std::collections::HashMap::new(),
+            physical_disks: Vec::new(),
+            disk_perf: Vec::new(),
+            socket_connections: Vec::new(),
+            power_plans: Vec::new(),
+            battery_health: crate::power::BatteryHealth::empty(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn app_theme_defaults_to_dark() {
+        assert_eq!(AppTheme::default(), AppTheme::Dark);
+    }
+
+    #[test]
+    fn app_settings_deserializes_legacy_theme_dark_boolean() {
+        let json_true = r#"{"refresh_interval":2,"show_graphs":true,"show_gpu":true,"show_processes":true,"show_notifications":false,"notification_cpu_threshold":90.0,"notification_memory_threshold":90.0,"notification_temp_threshold":85,"theme_dark":true,"show_per_core_cpu":false,"process_count":15,"auto_clear_alerts":false,"auto_start":false,"start_minimized":false,"minimize_to_tray":false}"#;
+        let settings_dark: AppSettings = serde_json::from_str(json_true).unwrap();
+        assert_eq!(settings_dark.theme, AppTheme::Dark);
+
+        let json_false = r#"{"refresh_interval":2,"show_graphs":true,"show_gpu":true,"show_processes":true,"show_notifications":false,"notification_cpu_threshold":90.0,"notification_memory_threshold":90.0,"notification_temp_threshold":85,"theme_dark":false,"show_per_core_cpu":false,"process_count":15,"auto_clear_alerts":false,"auto_start":false,"start_minimized":false,"minimize_to_tray":false}"#;
+        let settings_light: AppSettings = serde_json::from_str(json_false).unwrap();
+        assert_eq!(settings_light.theme, AppTheme::Light);
+    }
+
+    #[test]
+    fn app_settings_deserializes_new_theme_enum() {
+        let json_dark = r#"{"refresh_interval":2,"show_graphs":true,"show_gpu":true,"show_processes":true,"show_notifications":false,"notification_cpu_threshold":90.0,"notification_memory_threshold":90.0,"notification_temp_threshold":85,"theme":"Dark","show_per_core_cpu":false,"process_count":15,"auto_clear_alerts":false,"auto_start":false,"start_minimized":false,"minimize_to_tray":false}"#;
+        let settings: AppSettings = serde_json::from_str(json_dark).unwrap();
+        assert_eq!(settings.theme, AppTheme::Dark);
+
+        let json_light = r#"{"refresh_interval":2,"show_graphs":true,"show_gpu":true,"show_processes":true,"show_notifications":false,"notification_cpu_threshold":90.0,"notification_memory_threshold":90.0,"notification_temp_threshold":85,"theme":"Light","show_per_core_cpu":false,"process_count":15,"auto_clear_alerts":false,"auto_start":false,"start_minimized":false,"minimize_to_tray":false}"#;
+        let settings: AppSettings = serde_json::from_str(json_light).unwrap();
+        assert_eq!(settings.theme, AppTheme::Light);
+
+        let json_system = r#"{"refresh_interval":2,"show_graphs":true,"show_gpu":true,"show_processes":true,"show_notifications":false,"notification_cpu_threshold":90.0,"notification_memory_threshold":90.0,"notification_temp_threshold":85,"theme":"System","show_per_core_cpu":false,"process_count":15,"auto_clear_alerts":false,"auto_start":false,"start_minimized":false,"minimize_to_tray":false}"#;
+        let settings: AppSettings = serde_json::from_str(json_system).unwrap();
+        assert_eq!(settings.theme, AppTheme::System);
+    }
+
+    #[test]
+    fn app_settings_round_trip_serialization() {
+        let original = AppSettings {
+            theme: AppTheme::System,
+            ..Default::default()
+        };
+        let serialized = serde_json::to_string(&original).unwrap();
+        let deserialized: AppSettings = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(deserialized.theme, AppTheme::System);
+    }
+
+    #[test]
+    fn app_settings_migrates_without_timeline_fields() {
+        let mut legacy = serde_json::to_value(AppSettings::default()).unwrap();
+        let object = legacy.as_object_mut().unwrap();
+        object.remove("timeline_enabled");
+        object.remove("timeline_retention_days");
+
+        let migrated: AppSettings = serde_json::from_value(legacy).unwrap();
+        assert!(!migrated.timeline_enabled);
+        assert_eq!(migrated.timeline_retention_days, 7);
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+pub enum Tab {
+    Overview,
+    Performance,
+    Processes,
+    CpuCores,
+    Storage,
+    Network,
+    SystemInfo,
+    Alerts,
+    RamCleaner,
+    StartupManager,
+    Services,
+    Diagnostics,
+    Timeline,
+    About,
+}

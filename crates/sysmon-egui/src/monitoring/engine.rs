@@ -1,0 +1,217 @@
+use sysmon_core::app::models::*;
+use crate::monitoring;
+use parking_lot::{Mutex, RwLock};
+use std::sync::Arc;
+use std::time::Instant;
+use sysinfo::{Disks, Networks, System};
+
+#[cfg(target_os = "windows")]
+use nvml_wrapper::Nvml;
+
+pub(crate) struct SystemMonitorApp {
+    pub(crate) data: Arc<RwLock<SystemData>>,
+    /// Cheap read-only snapshot for the UI thread — just an Arc clone per frame.
+    pub(crate) data_snapshot: Arc<SystemData>,
+    pub(crate) quit_requested: bool,
+    pub(crate) settings_save_error: Option<String>,
+    pub(crate) settings_integration_error: Option<String>,
+    pub(crate) last_monitoring_paused: bool,
+    pub(crate) update_check_result_share: Arc<Mutex<Option<Result<sysmon_core::updater::UpdateInfo, String>>>>,
+    pub(crate) update_check_pending: bool,
+    pub(crate) update_check_status: Option<String>,
+    pub(crate) app_channels: sysmon_core::app::AppChannels,
+    pub(crate) latest_snapshot: Option<sysmon_core::monitoring::SystemSnapshot>,
+    pub(crate) action_pending: bool,
+    pub(crate) action_status: Option<String>,
+    pub(crate) pending_action_plan: Option<sysmon_core::app::actions::ActionPlan>,
+    pub(crate) action_history: Vec<sysmon_core::app::actions::ActionHistoryEntry>,
+    pub(crate) show_action_history: bool,
+    pub(crate) session_recorder: sysmon_core::persistence::session::SessionRecorder,
+    pub(crate) session_status: Option<String>,
+    pub(crate) timeline: sysmon_core::timeline::TimelineHandle,
+    pub(crate) timeline_ui: sysmon_core::timeline::TimelineUiState,
+    pub(crate) telemetry_commands: std::sync::mpsc::SyncSender<sysmon_core::telemetry::HubCommand>,
+    pub(crate) settings: AppSettings,
+    pub(crate) shared_settings: Arc<Mutex<AppSettings>>,
+    pub(crate) selected_tab: Tab,
+    pub(crate) show_settings: bool,
+    pub(crate) show_export: bool,
+    pub(crate) show_alerts: bool,
+    pub(crate) show_process_manager: bool,
+    pub(crate) selected_process_pid: Option<sysmon_core::processes::ProcessIdentity>,
+    pub(crate) details_pid: Option<sysmon_core::processes::ProcessIdentity>,
+    pub(crate) kill_tree_pid: Option<sysmon_core::processes::ProcessIdentity>,
+    pub(crate) service_page: crate::ui::page_state::ServicePageState,
+    pub(crate) storage_page: crate::ui::page_state::StoragePageState,
+    pub(crate) crash_reports: sysmon_core::diagnostics::minidump::CrashScanState,
+    pub(crate) window_picker_active: bool,
+    pub(crate) process_search: String,
+    pub(crate) process_sort_column: sysmon_core::processes::ProcessSortColumn,
+    pub(crate) process_sort_ascending: bool,
+    pub(crate) show_export_csv: bool,
+    pub(crate) updater: sysmon_core::updater::Updater,
+    pub(crate) update_info_share: Arc<Mutex<Option<sysmon_core::updater::UpdateInfo>>>,
+    pub(crate) show_update_notification: bool,
+    pub(crate) update_check_time: Option<Instant>,
+    /// `true` while the installer is being downloaded/verified in the background.
+    pub(crate) update_downloading: bool,
+    /// Last error from a failed install attempt; shown in the banner.
+    pub(crate) update_error: Option<String>,
+    /// Background thread writes `Some(Ok(()))` or `Some(Err(msg))` here when done.
+    pub(crate) update_result_share: Arc<Mutex<Option<Result<sysmon_core::updater::InstallOutcome, String>>>>,
+    pub(crate) ram_cleaner_state: RamCleanerState,
+    pub(crate) startup_items: Vec<sysmon_core::startup::StartupItem>,
+    pub(crate) startup_items_loaded: bool,
+    pub(crate) startup_items_loading: bool,
+    pub(crate) startup_items_share: Arc<Mutex<Option<Vec<sysmon_core::startup::StartupItem>>>>,
+    pub(crate) startup_search: String,
+    pub(crate) startup_sort: sysmon_core::startup::StartupSortColumn,
+    pub(crate) startup_sort_ascending: bool,
+    pub(crate) startup_filter_impact: Option<sysmon_core::startup::ImpactTier>,
+    pub(crate) startup_filter_signed: Option<bool>,
+    pub(crate) startup_filter_broken: bool,
+    pub(crate) startup_show_confirm: Option<String>,
+    pub(crate) boot_diagnostics: Option<sysmon_core::startup::BootDiagnostics>,
+    pub(crate) boot_diagnostics_loaded: bool,
+    pub(crate) boot_diagnostics_share: Arc<Mutex<Option<sysmon_core::startup::BootDiagnostics>>>,
+    pub(crate) show_shortcuts: bool,
+    pub(crate) suspend_process_pid: Option<sysmon_core::processes::ProcessIdentity>,
+    pub(crate) resume_process_pid: Option<sysmon_core::processes::ProcessIdentity>,
+    pub(crate) suspended_pids: std::collections::HashSet<sysmon_core::processes::ProcessIdentity>,
+    pub(crate) priority_change: Option<(sysmon_core::processes::ProcessIdentity, String)>,
+    pub(crate) process_tree_view: bool,
+    pub(crate) affinity_change: Option<(sysmon_core::processes::ProcessIdentity, sysmon_core::processes::AffinityPreset)>,
+    pub(crate) network_socket_search: String,
+    /// Cached filtered+sorted process list to avoid O(N log N) work every frame.
+    pub(crate) process_cache: ProcessListCache,
+    /// Cached CSV export result — computed once when the export window opens.
+    pub(crate) cached_csv_export: Option<Result<String, String>>,
+    /// Cached JSON export result — computed once when the export window opens.
+    pub(crate) cached_json_export: Option<Result<String, String>>,
+    #[allow(dead_code)]
+    #[cfg(target_os = "windows")]
+    pub(crate) tray_icon: Option<tray_icon::TrayIcon>,
+    #[cfg(target_os = "windows")]
+    pub(crate) tray_menu_show_id: Option<tray_icon::menu::MenuId>,
+    #[cfg(target_os = "windows")]
+    pub(crate) tray_menu_quit_id: Option<tray_icon::menu::MenuId>,
+    #[cfg(target_os = "windows")]
+    pub(crate) tray_menu_clean_id: Option<tray_icon::menu::MenuId>,
+    #[cfg(target_os = "windows")]
+    pub(crate) tray_menu_procman_id: Option<tray_icon::menu::MenuId>,
+    #[cfg(target_os = "windows")]
+    pub(crate) tray_menu_pause_id: Option<tray_icon::menu::MenuId>,
+    #[cfg(target_os = "windows")]
+    pub(crate) tray_menu_pause_item: Option<tray_icon::menu::CheckMenuItem>,
+    #[cfg(target_os = "windows")]
+    // kept alive for tray ownership; never read directly
+    #[allow(dead_code)]
+    pub(crate) tray_menu_handle: Option<tray_icon::menu::Menu>,
+    #[cfg(target_os = "windows")]
+    #[allow(dead_code)]
+    pub(crate) tray_menu_power_item: Option<tray_icon::menu::Submenu>,
+    #[cfg(target_os = "windows")]
+    #[allow(dead_code)]
+    pub(crate) tray_menu_power_items:
+        std::collections::HashMap<tray_icon::menu::MenuId, tray_icon::menu::CheckMenuItem>,
+    #[cfg(target_os = "windows")]
+    pub(crate) tray_menu_power_guids: std::collections::HashMap<tray_icon::menu::MenuId, String>,
+    #[cfg(target_os = "windows")]
+    pub(crate) _hotkey_manager: Option<global_hotkey::GlobalHotKeyManager>,
+    #[cfg(target_os = "windows")]
+    pub(crate) clean_ram_hotkey: Option<global_hotkey::hotkey::HotKey>,
+    pub(crate) is_hidden: bool,
+    pub(crate) widget_open: bool,
+    /// Whether we have already applied the start_minimized setting on the first frame.
+    pub(crate) start_minimized_applied: bool,
+}
+
+/// Caches the filtered + sorted process list to avoid per-frame O(N log N) work.
+pub(crate) struct ProcessListCache {
+    /// `sampled_at` of the SystemData that was last used.
+    pub snapshot_time: std::time::SystemTime,
+    /// Last search term used for filtering.
+    pub search_term: String,
+    /// Last sort column.
+    pub sort_column: sysmon_core::processes::ProcessSortColumn,
+    /// Last sort direction.
+    pub sort_ascending: bool,
+    /// Cached sorted indices into `top_processes`.
+    pub sorted_indices: Vec<usize>,
+}
+
+impl Default for ProcessListCache {
+    fn default() -> Self {
+        Self {
+            snapshot_time: std::time::SystemTime::UNIX_EPOCH,
+            search_term: String::new(),
+            sort_column: sysmon_core::processes::ProcessSortColumn::Memory,
+            sort_ascending: false,
+            sorted_indices: Vec::new(),
+        }
+    }
+}
+
+impl ProcessListCache {
+    pub fn is_stale(
+        &self,
+        data_time: std::time::SystemTime,
+        search: &str,
+        col: sysmon_core::processes::ProcessSortColumn,
+        asc: bool,
+    ) -> bool {
+        self.snapshot_time != data_time
+            || self.search_term != search
+            || self.sort_column != col
+            || self.sort_ascending != asc
+    }
+
+    pub fn get_filtered_and_sorted<'a>(
+        &mut self,
+        data: &'a SystemData,
+        search: &str,
+        col: sysmon_core::processes::ProcessSortColumn,
+        asc: bool,
+    ) -> Vec<&'a sysmon_core::processes::ProcessInfo> {
+        if self.is_stale(data.sampled_at, search, col, asc) {
+            let mut filtered_refs = sysmon_core::processes::filter_processes(&data.top_processes, search);
+            sysmon_core::processes::sort_processes_refs(&mut filtered_refs, col, asc);
+            let base_ptr = data.top_processes.as_ptr() as usize;
+            let item_size = std::mem::size_of::<sysmon_core::processes::ProcessInfo>();
+            self.sorted_indices = if item_size > 0 && !data.top_processes.is_empty() {
+                filtered_refs
+                    .iter()
+                    .map(|p| {
+                        let p_ptr = *p as *const sysmon_core::processes::ProcessInfo as usize;
+                        (p_ptr - base_ptr) / item_size
+                    })
+                    .collect()
+            } else {
+                Vec::new()
+            };
+            self.snapshot_time = data.sampled_at;
+            self.search_term = search.to_string();
+            self.sort_column = col;
+            self.sort_ascending = asc;
+        }
+
+        self.sorted_indices
+            .iter()
+            .filter_map(|&idx| data.top_processes.get(idx))
+            .collect()
+    }
+}
+
+
+impl Drop for SystemMonitorApp {
+    fn drop(&mut self) {
+        let _ = self
+            .app_channels
+            .monitoring_sender
+            .send(sysmon_core::app::commands::MonitoringCommand::Shutdown);
+        let _ = self.telemetry_commands.try_send(sysmon_core::telemetry::HubCommand::Shutdown);
+        self.timeline.shutdown();
+    }
+}
+
+pub(crate) use crate::monitoring::snapshot_convert::{load_icon, load_tray_icon, snapshot_from_data};
