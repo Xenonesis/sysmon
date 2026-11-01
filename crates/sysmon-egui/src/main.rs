@@ -5,7 +5,7 @@ pub(crate) mod monitoring;
 use eframe::egui;
 
 pub use sysmon_core::app::models::*;
-pub use crate::monitoring::engine::*;
+pub(crate) use crate::monitoring::engine::*;
 use tracing::{error, info};
 use sysmon_core::{privilege, updater};
 use crate::monitoring::snapshot_convert::load_icon;
@@ -27,6 +27,7 @@ impl eframe::App for SystemMonitorApp {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sysmon_core::{app, services};
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn temp_path(name: &str) -> std::path::PathBuf {
@@ -301,6 +302,7 @@ fn main() {
 #[cfg(test)]
 mod persistence_tests {
     use super::*;
+    
 
     #[test]
     fn test_battery_info_default() {
@@ -312,6 +314,7 @@ mod persistence_tests {
 #[cfg(test)]
 mod ram_cleaner_tests {
     use super::*;
+    
 
     fn ex(names: &[&str]) -> Vec<String> {
         names.iter().map(|s| s.to_string()).collect()
@@ -354,3 +357,6 @@ mod ram_cleaner_tests {
         assert!(deserialized2.sidebar_collapsed);
     }
 }
+
+
+

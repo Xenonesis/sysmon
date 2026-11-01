@@ -6,13 +6,11 @@
 
 use std::path::PathBuf;
 
-#[cfg(test)]
 std::thread_local! {
     static TEST_DATA_LOCAL_DIR: std::cell::RefCell<Option<PathBuf>> = const { std::cell::RefCell::new(None) };
 }
 
 pub fn data_local_dir() -> Option<PathBuf> {
-    #[cfg(test)]
     if let Some(path) = TEST_DATA_LOCAL_DIR.with(|slot| slot.borrow().clone()) {
         return Some(path);
     }
@@ -21,7 +19,6 @@ pub fn data_local_dir() -> Option<PathBuf> {
 }
 
 pub fn config_dir() -> Option<PathBuf> {
-    #[cfg(test)]
     if let Some(path) = TEST_DATA_LOCAL_DIR.with(|slot| slot.borrow().clone()) {
         return Some(path.join("config"));
     }
@@ -63,7 +60,7 @@ pub fn action_log_path() -> Option<PathBuf> {
     data_local_dir().map(|path| path.join("action-audit.jsonl"))
 }
 
-#[cfg(test)]
+#[doc(hidden)]
 pub fn with_test_data_local_dir<T>(path: PathBuf, operation: impl FnOnce() -> T) -> T {
     struct Restore(Option<PathBuf>);
 
@@ -91,3 +88,5 @@ mod tests {
         });
     }
 }
+
+

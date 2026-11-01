@@ -957,7 +957,7 @@ fn paint_sidebar_nav_button(
             egui::Panel::bottom("sidebar_utilities")
                 .exact_size(if is_collapsed { 120.0 } else { 75.0 })
                 .show_separator_line(true)
-                .show_inside(ui, |ui| {
+                .show(ui, |ui| {
                     ui.add_space(8.0);
                     // Status / Last sample indicator
                     if !is_collapsed {

@@ -1,12 +1,8 @@
 use sysmon_core::app::models::*;
-use crate::monitoring;
 use parking_lot::{Mutex, RwLock};
 use std::sync::Arc;
 use std::time::Instant;
-use sysinfo::{Disks, Networks, System};
 
-#[cfg(target_os = "windows")]
-use nvml_wrapper::Nvml;
 
 pub(crate) struct SystemMonitorApp {
     pub(crate) data: Arc<RwLock<SystemData>>,
@@ -214,4 +210,4 @@ impl Drop for SystemMonitorApp {
     }
 }
 
-pub(crate) use crate::monitoring::snapshot_convert::{load_icon, load_tray_icon, snapshot_from_data};
+pub(crate) use crate::monitoring::snapshot_convert::{load_tray_icon, snapshot_from_data};

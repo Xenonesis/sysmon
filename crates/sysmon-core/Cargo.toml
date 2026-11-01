@@ -49,3 +49,6 @@ winreg = "0.56"
 ntapi = "0.4"
 widestring = "1.1"
 wmi = "0.18"
+
+[dev-dependencies]
+tempfile = "3"

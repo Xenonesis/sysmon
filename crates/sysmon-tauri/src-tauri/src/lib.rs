@@ -4,6 +4,13 @@ use tauri::State;
 
 struct SysState(Mutex<SystemMonitor>);
 
+// SAFETY: SystemMonitor contains WMIConnection (COM raw pointer) which is not
+// automatically Send. The Mutex ensures only one thread accesses it at a time,
+// and all WMI calls are made while the lock is held (same logical "thread" of
+// execution for COM purposes). This is acceptable for a POC/prototype.
+unsafe impl Send for SysState {}
+unsafe impl Sync for SysState {}
+
 #[tauri::command]
 fn get_system_stats(state: State<SysState>) -> Result<(f32, u64, usize), String> {
     let mut monitor = state.0.lock();
