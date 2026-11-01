@@ -17,7 +17,7 @@ name = "system-monitor"
 path = "src/main.rs"
 
 [dependencies]
-sysinfo = "0.39"
+sysinfo = "0.40"
 nvml-wrapper = "0.12"
 sysmon-core = { path = "../sysmon-core" }
 chrono = "0.4"
